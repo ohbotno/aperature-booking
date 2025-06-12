@@ -251,16 +251,28 @@ class BookingForm(forms.ModelForm):
         resource = cleaned_data.get('resource')
         
         if start_time and end_time:
+            # Make timezone-aware if needed
+            if timezone.is_naive(start_time):
+                start_time = timezone.make_aware(start_time)
+                cleaned_data['start_time'] = start_time
+            
+            if timezone.is_naive(end_time):
+                end_time = timezone.make_aware(end_time)
+                cleaned_data['end_time'] = end_time
+            
             if start_time >= end_time:
                 raise forms.ValidationError("End time must be after start time.")
             
-            if start_time < timezone.now():
+            # Allow booking up to 5 minutes in the past to account for form submission time
+            if start_time < timezone.now() - timedelta(minutes=5):
                 raise forms.ValidationError("Cannot book in the past.")
             
-            # Check booking window (9 AM - 6 PM)
-            if (start_time.hour < 9 or start_time.hour >= 18 or
-                end_time.hour < 9 or end_time.hour > 18):
-                raise forms.ValidationError("Bookings must be between 09:00 and 18:00.")
+            # Check booking window (9 AM - 6 PM) - more lenient check
+            if (start_time.hour < 9 or start_time.hour >= 18):
+                raise forms.ValidationError("Booking start time must be between 09:00 and 18:00.")
+                
+            if end_time.hour > 18 or (end_time.hour == 18 and end_time.minute > 0):
+                raise forms.ValidationError("Booking must end by 18:00.")
             
             # Check max booking hours if set
             if resource and resource.max_booking_hours:

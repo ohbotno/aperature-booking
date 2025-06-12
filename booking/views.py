@@ -461,14 +461,20 @@ def create_booking_view(request):
     if request.method == 'POST':
         form = BookingForm(request.POST, user=request.user)
         if form.is_valid():
-            booking = form.save(commit=False)
-            booking.user = request.user
-            booking.save()
-            
-            messages.success(request, f'Booking "{booking.title}" created successfully.')
-            return redirect('booking:booking_detail', pk=booking.pk)
+            try:
+                booking = form.save(commit=False)
+                booking.user = request.user
+                booking.save()
+                
+                messages.success(request, f'Booking "{booking.title}" created successfully.')
+                return redirect('booking:booking_detail', pk=booking.pk)
+            except Exception as e:
+                messages.error(request, f'Error creating booking: {str(e)}')
         else:
-            messages.error(request, 'Please correct the errors below.')
+            # Add more detailed error messages
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field}: {error}')
     else:
         form = BookingForm(user=request.user)
     
@@ -493,10 +499,33 @@ def booking_detail_view(request, pk):
             messages.error(request, 'You do not have permission to view this booking.')
             return redirect('booking:dashboard')
     
+    # Handle POST requests (e.g., cancellation)
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'cancel':
+            # Check if user can cancel this booking
+            if (booking.user == request.user or 
+                (hasattr(request.user, 'userprofile') and 
+                 request.user.userprofile.role in ['lab_manager', 'sysadmin'])):
+                
+                if booking.can_be_cancelled:
+                    booking.status = 'cancelled'
+                    booking.save()
+                    messages.success(request, f'Booking "{booking.title}" has been cancelled.')
+                    return redirect('booking:dashboard')
+                else:
+                    messages.error(request, 'This booking cannot be cancelled.')
+            else:
+                messages.error(request, 'You do not have permission to cancel this booking.')
+    
     # Get recurring series if applicable
     recurring_series = None
     if booking.is_recurring:
-        recurring_series = RecurringBookingManager.get_recurring_series(booking)
+        try:
+            recurring_series = RecurringBookingManager.get_recurring_series(booking)
+        except:
+            recurring_series = None
     
     return render(request, 'booking/booking_detail.html', {
         'booking': booking,

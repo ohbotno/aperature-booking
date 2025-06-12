@@ -247,22 +247,26 @@ class Booking(models.Model):
 
     def clean(self):
         """Validate booking constraints."""
-        if self.start_time >= self.end_time:
-            raise ValidationError("End time must be after start time.")
-        
-        if self.start_time < timezone.now():
-            raise ValidationError("Cannot book in the past.")
-        
-        # Check booking window (9 AM - 6 PM)
-        if (self.start_time.hour < 9 or self.start_time.hour >= 18 or
-            self.end_time.hour < 9 or self.end_time.hour > 18):
-            raise ValidationError("Bookings must be between 09:00 and 18:00.")
-        
-        # Check max booking hours if set
-        if self.resource.max_booking_hours:
-            duration_hours = (self.end_time - self.start_time).total_seconds() / 3600
-            if duration_hours > self.resource.max_booking_hours:
-                raise ValidationError(f"Booking exceeds maximum allowed hours ({self.resource.max_booking_hours}h).")
+        if self.start_time and self.end_time:
+            if self.start_time >= self.end_time:
+                raise ValidationError("End time must be after start time.")
+            
+            # Allow booking up to 5 minutes in the past to account for form submission time
+            if self.start_time < timezone.now() - timedelta(minutes=5):
+                raise ValidationError("Cannot book in the past.")
+            
+            # Check booking window (9 AM - 6 PM) - more lenient check
+            if self.start_time.hour < 9 or self.start_time.hour >= 18:
+                raise ValidationError("Booking start time must be between 09:00 and 18:00.")
+                
+            if self.end_time.hour > 18 or (self.end_time.hour == 18 and self.end_time.minute > 0):
+                raise ValidationError("Booking must end by 18:00.")
+            
+            # Check max booking hours if set
+            if self.resource and self.resource.max_booking_hours:
+                duration_hours = (self.end_time - self.start_time).total_seconds() / 3600
+                if duration_hours > self.resource.max_booking_hours:
+                    raise ValidationError(f"Booking exceeds maximum allowed hours ({self.resource.max_booking_hours}h).")
 
     def save(self, *args, **kwargs):
         self.full_clean()
