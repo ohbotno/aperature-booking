@@ -31,4 +31,6 @@ urlpatterns = [
     # Template views
     path('', views.calendar_view, name='calendar'),
     path('dashboard/', views.dashboard_view, name='dashboard'),
+    path('register/', views.register_view, name='register'),
+    path('profile/', views.profile_view, name='profile'),
 ]

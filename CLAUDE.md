@@ -57,7 +57,7 @@ flake8
 python manage.py collectstatic
 
 # Run with Gunicorn
-gunicorn lab_booking.wsgi:application
+gunicorn aperature_booking.wsgi:application
 ```
 
 ## Core Models & Architecture

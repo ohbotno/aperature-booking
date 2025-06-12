@@ -14,12 +14,15 @@ the Free Software Foundation, either version 3 of the License, or
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth import login
+from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
 from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance
+from .forms import UserRegistrationForm, UserProfileForm
 from .serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
     ApprovalRuleSerializer, MaintenanceSerializer
@@ -323,6 +326,45 @@ class MaintenanceViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # Template views
+def register_view(request):
+    """User registration view."""
+    if request.method == 'POST':
+        form = UserRegistrationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            messages.success(request, 'Registration successful! Welcome to the Lab Booking System.')
+            return redirect('dashboard')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = UserRegistrationForm()
+    
+    return render(request, 'registration/register.html', {'form': form})
+
+
+@login_required
+def profile_view(request):
+    """User profile management view."""
+    try:
+        profile = request.user.userprofile
+    except UserProfile.DoesNotExist:
+        profile = UserProfile.objects.create(user=request.user)
+    
+    if request.method == 'POST':
+        form = UserProfileForm(request.POST, instance=profile)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Profile updated successfully.')
+            return redirect('profile')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = UserProfileForm(instance=profile)
+    
+    return render(request, 'registration/profile.html', {'form': form, 'profile': profile})
+
+
 @login_required
 def calendar_view(request):
     """Main calendar view."""
