@@ -27,7 +27,7 @@
                 <h5 class="mb-0">Booking Information</h5>
             </div>
             <div class="card-body">
-                <form method="post" id="booking-form">
+                <form method="post" action="{% url 'booking:create_booking' %}" id="create-booking-form">
                     {% csrf_token %}
                     
                     {% if form.non_field_errors %}
@@ -183,9 +183,9 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const resourceSelect = document.querySelector('[name="resource"]');
-    const startTimeInput = document.querySelector('[name="start_time"]');
-    const endTimeInput = document.querySelector('[name="end_time"]');
+    const resourceSelect = document.querySelector('#create-booking-form [name="resource"]');
+    const startTimeInput = document.querySelector('#create-booking-form [name="start_time"]');
+    const endTimeInput = document.querySelector('#create-booking-form [name="end_time"]');
     const resourceInfo = document.getElementById('resource-info');
     const resourceDetails = document.getElementById('resource-details');
     
@@ -242,8 +242,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function setQuickTime(hours) {
-    const startTimeInput = document.querySelector('[name="start_time"]');
-    const endTimeInput = document.querySelector('[name="end_time"]');
+    const startTimeInput = document.querySelector('#create-booking-form [name="start_time"]');
+    const endTimeInput = document.querySelector('#create-booking-form [name="end_time"]');
     
     if (startTimeInput.value) {
         const startTime = new Date(startTimeInput.value);
