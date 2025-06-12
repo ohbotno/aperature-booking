@@ -35,4 +35,10 @@ urlpatterns = [
     path('profile/', views.profile_view, name='profile'),
     path('verify-email/<uuid:token>/', views.verify_email_view, name='verify_email'),
     path('resend-verification/', views.resend_verification_view, name='resend_verification'),
+    
+    # Password reset URLs
+    path('password-reset/', views.CustomPasswordResetView.as_view(), name='password_reset'),
+    path('password-reset-done/', views.password_reset_done_view, name='password_reset_done'),
+    path('reset-password/<uuid:token>/', views.password_reset_confirm_view, name='password_reset_confirm'),
+    path('password-reset-complete/', views.password_reset_complete_view, name='password_reset_complete'),
 ]

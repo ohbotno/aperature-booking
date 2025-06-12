@@ -17,12 +17,13 @@ from rest_framework.response import Response
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login
+from django.contrib.auth.views import PasswordResetView, PasswordResetConfirmView
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
-from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken
-from .forms import UserRegistrationForm, UserProfileForm
+from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken
+from .forms import UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm
 from .serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
     ApprovalRuleSerializer, MaintenanceSerializer
@@ -400,6 +401,56 @@ def resend_verification_view(request):
             messages.error(request, 'No unverified account found with this email address.')
     
     return render(request, 'registration/resend_verification.html')
+
+
+class CustomPasswordResetView(PasswordResetView):
+    """Custom password reset view using our token system."""
+    form_class = CustomPasswordResetForm
+    template_name = 'registration/password_reset_form.html'
+    success_url = '/password-reset-done/'
+    
+    def form_valid(self, form):
+        form.save(request=self.request)
+        return redirect(self.success_url)
+
+
+def password_reset_confirm_view(request, token):
+    """Custom password reset confirmation view."""
+    reset_token = get_object_or_404(PasswordResetToken, token=token)
+    
+    if reset_token.is_used:
+        messages.error(request, 'This password reset link has already been used.')
+        return render(request, 'registration/password_reset_confirm.html', {'validlink': False})
+    
+    if reset_token.is_expired():
+        messages.error(request, 'This password reset link has expired.')
+        return render(request, 'registration/password_reset_confirm.html', {'validlink': False})
+    
+    if request.method == 'POST':
+        form = CustomSetPasswordForm(reset_token.user, request.POST)
+        if form.is_valid():
+            form.save()
+            reset_token.is_used = True
+            reset_token.save()
+            messages.success(request, 'Your password has been set successfully.')
+            return redirect('password_reset_complete')
+    else:
+        form = CustomSetPasswordForm(reset_token.user)
+    
+    return render(request, 'registration/password_reset_confirm.html', {
+        'form': form,
+        'validlink': True,
+    })
+
+
+def password_reset_done_view(request):
+    """Password reset done view."""
+    return render(request, 'registration/password_reset_done.html')
+
+
+def password_reset_complete_view(request):
+    """Password reset complete view."""
+    return render(request, 'registration/password_reset_complete.html')
 
 
 @login_required

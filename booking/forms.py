@@ -1,11 +1,11 @@
 from django import forms
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import UserCreationForm, PasswordResetForm, SetPasswordForm
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.conf import settings
-from .models import UserProfile, EmailVerificationToken
+from .models import UserProfile, EmailVerificationToken, PasswordResetToken
 
 
 class UserRegistrationForm(UserCreationForm):
@@ -135,3 +135,75 @@ class UserProfileForm(forms.ModelForm):
             profile.user.save()
             profile.save()
         return profile
+
+
+class CustomPasswordResetForm(PasswordResetForm):
+    """Custom password reset form using our token system."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['email'].widget.attrs.update({'class': 'form-control'})
+    
+    def clean_email(self):
+        email = self.cleaned_data.get('email')
+        if not User.objects.filter(email=email, is_active=True).exists():
+            raise forms.ValidationError("No active account found with this email address.")
+        return email
+    
+    def save(self, request=None, **kwargs):
+        """Generate our custom reset token and send email."""
+        email = self.cleaned_data['email']
+        user = User.objects.get(email=email, is_active=True)
+        
+        # Clear any existing unused tokens
+        PasswordResetToken.objects.filter(user=user, is_used=False).delete()
+        
+        # Create new token
+        token = PasswordResetToken.objects.create(user=user)
+        
+        # Send reset email
+        self.send_reset_email(user, token, request)
+        
+        return email
+    
+    def send_reset_email(self, user, token, request=None):
+        """Send password reset email."""
+        subject = 'Reset your Lab Booking System password'
+        
+        # Get domain from request or settings
+        if request:
+            domain = request.get_host()
+        else:
+            domain = getattr(settings, 'SITE_DOMAIN', 'localhost:8000')
+        
+        # Render email template
+        html_message = render_to_string('registration/password_reset_email.html', {
+            'user': user,
+            'token': token.token,
+            'domain': domain,
+            'protocol': 'https' if getattr(settings, 'USE_HTTPS', False) else 'http',
+        })
+        plain_message = strip_tags(html_message)
+        
+        try:
+            send_mail(
+                subject,
+                plain_message,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                html_message=html_message,
+                fail_silently=False,
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger('booking')
+            logger.error(f"Failed to send password reset email to {user.email}: {e}")
+
+
+class CustomSetPasswordForm(SetPasswordForm):
+    """Custom set password form with styling."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['new_password1'].widget.attrs.update({'class': 'form-control'})
+        self.fields['new_password2'].widget.attrs.update({'class': 'form-control'})
