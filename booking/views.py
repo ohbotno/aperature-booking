@@ -14,14 +14,14 @@ the Free Software Foundation, either version 3 of the License, or
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import login
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
-from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance
+from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken
 from .forms import UserRegistrationForm, UserProfileForm
 from .serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
@@ -332,15 +332,74 @@ def register_view(request):
         form = UserRegistrationForm(request.POST)
         if form.is_valid():
             user = form.save()
-            login(request, user)
-            messages.success(request, 'Registration successful! Welcome to the Lab Booking System.')
-            return redirect('dashboard')
+            messages.success(
+                request, 
+                'Registration successful! Please check your email to verify your account before logging in.'
+            )
+            return redirect('login')
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
         form = UserRegistrationForm()
     
     return render(request, 'registration/register.html', {'form': form})
+
+
+def verify_email_view(request, token):
+    """Email verification view."""
+    verification_token = get_object_or_404(EmailVerificationToken, token=token)
+    
+    if verification_token.is_used:
+        messages.warning(request, 'This verification link has already been used.')
+        return redirect('login')
+    
+    if verification_token.is_expired():
+        messages.error(request, 'This verification link has expired. Please contact support.')
+        return redirect('login')
+    
+    # Activate user and mark email as verified
+    user = verification_token.user
+    user.is_active = True
+    user.save()
+    
+    profile = user.userprofile
+    profile.email_verified = True
+    profile.save()
+    
+    verification_token.is_used = True
+    verification_token.save()
+    
+    messages.success(request, 'Email verified successfully! You can now log in.')
+    return redirect('login')
+
+
+def resend_verification_view(request):
+    """Resend verification email view."""
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        try:
+            from django.contrib.auth.models import User
+            user = User.objects.get(email=email, is_active=False)
+            
+            # Check if there's an existing unused token
+            try:
+                token = EmailVerificationToken.objects.get(user=user, is_used=False)
+                if token.is_expired():
+                    token.delete()
+                    token = EmailVerificationToken.objects.create(user=user)
+            except EmailVerificationToken.DoesNotExist:
+                token = EmailVerificationToken.objects.create(user=user)
+            
+            # Send verification email
+            form = UserRegistrationForm()
+            form.send_verification_email(user, token)
+            
+            messages.success(request, 'Verification email has been resent. Please check your inbox.')
+            
+        except User.DoesNotExist:
+            messages.error(request, 'No unverified account found with this email address.')
+    
+    return render(request, 'registration/resend_verification.html')
 
 
 @login_required

@@ -1,7 +1,11 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
-from .models import UserProfile
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
+from django.conf import settings
+from .models import UserProfile, EmailVerificationToken
 
 
 class UserRegistrationForm(UserCreationForm):
@@ -44,18 +48,54 @@ class UserRegistrationForm(UserCreationForm):
         user.email = self.cleaned_data['email']
         user.first_name = self.cleaned_data['first_name']
         user.last_name = self.cleaned_data['last_name']
+        user.is_active = False  # Deactivate until email verification
         
         if commit:
             user.save()
-            UserProfile.objects.create(
+            profile = UserProfile.objects.create(
                 user=user,
                 role=self.cleaned_data['role'],
                 group=self.cleaned_data.get('group', ''),
                 college=self.cleaned_data.get('college', ''),
                 student_id=self.cleaned_data.get('student_id', ''),
-                phone=self.cleaned_data.get('phone', '')
+                phone=self.cleaned_data.get('phone', ''),
+                email_verified=False
             )
+            
+            # Create email verification token
+            token = EmailVerificationToken.objects.create(user=user)
+            
+            # Send verification email
+            self.send_verification_email(user, token)
+            
         return user
+    
+    def send_verification_email(self, user, token):
+        """Send email verification to the user."""
+        subject = 'Verify your Lab Booking System account'
+        
+        # Render email template
+        html_message = render_to_string('registration/verification_email.html', {
+            'user': user,
+            'token': token.token,
+            'domain': getattr(settings, 'SITE_DOMAIN', 'localhost:8000'),
+        })
+        plain_message = strip_tags(html_message)
+        
+        try:
+            send_mail(
+                subject,
+                plain_message,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email],
+                html_message=html_message,
+                fail_silently=False,
+            )
+        except Exception as e:
+            # Log error but don't prevent registration
+            import logging
+            logger = logging.getLogger('booking')
+            logger.error(f"Failed to send verification email to {user.email}: {e}")
 
 
 class UserProfileForm(forms.ModelForm):

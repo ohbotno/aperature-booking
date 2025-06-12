@@ -16,6 +16,25 @@ from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import timedelta
+import uuid
+
+
+class EmailVerificationToken(models.Model):
+    """Email verification tokens for user registration."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    token = models.UUIDField(default=uuid.uuid4, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_used = models.BooleanField(default=False)
+    
+    class Meta:
+        db_table = 'booking_emailverificationtoken'
+    
+    def is_expired(self):
+        """Check if token is expired (24 hours)."""
+        return timezone.now() > self.created_at + timedelta(hours=24)
+    
+    def __str__(self):
+        return f"Verification token for {self.user.username}"
 
 
 class UserProfile(models.Model):
@@ -36,6 +55,7 @@ class UserProfile(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     training_level = models.PositiveIntegerField(default=1)
     is_inducted = models.BooleanField(default=False)
+    email_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
