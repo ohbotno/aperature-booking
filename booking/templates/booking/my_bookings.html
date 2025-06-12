@@ -146,6 +146,18 @@
                                         <i class="bi bi-eye"></i>
                                     </a>
                                     
+                                    {% if booking.status in 'pending,approved' and booking.start_time > now %}
+                                        <a href="{% url 'booking:edit_booking' booking.pk %}" 
+                                           class="btn btn-outline-info" title="Edit">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    {% endif %}
+                                    
+                                    <a href="{% url 'booking:duplicate_booking' booking.pk %}" 
+                                       class="btn btn-outline-secondary" title="Duplicate">
+                                        <i class="bi bi-files"></i>
+                                    </a>
+                                    
                                     {% if booking.can_be_cancelled %}
                                         <button type="button" class="btn btn-outline-danger" 
                                                 onclick="singleAction('cancel', {{ booking.pk }})" title="Cancel">

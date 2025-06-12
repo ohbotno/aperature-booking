@@ -45,6 +45,9 @@ urlpatterns = [
     # Booking URLs
     path('booking/create/', views.create_booking_view, name='create_booking'),
     path('booking/<int:pk>/', views.booking_detail_view, name='booking_detail'),
+    path('booking/<int:pk>/edit/', views.edit_booking_view, name='edit_booking'),
+    path('booking/<int:pk>/cancel/', views.cancel_booking_view, name='cancel_booking'),
+    path('booking/<int:pk>/duplicate/', views.duplicate_booking_view, name='duplicate_booking'),
     path('booking/<int:booking_pk>/recurring/', views.create_recurring_booking_view, name='create_recurring'),
     path('booking/<int:booking_pk>/cancel-series/', views.cancel_recurring_series_view, name='cancel_recurring'),
     

@@ -1263,3 +1263,190 @@ def my_bookings_view(request):
     }
     
     return render(request, 'booking/my_bookings.html', context)
+
+
+@login_required
+def edit_booking_view(request, pk):
+    """Edit an existing booking."""
+    booking = get_object_or_404(Booking, pk=pk)
+    
+    # Check permissions
+    try:
+        user_profile = request.user.userprofile
+        can_edit = (booking.user == request.user or 
+                   user_profile.role in ['lab_manager', 'sysadmin'])
+    except UserProfile.DoesNotExist:
+        can_edit = booking.user == request.user
+    
+    if not can_edit:
+        messages.error(request, 'You do not have permission to edit this booking.')
+        return redirect('booking:booking_detail', pk=pk)
+    
+    # Check if booking can be edited
+    if booking.status not in ['pending', 'approved']:
+        messages.error(request, 'Only pending or approved bookings can be edited.')
+        return redirect('booking:booking_detail', pk=pk)
+    
+    # Don't allow editing past bookings
+    if booking.start_time < timezone.now():
+        messages.error(request, 'Cannot edit bookings that have already started.')
+        return redirect('booking:booking_detail', pk=pk)
+    
+    if request.method == 'POST':
+        form = BookingForm(request.POST, instance=booking, user=request.user)
+        if form.is_valid():
+            try:
+                updated_booking = form.save(commit=False)
+                
+                # If the booking was approved and user made changes, set it back to pending
+                if (booking.status == 'approved' and 
+                    booking.user == request.user and 
+                    user_profile.role not in ['lab_manager', 'sysadmin']):
+                    
+                    # Check if any important fields changed
+                    important_changes = (
+                        updated_booking.resource != booking.resource or
+                        updated_booking.start_time != booking.start_time or
+                        updated_booking.end_time != booking.end_time
+                    )
+                    
+                    if important_changes:
+                        updated_booking.status = 'pending'
+                        updated_booking.approved_by = None
+                        updated_booking.approved_at = None
+                        messages.info(request, 'Booking updated and set to pending approval due to time/resource changes.')
+                    else:
+                        messages.success(request, 'Booking updated successfully.')
+                else:
+                    messages.success(request, 'Booking updated successfully.')
+                
+                updated_booking.save()
+                return redirect('booking:booking_detail', pk=updated_booking.pk)
+                
+            except Exception as e:
+                messages.error(request, f'Error updating booking: {str(e)}')
+        else:
+            # Add detailed error messages
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field}: {error}')
+    else:
+        form = BookingForm(instance=booking, user=request.user)
+    
+    return render(request, 'booking/edit_booking.html', {
+        'form': form,
+        'booking': booking,
+    })
+
+
+@login_required
+def cancel_booking_view(request, pk):
+    """Cancel a booking with confirmation."""
+    booking = get_object_or_404(Booking, pk=pk)
+    
+    # Check permissions
+    try:
+        user_profile = request.user.userprofile
+        can_cancel = (booking.user == request.user or 
+                     user_profile.role in ['lab_manager', 'sysadmin'])
+    except UserProfile.DoesNotExist:
+        can_cancel = booking.user == request.user
+    
+    if not can_cancel:
+        messages.error(request, 'You do not have permission to cancel this booking.')
+        return redirect('booking:booking_detail', pk=pk)
+    
+    if not booking.can_be_cancelled:
+        messages.error(request, 'This booking cannot be cancelled.')
+        return redirect('booking:booking_detail', pk=pk)
+    
+    if request.method == 'POST':
+        confirm = request.POST.get('confirm')
+        if confirm == 'yes':
+            booking.status = 'cancelled'
+            booking.save()
+            messages.success(request, f'Booking "{booking.title}" has been cancelled.')
+            
+            # Redirect based on user role
+            if hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['lab_manager', 'sysadmin']:
+                return redirect('booking:manage_bookings')
+            else:
+                return redirect('booking:my_bookings')
+        else:
+            return redirect('booking:booking_detail', pk=pk)
+    
+    return render(request, 'booking/cancel_booking.html', {
+        'booking': booking,
+    })
+
+
+@login_required
+def duplicate_booking_view(request, pk):
+    """Create a new booking based on an existing one."""
+    original_booking = get_object_or_404(Booking, pk=pk)
+    
+    # Check if user has access to view the original booking
+    try:
+        user_profile = request.user.userprofile
+        can_access = (
+            original_booking.user == request.user or 
+            user_profile.role in ['lab_manager', 'sysadmin'] or
+            (original_booking.shared_with_group and 
+             user_profile.group == original_booking.user.userprofile.group)
+        )
+    except UserProfile.DoesNotExist:
+        can_access = original_booking.user == request.user
+    
+    if not can_access:
+        messages.error(request, 'You do not have permission to duplicate this booking.')
+        return redirect('booking:dashboard')
+    
+    if request.method == 'POST':
+        form = BookingForm(request.POST, user=request.user)
+        if form.is_valid():
+            try:
+                new_booking = form.save(commit=False)
+                new_booking.user = request.user
+                new_booking.status = 'pending'
+                new_booking.save()
+                
+                messages.success(request, f'Booking "{new_booking.title}" created successfully.')
+                return redirect('booking:booking_detail', pk=new_booking.pk)
+            except Exception as e:
+                messages.error(request, f'Error creating booking: {str(e)}')
+        else:
+            # Add detailed error messages
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field}: {error}')
+    else:
+        # Pre-populate form with original booking data, but adjust times
+        initial_data = {
+            'resource': original_booking.resource,
+            'title': f"Copy of {original_booking.title}",
+            'description': original_booking.description,
+            'shared_with_group': original_booking.shared_with_group,
+            'notes': original_booking.notes,
+        }
+        
+        # Set start time to tomorrow at the same time
+        tomorrow = timezone.now() + timedelta(days=1)
+        duration = original_booking.end_time - original_booking.start_time
+        
+        start_time = tomorrow.replace(
+            hour=original_booking.start_time.hour,
+            minute=original_booking.start_time.minute,
+            second=0,
+            microsecond=0
+        )
+        end_time = start_time + duration
+        
+        initial_data['start_time'] = start_time
+        initial_data['end_time'] = end_time
+        
+        form = BookingForm(initial=initial_data, user=request.user)
+    
+    return render(request, 'booking/duplicate_booking.html', {
+        'form': form,
+        'original_booking': original_booking,
+    })

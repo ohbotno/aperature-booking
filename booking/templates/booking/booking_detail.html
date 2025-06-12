@@ -163,33 +163,53 @@
             </div>
             <div class="card-body">
                 {% if booking.user == request.user or request.user.userprofile.role in 'lab_manager,sysadmin' %}
-                    {% if booking.can_be_cancelled %}
-                        <div class="d-grid gap-2">
-                            <button type="button" class="btn btn-outline-danger" onclick="cancelBooking()">
+                    <div class="d-grid gap-2">
+                        <!-- Edit Button -->
+                        {% if booking.status in 'pending,approved' and booking.start_time > now %}
+                            <a href="{% url 'booking:edit_booking' booking.pk %}" class="btn btn-outline-primary">
+                                <i class="bi bi-pencil"></i> Edit Booking
+                            </a>
+                        {% endif %}
+                        
+                        <!-- Cancel Button -->
+                        {% if booking.can_be_cancelled %}
+                            <a href="{% url 'booking:cancel_booking' booking.pk %}" class="btn btn-outline-danger">
                                 <i class="bi bi-x-circle"></i> Cancel Booking
-                            </button>
+                            </a>
                             
                             {% if booking.is_recurring %}
                                 <a href="{% url 'booking:cancel_recurring' booking.pk %}" class="btn btn-outline-warning">
                                     <i class="bi bi-arrow-repeat"></i> Cancel Series
                                 </a>
                             {% endif %}
-                        </div>
-                    {% endif %}
-                    
-                    {% if booking.user == request.user %}
-                        <div class="d-grid gap-2 mt-2">
+                        {% endif %}
+                        
+                        <!-- Duplicate Button -->
+                        <a href="{% url 'booking:duplicate_booking' booking.pk %}" class="btn btn-outline-info">
+                            <i class="bi bi-files"></i> Duplicate Booking
+                        </a>
+                        
+                        {% if booking.user == request.user %}
+                            <!-- Save as Template -->
                             <a href="{% url 'booking:save_as_template' booking.pk %}" class="btn btn-outline-success">
                                 <i class="bi bi-file-earmark-plus"></i> Save as Template
                             </a>
                             
+                            <!-- Make Recurring -->
                             {% if not booking.is_recurring and booking.status == 'approved' %}
-                                <a href="{% url 'booking:create_recurring' booking.pk %}" class="btn btn-outline-info">
+                                <a href="{% url 'booking:create_recurring' booking.pk %}" class="btn btn-outline-secondary">
                                     <i class="bi bi-arrow-repeat"></i> Make Recurring
                                 </a>
                             {% endif %}
-                        </div>
-                    {% endif %}
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <!-- For non-owners, only show duplicate -->
+                    <div class="d-grid gap-2">
+                        <a href="{% url 'booking:duplicate_booking' booking.pk %}" class="btn btn-outline-info">
+                            <i class="bi bi-files"></i> Duplicate Booking
+                        </a>
+                    </div>
                 {% endif %}
                 
                 <div class="d-grid gap-2 mt-3">
@@ -240,36 +260,4 @@
     </div>
 </div>
 
-<!-- Cancel Booking Modal -->
-<div class="modal fade" id="cancelModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Cancel Booking</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p>Are you sure you want to cancel this booking?</p>
-                <div class="alert alert-warning">
-                    <i class="bi bi-exclamation-triangle"></i> This action cannot be undone.
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Keep Booking</button>
-                <form method="post" style="display: inline;">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="cancel">
-                    <button type="submit" class="btn btn-danger">Cancel Booking</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-function cancelBooking() {
-    const modal = new bootstrap.Modal(document.getElementById('cancelModal'));
-    modal.show();
-}
-</script>
 {% endblock %}
