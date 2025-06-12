@@ -134,6 +134,76 @@ class Resource(models.Model):
         return True
 
 
+class BookingTemplate(models.Model):
+    """Templates for frequently used booking configurations."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='booking_templates')
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE)
+    title_template = models.CharField(max_length=200)
+    description_template = models.TextField(blank=True)
+    duration_hours = models.PositiveIntegerField(default=1)
+    duration_minutes = models.PositiveIntegerField(default=0)
+    preferred_start_time = models.TimeField(null=True, blank=True)
+    shared_with_group = models.BooleanField(default=False)
+    notes_template = models.TextField(blank=True)
+    is_public = models.BooleanField(default=False)  # Visible to other users
+    use_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'booking_bookingtemplate'
+        ordering = ['-use_count', 'name']
+        unique_together = ('user', 'name')
+
+    def __str__(self):
+        return f"{self.name} - {self.resource.name}"
+
+    @property
+    def duration(self):
+        """Return total duration as timedelta."""
+        return timedelta(hours=self.duration_hours, minutes=self.duration_minutes)
+
+    def create_booking_from_template(self, start_time, user=None):
+        """Create a new booking from this template."""
+        booking_user = user or self.user
+        end_time = start_time + self.duration
+        
+        booking = Booking(
+            resource=self.resource,
+            user=booking_user,
+            title=self.title_template,
+            description=self.description_template,
+            start_time=start_time,
+            end_time=end_time,
+            shared_with_group=self.shared_with_group,
+            notes=self.notes_template,
+        )
+        
+        # Increment use count
+        self.use_count += 1
+        self.save(update_fields=['use_count'])
+        
+        return booking
+
+    def is_accessible_by_user(self, user):
+        """Check if user can access this template."""
+        if self.user == user:
+            return True
+        if self.is_public:
+            return True
+        # Check if same group
+        try:
+            user_profile = user.userprofile
+            template_user_profile = self.user.userprofile
+            if (user_profile.group and user_profile.group == template_user_profile.group):
+                return True
+        except:
+            pass
+        return False
+
+
 class Booking(models.Model):
     """Individual booking records."""
     STATUS_CHOICES = [
@@ -156,6 +226,7 @@ class Booking(models.Model):
     shared_with_group = models.BooleanField(default=False)
     attendees = models.ManyToManyField(User, through='BookingAttendee', related_name='attending_bookings')
     notes = models.TextField(blank=True)
+    template_used = models.ForeignKey(BookingTemplate, on_delete=models.SET_NULL, null=True, blank=True, related_name='bookings_created')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_bookings')
@@ -217,6 +288,24 @@ class Booking(models.Model):
         ).exclude(pk=self.pk)
         
         return conflicts.exists()
+
+    def save_as_template(self, template_name, template_description="", is_public=False):
+        """Save this booking as a template for future use."""
+        template = BookingTemplate.objects.create(
+            user=self.user,
+            name=template_name,
+            description=template_description,
+            resource=self.resource,
+            title_template=self.title,
+            description_template=self.description,
+            duration_hours=self.duration.seconds // 3600,
+            duration_minutes=(self.duration.seconds % 3600) // 60,
+            preferred_start_time=self.start_time.time(),
+            shared_with_group=self.shared_with_group,
+            notes_template=self.notes,
+            is_public=is_public,
+        )
+        return template
 
 
 class BookingAttendee(models.Model):

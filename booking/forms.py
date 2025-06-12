@@ -7,7 +7,7 @@ from django.utils.html import strip_tags
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
-from .models import UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource
+from .models import UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate
 from .recurring import RecurringBookingPattern
 
 
@@ -375,3 +375,142 @@ class RecurringBookingForm(forms.Form):
             until=until_datetime,
             by_weekday=weekdays
         )
+
+
+class BookingTemplateForm(forms.ModelForm):
+    """Form for creating and editing booking templates."""
+    
+    class Meta:
+        model = BookingTemplate
+        fields = ['name', 'description', 'resource', 'title_template', 'description_template', 
+                 'duration_hours', 'duration_minutes', 'preferred_start_time', 
+                 'shared_with_group', 'notes_template', 'is_public']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+            'resource': forms.Select(attrs={'class': 'form-control'}),
+            'title_template': forms.TextInput(attrs={'class': 'form-control'}),
+            'description_template': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'duration_hours': forms.NumberInput(attrs={'class': 'form-control', 'min': 1, 'max': 8}),
+            'duration_minutes': forms.NumberInput(attrs={'class': 'form-control', 'min': 0, 'max': 59, 'step': 15}),
+            'preferred_start_time': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
+            'shared_with_group': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'notes_template': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+            'is_public': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+    
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        
+        if self.user:
+            # Filter resources based on user permissions
+            try:
+                user_profile = self.user.userprofile
+                available_resources = []
+                for resource in Resource.objects.filter(is_active=True):
+                    if resource.is_available_for_user(user_profile):
+                        available_resources.append(resource.pk)
+                self.fields['resource'].queryset = Resource.objects.filter(pk__in=available_resources)
+            except:
+                self.fields['resource'].queryset = Resource.objects.filter(is_active=True)
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        duration_hours = cleaned_data.get('duration_hours', 0)
+        duration_minutes = cleaned_data.get('duration_minutes', 0)
+        
+        if duration_hours == 0 and duration_minutes == 0:
+            raise forms.ValidationError("Duration must be at least 1 minute.")
+        
+        # Check max duration
+        total_minutes = (duration_hours * 60) + duration_minutes
+        if total_minutes > 480:  # 8 hours
+            raise forms.ValidationError("Duration cannot exceed 8 hours.")
+        
+        return cleaned_data
+
+
+class CreateBookingFromTemplateForm(forms.Form):
+    """Form for creating a booking from a template."""
+    template = forms.ModelChoiceField(
+        queryset=BookingTemplate.objects.none(),
+        widget=forms.Select(attrs={'class': 'form-control'}),
+        help_text="Select a template to use for this booking"
+    )
+    
+    start_date = forms.DateField(
+        widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+        help_text="Date for the booking"
+    )
+    
+    start_time = forms.TimeField(
+        required=False,
+        widget=forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
+        help_text="Start time (leave blank to use template's preferred time)"
+    )
+    
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        
+        if self.user:
+            # Show templates accessible to the user
+            accessible_templates = []
+            for template in BookingTemplate.objects.all():
+                if template.is_accessible_by_user(self.user):
+                    accessible_templates.append(template.pk)
+            
+            self.fields['template'].queryset = BookingTemplate.objects.filter(
+                pk__in=accessible_templates
+            ).order_by('-use_count', 'name')
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        start_date = cleaned_data.get('start_date')
+        start_time = cleaned_data.get('start_time')
+        template = cleaned_data.get('template')
+        
+        if start_date and start_date <= timezone.now().date():
+            raise forms.ValidationError("Booking date must be in the future.")
+        
+        # Use template's preferred time if none provided
+        if not start_time and template and template.preferred_start_time:
+            cleaned_data['start_time'] = template.preferred_start_time
+        elif not start_time:
+            raise forms.ValidationError("Start time is required when template has no preferred time.")
+        
+        return cleaned_data
+    
+    def create_booking(self):
+        """Create booking from template and form data."""
+        template = self.cleaned_data['template']
+        start_date = self.cleaned_data['start_date']
+        start_time = self.cleaned_data['start_time']
+        
+        start_datetime = timezone.make_aware(
+            datetime.combine(start_date, start_time)
+        )
+        
+        return template.create_booking_from_template(start_datetime, self.user)
+
+
+class SaveAsTemplateForm(forms.Form):
+    """Form for saving a booking as a template."""
+    name = forms.CharField(
+        max_length=200,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+        help_text="Name for this template"
+    )
+    
+    description = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+        help_text="Optional description for this template"
+    )
+    
+    is_public = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        help_text="Make this template available to other users"
+    )

@@ -52,4 +52,12 @@ urlpatterns = [
     path('conflicts/', views.conflict_detection_view, name='conflicts'),
     path('conflicts/resolve/<str:conflict_type>/<int:id1>/<int:id2>/', views.resolve_conflict_view, name='resolve_conflict'),
     path('conflicts/bulk-resolve/', views.bulk_resolve_conflicts_view, name='bulk_resolve_conflicts'),
+    
+    # Template management URLs
+    path('templates/', views.template_list_view, name='templates'),
+    path('templates/create/', views.template_create_view, name='template_create'),
+    path('templates/<int:pk>/edit/', views.template_edit_view, name='template_edit'),
+    path('templates/<int:pk>/delete/', views.template_delete_view, name='template_delete'),
+    path('templates/create-booking/', views.create_booking_from_template_view, name='create_from_template'),
+    path('booking/<int:booking_pk>/save-template/', views.save_booking_as_template_view, name='save_as_template'),
 ]
