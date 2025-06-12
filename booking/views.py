@@ -23,7 +23,8 @@ from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
 from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken
-from .forms import UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm
+from .forms import UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, BookingForm, RecurringBookingForm
+from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
     ApprovalRuleSerializer, MaintenanceSerializer
@@ -451,6 +452,157 @@ def password_reset_done_view(request):
 def password_reset_complete_view(request):
     """Password reset complete view."""
     return render(request, 'registration/password_reset_complete.html')
+
+
+@login_required
+def create_booking_view(request):
+    """Create a new booking."""
+    if request.method == 'POST':
+        form = BookingForm(request.POST, user=request.user)
+        if form.is_valid():
+            booking = form.save(commit=False)
+            booking.user = request.user
+            booking.save()
+            
+            messages.success(request, f'Booking "{booking.title}" created successfully.')
+            return redirect('booking:booking_detail', pk=booking.pk)
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = BookingForm(user=request.user)
+    
+    return render(request, 'booking/create_booking.html', {'form': form})
+
+
+@login_required
+def booking_detail_view(request, pk):
+    """View booking details."""
+    booking = get_object_or_404(Booking, pk=pk)
+    
+    # Check permissions
+    try:
+        user_profile = request.user.userprofile
+        if (booking.user != request.user and 
+            user_profile.role not in ['lab_manager', 'sysadmin'] and
+            not booking.shared_with_group):
+            messages.error(request, 'You do not have permission to view this booking.')
+            return redirect('booking:dashboard')
+    except UserProfile.DoesNotExist:
+        if booking.user != request.user:
+            messages.error(request, 'You do not have permission to view this booking.')
+            return redirect('booking:dashboard')
+    
+    # Get recurring series if applicable
+    recurring_series = None
+    if booking.is_recurring:
+        recurring_series = RecurringBookingManager.get_recurring_series(booking)
+    
+    return render(request, 'booking/booking_detail.html', {
+        'booking': booking,
+        'recurring_series': recurring_series,
+    })
+
+
+@login_required
+def create_recurring_booking_view(request, booking_pk):
+    """Create recurring bookings based on an existing booking."""
+    base_booking = get_object_or_404(Booking, pk=booking_pk, user=request.user)
+    
+    # Check if user can create recurring bookings
+    try:
+        user_profile = request.user.userprofile
+        if not user_profile.can_create_recurring:
+            messages.error(request, 'You do not have permission to create recurring bookings.')
+            return redirect('booking:booking_detail', pk=booking_pk)
+    except UserProfile.DoesNotExist:
+        messages.error(request, 'You do not have permission to create recurring bookings.')
+        return redirect('booking:booking_detail', pk=booking_pk)
+    
+    if request.method == 'POST':
+        form = RecurringBookingForm(request.POST)
+        if form.is_valid():
+            try:
+                pattern = form.create_pattern()
+                generator = RecurringBookingGenerator(base_booking, pattern)
+                
+                skip_conflicts = form.cleaned_data.get('skip_conflicts', True)
+                result = generator.create_recurring_bookings(skip_conflicts=skip_conflicts)
+                
+                # Update the base booking to mark it as recurring
+                base_booking.is_recurring = True
+                base_booking.recurring_pattern = pattern.to_dict()
+                base_booking.save()
+                
+                success_msg = f"Created {result['total_created']} recurring bookings."
+                if result['skipped_dates']:
+                    success_msg += f" Skipped {len(result['skipped_dates'])} dates due to conflicts."
+                
+                messages.success(request, success_msg)
+                return redirect('booking:booking_detail', pk=booking_pk)
+                
+            except Exception as e:
+                messages.error(request, f'Error creating recurring bookings: {str(e)}')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = RecurringBookingForm()
+    
+    return render(request, 'booking/create_recurring.html', {
+        'form': form,
+        'base_booking': base_booking,
+    })
+
+
+@login_required
+def cancel_recurring_series_view(request, booking_pk):
+    """Cancel an entire recurring series."""
+    booking = get_object_or_404(Booking, pk=booking_pk)
+    
+    # Check permissions
+    try:
+        user_profile = request.user.userprofile
+        if (booking.user != request.user and 
+            user_profile.role not in ['lab_manager', 'sysadmin']):
+            messages.error(request, 'You do not have permission to cancel this booking series.')
+            return redirect('booking:booking_detail', pk=booking_pk)
+    except UserProfile.DoesNotExist:
+        if booking.user != request.user:
+            messages.error(request, 'You do not have permission to cancel this booking series.')
+            return redirect('booking:booking_detail', pk=booking_pk)
+    
+    if not booking.is_recurring:
+        messages.error(request, 'This is not a recurring booking.')
+        return redirect('booking:booking_detail', pk=booking_pk)
+    
+    if request.method == 'POST':
+        cancel_future_only = request.POST.get('cancel_future_only') == 'on'
+        
+        try:
+            cancelled_count = RecurringBookingManager.cancel_recurring_series(
+                booking, cancel_future_only=cancel_future_only
+            )
+            
+            if cancel_future_only:
+                messages.success(request, f'Cancelled {cancelled_count} future bookings in the series.')
+            else:
+                messages.success(request, f'Cancelled {cancelled_count} bookings in the entire series.')
+                
+            return redirect('booking:dashboard')
+            
+        except Exception as e:
+            messages.error(request, f'Error cancelling recurring series: {str(e)}')
+    
+    # Get series info for confirmation
+    series = RecurringBookingManager.get_recurring_series(booking)
+    future_count = sum(1 for b in series if b.start_time > timezone.now() and b.can_be_cancelled)
+    total_count = sum(1 for b in series if b.can_be_cancelled)
+    
+    return render(request, 'booking/cancel_recurring.html', {
+        'booking': booking,
+        'series': series,
+        'future_count': future_count,
+        'total_count': total_count,
+    })
 
 
 @login_required

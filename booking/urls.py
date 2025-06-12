@@ -41,4 +41,10 @@ urlpatterns = [
     path('password-reset-done/', views.password_reset_done_view, name='password_reset_done'),
     path('reset-password/<uuid:token>/', views.password_reset_confirm_view, name='password_reset_confirm'),
     path('password-reset-complete/', views.password_reset_complete_view, name='password_reset_complete'),
+    
+    # Booking URLs
+    path('booking/create/', views.create_booking_view, name='create_booking'),
+    path('booking/<int:pk>/', views.booking_detail_view, name='booking_detail'),
+    path('booking/<int:booking_pk>/recurring/', views.create_recurring_booking_view, name='create_recurring'),
+    path('booking/<int:booking_pk>/cancel-series/', views.cancel_recurring_series_view, name='cancel_recurring'),
 ]

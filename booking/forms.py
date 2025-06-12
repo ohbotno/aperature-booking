@@ -5,7 +5,10 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.conf import settings
-from .models import UserProfile, EmailVerificationToken, PasswordResetToken
+from django.utils import timezone
+from datetime import datetime, timedelta
+from .models import UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource
+from .recurring import RecurringBookingPattern
 
 
 class UserRegistrationForm(UserCreationForm):
@@ -207,3 +210,168 @@ class CustomSetPasswordForm(SetPasswordForm):
         super().__init__(*args, **kwargs)
         self.fields['new_password1'].widget.attrs.update({'class': 'form-control'})
         self.fields['new_password2'].widget.attrs.update({'class': 'form-control'})
+
+
+class BookingForm(forms.ModelForm):
+    """Form for creating and editing bookings."""
+    
+    class Meta:
+        model = Booking
+        fields = ['resource', 'title', 'description', 'start_time', 'end_time', 'shared_with_group', 'notes']
+        widgets = {
+            'resource': forms.Select(attrs={'class': 'form-control'}),
+            'title': forms.TextInput(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'start_time': forms.DateTimeInput(attrs={'class': 'form-control', 'type': 'datetime-local'}),
+            'end_time': forms.DateTimeInput(attrs={'class': 'form-control', 'type': 'datetime-local'}),
+            'shared_with_group': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+        }
+    
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        
+        if self.user:
+            # Filter resources based on user permissions
+            try:
+                user_profile = self.user.userprofile
+                available_resources = []
+                for resource in Resource.objects.filter(is_active=True):
+                    if resource.is_available_for_user(user_profile):
+                        available_resources.append(resource.pk)
+                self.fields['resource'].queryset = Resource.objects.filter(pk__in=available_resources)
+            except:
+                self.fields['resource'].queryset = Resource.objects.filter(is_active=True)
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        start_time = cleaned_data.get('start_time')
+        end_time = cleaned_data.get('end_time')
+        resource = cleaned_data.get('resource')
+        
+        if start_time and end_time:
+            if start_time >= end_time:
+                raise forms.ValidationError("End time must be after start time.")
+            
+            if start_time < timezone.now():
+                raise forms.ValidationError("Cannot book in the past.")
+            
+            # Check booking window (9 AM - 6 PM)
+            if (start_time.hour < 9 or start_time.hour >= 18 or
+                end_time.hour < 9 or end_time.hour > 18):
+                raise forms.ValidationError("Bookings must be between 09:00 and 18:00.")
+            
+            # Check max booking hours if set
+            if resource and resource.max_booking_hours:
+                duration_hours = (end_time - start_time).total_seconds() / 3600
+                if duration_hours > resource.max_booking_hours:
+                    raise forms.ValidationError(
+                        f"Booking exceeds maximum allowed hours ({resource.max_booking_hours}h)."
+                    )
+        
+        return cleaned_data
+
+
+class RecurringBookingForm(forms.Form):
+    """Form for creating recurring bookings."""
+    
+    FREQUENCY_CHOICES = [
+        ('daily', 'Daily'),
+        ('weekly', 'Weekly'),
+        ('monthly', 'Monthly'),
+    ]
+    
+    WEEKDAY_CHOICES = [
+        (0, 'Monday'),
+        (1, 'Tuesday'),
+        (2, 'Wednesday'),
+        (3, 'Thursday'),
+        (4, 'Friday'),
+        (5, 'Saturday'),
+        (6, 'Sunday'),
+    ]
+    
+    frequency = forms.ChoiceField(
+        choices=FREQUENCY_CHOICES,
+        widget=forms.Select(attrs={'class': 'form-control'}),
+        help_text="How often to repeat the booking"
+    )
+    
+    interval = forms.IntegerField(
+        min_value=1,
+        initial=1,
+        widget=forms.NumberInput(attrs={'class': 'form-control'}),
+        help_text="Repeat every X periods (e.g., every 2 weeks)"
+    )
+    
+    count = forms.IntegerField(
+        min_value=1,
+        max_value=52,
+        required=False,
+        widget=forms.NumberInput(attrs={'class': 'form-control'}),
+        help_text="Number of occurrences (leave blank to use end date)"
+    )
+    
+    until = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+        help_text="End date for recurrence (leave blank to use count)"
+    )
+    
+    weekdays = forms.MultipleChoiceField(
+        choices=WEEKDAY_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'form-check-input'}),
+        help_text="Days of the week (for weekly recurrence)"
+    )
+    
+    skip_conflicts = forms.BooleanField(
+        initial=True,
+        required=False,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        help_text="Skip dates that have conflicts with existing bookings"
+    )
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        frequency = cleaned_data.get('frequency')
+        count = cleaned_data.get('count')
+        until = cleaned_data.get('until')
+        weekdays = cleaned_data.get('weekdays')
+        
+        if not count and not until:
+            raise forms.ValidationError("Either specify a count or an end date.")
+        
+        if count and until:
+            raise forms.ValidationError("Cannot specify both count and end date.")
+        
+        if frequency == 'weekly' and not weekdays:
+            raise forms.ValidationError("Weekly recurrence requires selecting weekdays.")
+        
+        if until and until <= timezone.now().date():
+            raise forms.ValidationError("End date must be in the future.")
+        
+        return cleaned_data
+    
+    def create_pattern(self):
+        """Create RecurringBookingPattern from form data."""
+        cleaned_data = self.cleaned_data
+        
+        until_datetime = None
+        if cleaned_data.get('until'):
+            until_datetime = timezone.make_aware(
+                datetime.combine(cleaned_data['until'], datetime.min.time())
+            )
+        
+        weekdays = None
+        if cleaned_data.get('weekdays'):
+            weekdays = [int(day) for day in cleaned_data['weekdays']]
+        
+        return RecurringBookingPattern(
+            frequency=cleaned_data['frequency'],
+            interval=cleaned_data['interval'],
+            count=cleaned_data.get('count'),
+            until=until_datetime,
+            by_weekday=weekdays
+        )
