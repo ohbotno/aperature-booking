@@ -1,6 +1,6 @@
-# lab_booking/settings.py
+# aperature_booking/settings.py
 """
-Django settings for lab_booking project.
+Django settings for aperature_booking project.
 
 This file is part of the Lab Booking System.
 Copyright (C) 2025 Lab Booking System Contributors
@@ -45,7 +45,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'lab_booking.urls'
+ROOT_URLCONF = 'aperature_booking.urls'
 
 TEMPLATES = [
     {
@@ -63,7 +63,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'lab_booking.wsgi.application'
+WSGI_APPLICATION = 'aperature_booking.wsgi.application'
 
 # Database configuration with environment-based switching
 DB_ENGINE = os.environ.get('DB_ENGINE', 'sqlite')
@@ -72,7 +72,7 @@ if DB_ENGINE == 'mysql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.environ.get('DB_NAME', 'lab_booking'),
+            'NAME': os.environ.get('DB_NAME', 'aperature_booking'),
             'USER': os.environ.get('DB_USER', 'root'),
             'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST': os.environ.get('DB_HOST', 'localhost'),
@@ -87,7 +87,7 @@ elif DB_ENGINE == 'postgresql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('DB_NAME', 'lab_booking'),
+            'NAME': os.environ.get('DB_NAME', 'aperature_booking'),
             'USER': os.environ.get('DB_USER', 'postgres'),
             'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST': os.environ.get('DB_HOST', 'localhost'),
@@ -182,7 +182,7 @@ LOGGING = {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': 'lab_booking.log',
+            'filename': 'aperature_booking.log',
         },
         'console': {
             'level': 'DEBUG',

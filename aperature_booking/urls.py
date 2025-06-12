@@ -1,6 +1,6 @@
-# lab_booking/urls.py
+# aperature_booking/urls.py
 """
-URL configuration for lab_booking project.
+URL configuration for aperature_booking project.
 
 This file is part of the Lab Booking System.
 Copyright (C) 2025 Lab Booking System Contributors

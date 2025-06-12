@@ -57,7 +57,7 @@ An open-source Django application for managing laboratory resource bookings acro
 ### 1. Clone the Repository
 ```bash
 git clone https://github.com/yourusername/lab-booking-system.git
-cd lab-booking-system/lab_booking
+cd lab-booking-system/aperature_booking
 ```
 
 ### 2. Create Virtual Environment
@@ -83,7 +83,7 @@ python manage.py migrate
 ```bash
 # Set environment variables
 export DB_ENGINE=mysql
-export DB_NAME=lab_booking
+export DB_NAME=aperature_booking
 export DB_USER=your_username
 export DB_PASSWORD=your_password
 export DB_HOST=localhost
@@ -97,7 +97,7 @@ python manage.py migrate
 ```bash
 # Set environment variables
 export DB_ENGINE=postgresql
-export DB_NAME=lab_booking
+export DB_NAME=aperature_booking
 export DB_USER=your_username
 export DB_PASSWORD=your_password
 export DB_HOST=localhost
@@ -328,7 +328,7 @@ pip install gunicorn whitenoise
 python manage.py collectstatic
 
 # Run production server
-gunicorn lab_booking.wsgi:application
+gunicorn aperature_booking.wsgi:application
 ```
 
 ### Docker Deployment
