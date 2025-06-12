@@ -60,4 +60,9 @@ urlpatterns = [
     path('templates/<int:pk>/delete/', views.template_delete_view, name='template_delete'),
     path('templates/create-booking/', views.create_booking_from_template_view, name='create_from_template'),
     path('booking/<int:booking_pk>/save-template/', views.save_booking_as_template_view, name='save_as_template'),
+    
+    # Bulk operations URLs
+    path('bookings/bulk/', views.bulk_booking_operations_view, name='bulk_operations'),
+    path('manage/', views.booking_management_view, name='manage_bookings'),
+    path('my-bookings/', views.my_bookings_view, name='my_bookings'),
 ]

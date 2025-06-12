@@ -881,7 +881,7 @@ def calendar_view(request):
 @login_required
 def dashboard_view(request):
     """User dashboard view."""
-    user_bookings = Booking.objects.filter(user=request.user).order_by('start_time')[:5]
+    user_bookings = Booking.objects.filter(user=request.user).order_by('-created_at')[:10]
     return render(request, 'booking/dashboard.html', {
         'user': request.user,
         'recent_bookings': user_bookings,
@@ -1043,3 +1043,223 @@ def save_booking_as_template_view(request, booking_pk):
         'form': form,
         'booking': booking,
     })
+
+
+@login_required
+def bulk_booking_operations_view(request):
+    """Bulk operations on multiple bookings."""
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        booking_ids = request.POST.getlist('booking_ids')
+        
+        if not booking_ids:
+            messages.error(request, 'No bookings selected.')
+            return redirect('booking:dashboard')
+        
+        try:
+            user_profile = request.user.userprofile
+        except UserProfile.DoesNotExist:
+            messages.error(request, 'User profile not found.')
+            return redirect('booking:dashboard')
+        
+        # Get bookings that user has permission to modify
+        if user_profile.role in ['lab_manager', 'sysadmin']:
+            bookings = Booking.objects.filter(pk__in=booking_ids)
+        else:
+            bookings = Booking.objects.filter(pk__in=booking_ids, user=request.user)
+        
+        if not bookings.exists():
+            messages.error(request, 'No bookings found or you do not have permission to modify them.')
+            return redirect('booking:dashboard')
+        
+        success_count = 0
+        error_count = 0
+        errors = []
+        
+        if action == 'cancel':
+            for booking in bookings:
+                if booking.can_be_cancelled:
+                    booking.status = 'cancelled'
+                    booking.save()
+                    success_count += 1
+                else:
+                    error_count += 1
+                    errors.append(f'{booking.title} - Cannot be cancelled')
+            
+            if success_count > 0:
+                messages.success(request, f'Successfully cancelled {success_count} booking(s).')
+            if error_count > 0:
+                messages.warning(request, f'{error_count} booking(s) could not be cancelled: {", ".join(errors[:3])}')
+        
+        elif action == 'approve' and user_profile.role in ['lab_manager', 'sysadmin']:
+            for booking in bookings:
+                if booking.status == 'pending':
+                    booking.status = 'approved'
+                    booking.approved_by = request.user
+                    booking.approved_at = timezone.now()
+                    booking.save()
+                    success_count += 1
+                else:
+                    error_count += 1
+                    errors.append(f'{booking.title} - Not pending')
+            
+            if success_count > 0:
+                messages.success(request, f'Successfully approved {success_count} booking(s).')
+            if error_count > 0:
+                messages.warning(request, f'{error_count} booking(s) could not be approved: {", ".join(errors[:3])}')
+        
+        elif action == 'reject' and user_profile.role in ['lab_manager', 'sysadmin']:
+            for booking in bookings:
+                if booking.status == 'pending':
+                    booking.status = 'rejected'
+                    booking.save()
+                    success_count += 1
+                else:
+                    error_count += 1
+                    errors.append(f'{booking.title} - Not pending')
+            
+            if success_count > 0:
+                messages.success(request, f'Successfully rejected {success_count} booking(s).')
+            if error_count > 0:
+                messages.warning(request, f'{error_count} booking(s) could not be rejected: {", ".join(errors[:3])}')
+        
+        else:
+            messages.error(request, 'Invalid action or insufficient permissions.')
+    
+    return redirect('booking:dashboard')
+
+
+@login_required
+def booking_management_view(request):
+    """Management interface for bookings with bulk operations."""
+    try:
+        user_profile = request.user.userprofile
+        if user_profile.role not in ['lab_manager', 'sysadmin']:
+            messages.error(request, 'You do not have permission to access booking management.')
+            return redirect('booking:dashboard')
+    except UserProfile.DoesNotExist:
+        messages.error(request, 'You do not have permission to access booking management.')
+        return redirect('booking:dashboard')
+    
+    # Get filter parameters
+    status_filter = request.GET.get('status', '')
+    resource_filter = request.GET.get('resource', '')
+    user_filter = request.GET.get('user', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    
+    # Base queryset
+    bookings = Booking.objects.select_related('resource', 'user', 'approved_by').order_by('-created_at')
+    
+    # Apply filters
+    if status_filter:
+        bookings = bookings.filter(status=status_filter)
+    
+    if resource_filter:
+        bookings = bookings.filter(resource_id=resource_filter)
+    
+    if user_filter:
+        bookings = bookings.filter(
+            Q(user__username__icontains=user_filter) |
+            Q(user__first_name__icontains=user_filter) |
+            Q(user__last_name__icontains=user_filter)
+        )
+    
+    if date_from:
+        try:
+            from_date = timezone.datetime.strptime(date_from, '%Y-%m-%d').date()
+            bookings = bookings.filter(start_time__date__gte=from_date)
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            to_date = timezone.datetime.strptime(date_to, '%Y-%m-%d').date()
+            bookings = bookings.filter(start_time__date__lte=to_date)
+        except ValueError:
+            pass
+    
+    # Pagination
+    from django.core.paginator import Paginator
+    paginator = Paginator(bookings, 25)  # Show 25 bookings per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Get resources for filter dropdown
+    resources = Resource.objects.filter(is_active=True).order_by('name')
+    
+    context = {
+        'page_obj': page_obj,
+        'resources': resources,
+        'status_filter': status_filter,
+        'resource_filter': resource_filter,
+        'user_filter': user_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'status_choices': Booking.STATUS_CHOICES,
+    }
+    
+    return render(request, 'booking/booking_management.html', context)
+
+
+@login_required
+def my_bookings_view(request):
+    """User's own bookings with bulk operations."""
+    # Get filter parameters
+    status_filter = request.GET.get('status', '')
+    resource_filter = request.GET.get('resource', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    
+    # Base queryset - user's own bookings
+    bookings = Booking.objects.filter(user=request.user).select_related('resource', 'approved_by').order_by('-created_at')
+    
+    # Apply filters
+    if status_filter:
+        bookings = bookings.filter(status=status_filter)
+    
+    if resource_filter:
+        bookings = bookings.filter(resource_id=resource_filter)
+    
+    if date_from:
+        try:
+            from_date = timezone.datetime.strptime(date_from, '%Y-%m-%d').date()
+            bookings = bookings.filter(start_time__date__gte=from_date)
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            to_date = timezone.datetime.strptime(date_to, '%Y-%m-%d').date()
+            bookings = bookings.filter(start_time__date__lte=to_date)
+        except ValueError:
+            pass
+    
+    # Pagination
+    from django.core.paginator import Paginator
+    paginator = Paginator(bookings, 20)  # Show 20 bookings per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Get resources for filter dropdown (only ones user has access to)
+    try:
+        user_profile = request.user.userprofile
+        available_resources = []
+        for resource in Resource.objects.filter(is_active=True):
+            if resource.is_available_for_user(user_profile):
+                available_resources.append(resource.pk)
+        resources = Resource.objects.filter(pk__in=available_resources).order_by('name')
+    except:
+        resources = Resource.objects.filter(is_active=True).order_by('name')
+    
+    context = {
+        'page_obj': page_obj,
+        'resources': resources,
+        'status_filter': status_filter,
+        'resource_filter': resource_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'status_choices': Booking.STATUS_CHOICES,
+    }
+    
+    return render(request, 'booking/my_bookings.html', context)

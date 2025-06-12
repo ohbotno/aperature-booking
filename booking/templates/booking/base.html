@@ -110,6 +110,12 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if request.resolver_match.url_name == 'my_bookings' %}active{% endif %}" 
+                               href="{% url 'booking:my_bookings' %}">
+                                <i class="bi bi-calendar-check"></i> My Bookings
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if 'template' in request.resolver_match.url_name %}active{% endif %}" 
                                href="{% url 'booking:templates' %}">
                                 <i class="bi bi-file-earmark-text"></i> Templates
@@ -120,6 +126,12 @@
                             <a class="nav-link {% if request.resolver_match.url_name == 'conflicts' %}active{% endif %}" 
                                href="{% url 'booking:conflicts' %}">
                                 <i class="bi bi-exclamation-triangle"></i> Conflicts
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.resolver_match.url_name == 'manage_bookings' %}active{% endif %}" 
+                               href="{% url 'booking:manage_bookings' %}">
+                                <i class="bi bi-gear"></i> Manage Bookings
                             </a>
                         </li>
                         {% endif %}
