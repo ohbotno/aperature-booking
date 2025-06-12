@@ -1,0 +1,459 @@
+<!-- booking/templates/booking/calendar.html -->
+{% extends 'booking/base.html' %}
+
+{% block title %}Calendar - Lab Booking System{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Booking Calendar</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="today-btn">Today</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="prev-btn">Previous</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="next-btn">Next</button>
+        </div>
+        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#bookingModal">
+            <i class="bi bi-plus-circle"></i> New Booking
+        </button>
+    </div>
+</div>
+
+<!-- Resource Filter -->
+<div class="resource-filter">
+    <div class="row">
+        <div class="col-md-6">
+            <select class="form-select" id="resource-filter">
+                <option value="">All Resources</option>
+                {% for resource in resources %}
+                <option value="{{ resource.id }}">{{ resource.name }} ({{ resource.get_resource_type_display }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6">
+            <div class="btn-group" role="group">
+                <input type="radio" class="btn-check" name="view-mode" id="month-view" autocomplete="off" checked>
+                <label class="btn btn-outline-primary" for="month-view">Month</label>
+                
+                <input type="radio" class="btn-check" name="view-mode" id="week-view" autocomplete="off">
+                <label class="btn btn-outline-primary" for="week-view">Week</label>
+                
+                <input type="radio" class="btn-check" name="view-mode" id="day-view" autocomplete="off">
+                <label class="btn btn-outline-primary" for="day-view">Day</label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Calendar -->
+<div id="calendar"></div>
+
+<!-- Booking Modal -->
+<div class="modal fade" id="bookingModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create Booking</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="booking-form">
+                    {% csrf_token %}
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="title" class="form-label">Title *</label>
+                                <input type="text" class="form-control" id="title" name="title" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="resource_id" class="form-label">Resource *</label>
+                                <select class="form-select" id="resource_id" name="resource_id" required>
+                                    <option value="">Select Resource</option>
+                                    {% for resource in resources %}
+                                    <option value="{{ resource.id }}">{{ resource.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="start_time" class="form-label">Start Time *</label>
+                                <input type="datetime-local" class="form-control" id="start_time" name="start_time" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="end_time" class="form-label">End Time *</label>
+                                <input type="datetime-local" class="form-control" id="end_time" name="end_time" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="shared_with_group" name="shared_with_group">
+                        <label class="form-check-label" for="shared_with_group">
+                            Share with group members
+                        </label>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" name="notes" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-booking">Save Booking</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Booking Details Modal -->
+<div class="modal fade" id="bookingDetailsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Booking Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="booking-details-content">
+                <!-- Content will be loaded dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-warning" id="edit-booking" style="display: none;">Edit</button>
+                <button type="button" class="btn btn-danger" id="cancel-booking" style="display: none;">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const calendarEl = document.getElementById('calendar');
+    let calendar;
+    
+    // Initialize FullCalendar
+    calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+        },
+        selectable: true,
+        selectMirror: true,
+        dayMaxEvents: true,
+        weekends: true,
+        businessHours: {
+            startTime: '09:00',
+            endTime: '18:00'
+        },
+        slotMinTime: '09:00:00',
+        slotMaxTime: '18:00:00',
+        
+        // Load events from API
+        events: function(fetchInfo, successCallback, failureCallback) {
+            const resourceFilter = document.getElementById('resource-filter').value;
+            let url = '/api/bookings/calendar/';
+            
+            if (resourceFilter) {
+                url += `?resource=${resourceFilter}`;
+            }
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => successCallback(data))
+                .catch(error => {
+                    console.error('Error loading events:', error);
+                    failureCallback(error);
+                });
+        },
+        
+        // Handle date selection for new booking
+        select: function(selectionInfo) {
+            const modal = new bootstrap.Modal(document.getElementById('bookingModal'));
+            
+            // Set default times
+            document.getElementById('start_time').value = selectionInfo.startStr.slice(0, 16);
+            document.getElementById('end_time').value = selectionInfo.endStr.slice(0, 16);
+            
+            modal.show();
+        },
+        
+        // Handle event click for details
+        eventClick: function(clickInfo) {
+            loadBookingDetails(clickInfo.event.id);
+        },
+        
+        // Handle event resize
+        eventResize: function(resizeInfo) {
+            updateBookingTime(resizeInfo.event);
+        },
+        
+        // Handle event drag
+        eventDrop: function(dropInfo) {
+            updateBookingTime(dropInfo.event);
+        }
+    });
+    
+    calendar.render();
+    
+    // Toolbar buttons
+    document.getElementById('today-btn').addEventListener('click', function() {
+        calendar.today();
+    });
+    
+    document.getElementById('prev-btn').addEventListener('click', function() {
+        calendar.prev();
+    });
+    
+    document.getElementById('next-btn').addEventListener('click', function() {
+        calendar.next();
+    });
+    
+    // View mode buttons
+    document.getElementById('month-view').addEventListener('click', function() {
+        calendar.changeView('dayGridMonth');
+    });
+    
+    document.getElementById('week-view').addEventListener('click', function() {
+        calendar.changeView('timeGridWeek');
+    });
+    
+    document.getElementById('day-view').addEventListener('click', function() {
+        calendar.changeView('timeGridDay');
+    });
+    
+    // Resource filter
+    document.getElementById('resource-filter').addEventListener('change', function() {
+        calendar.refetchEvents();
+    });
+    
+    // Save booking
+    document.getElementById('save-booking').addEventListener('click', function() {
+        saveBooking();
+    });
+    
+    function saveBooking() {
+        const form = document.getElementById('booking-form');
+        const formData = new FormData(form);
+        
+        // Convert FormData to JSON
+        const data = {};
+        formData.forEach((value, key) => {
+            if (key === 'shared_with_group') {
+                data[key] = document.getElementById(key).checked;
+            } else {
+                data[key] = value;
+            }
+        });
+        
+        fetch('/api/bookings/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.id) {
+                // Success
+                bootstrap.Modal.getInstance(document.getElementById('bookingModal')).hide();
+                calendar.refetchEvents();
+                form.reset();
+                
+                // Show success message
+                showAlert('Booking created successfully!', 'success');
+            } else {
+                // Handle validation errors
+                showFormErrors(data);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showAlert('Error creating booking. Please try again.', 'danger');
+        });
+    }
+    
+    function loadBookingDetails(bookingId) {
+        fetch(`/api/bookings/${bookingId}/`)
+            .then(response => response.json())
+            .then(data => {
+                const content = document.getElementById('booking-details-content');
+                content.innerHTML = `
+                    <div class="row">
+                        <div class="col-sm-4"><strong>Title:</strong></div>
+                        <div class="col-sm-8">${data.title}</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-4"><strong>Resource:</strong></div>
+                        <div class="col-sm-8">${data.resource.name}</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-4"><strong>User:</strong></div>
+                        <div class="col-sm-8">${data.user.first_name} ${data.user.last_name}</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-4"><strong>Start:</strong></div>
+                        <div class="col-sm-8">${new Date(data.start_time).toLocaleString()}</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-4"><strong>End:</strong></div>
+                        <div class="col-sm-8">${new Date(data.end_time).toLocaleString()}</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-4"><strong>Status:</strong></div>
+                        <div class="col-sm-8">
+                            <span class="badge bg-${getStatusColor(data.status)}">${data.status}</span>
+                        </div>
+                    </div>
+                    ${data.description ? `
+                    <div class="row">
+                        <div class="col-sm-4"><strong>Description:</strong></div>
+                        <div class="col-sm-8">${data.description}</div>
+                    </div>
+                    ` : ''}
+                `;
+                
+                // Show/hide action buttons based on permissions
+                const editBtn = document.getElementById('edit-booking');
+                const cancelBtn = document.getElementById('cancel-booking');
+                
+                if (data.can_cancel) {
+                    cancelBtn.style.display = 'inline-block';
+                    cancelBtn.onclick = () => cancelBooking(bookingId);
+                } else {
+                    cancelBtn.style.display = 'none';
+                }
+                
+                const modal = new bootstrap.Modal(document.getElementById('bookingDetailsModal'));
+                modal.show();
+            })
+            .catch(error => {
+                console.error('Error loading booking details:', error);
+                showAlert('Error loading booking details.', 'danger');
+            });
+    }
+    
+    function updateBookingTime(event) {
+        const data = {
+            start_time: event.startStr,
+            end_time: event.endStr
+        };
+        
+        fetch(`/api/bookings/${event.id}/`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.id) {
+                // Revert on error
+                event.revert();
+                showAlert('Error updating booking time.', 'danger');
+            } else {
+                showAlert('Booking updated successfully!', 'success');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            event.revert();
+            showAlert('Error updating booking time.', 'danger');
+        });
+    }
+    
+    function cancelBooking(bookingId) {
+        if (confirm('Are you sure you want to cancel this booking?')) {
+            fetch(`/api/bookings/${bookingId}/cancel/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCSRFToken()
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                bootstrap.Modal.getInstance(document.getElementById('bookingDetailsModal')).hide();
+                calendar.refetchEvents();
+                showAlert('Booking cancelled successfully!', 'success');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error cancelling booking.', 'danger');
+            });
+        }
+    }
+    
+    function getStatusColor(status) {
+        const colors = {
+            'pending': 'warning',
+            'approved': 'success',
+            'rejected': 'danger',
+            'cancelled': 'secondary',
+            'completed': 'info'
+        };
+        return colors[status] || 'primary';
+    }
+    
+    function showAlert(message, type) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        const container = document.querySelector('.main-content');
+        container.insertBefore(alertDiv, container.firstChild);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 5000);
+    }
+    
+    function showFormErrors(errors) {
+        // Clear previous errors
+        document.querySelectorAll('.is-invalid').forEach(el => {
+            el.classList.remove('is-invalid');
+        });
+        document.querySelectorAll('.invalid-feedback').forEach(el => {
+            el.remove();
+        });
+        
+        // Show new errors
+        for (const [field, messages] of Object.entries(errors)) {
+            const input = document.getElementById(field);
+            if (input) {
+                input.classList.add('is-invalid');
+                const feedback = document.createElement('div');
+                feedback.className = 'invalid-feedback';
+                feedback.textContent = Array.isArray(messages) ? messages[0] : messages;
+                input.parentNode.appendChild(feedback);
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

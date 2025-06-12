@@ -1,0 +1,1 @@
+# booking/migrations/__init__.py
