@@ -74,3 +74,8 @@ coverage.xml
 # Temporary files
 *.tmp
 *.temp
+
+# Documentation files (keep local, exclude from git)
+CLAUDE.md
+PROJECT.md
+TODO.md
