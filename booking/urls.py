@@ -47,4 +47,9 @@ urlpatterns = [
     path('booking/<int:pk>/', views.booking_detail_view, name='booking_detail'),
     path('booking/<int:booking_pk>/recurring/', views.create_recurring_booking_view, name='create_recurring'),
     path('booking/<int:booking_pk>/cancel-series/', views.cancel_recurring_series_view, name='cancel_recurring'),
+    
+    # Conflict management URLs
+    path('conflicts/', views.conflict_detection_view, name='conflicts'),
+    path('conflicts/resolve/<str:conflict_type>/<int:id1>/<int:id2>/', views.resolve_conflict_view, name='resolve_conflict'),
+    path('conflicts/bulk-resolve/', views.bulk_resolve_conflicts_view, name='bulk_resolve_conflicts'),
 ]
