@@ -4,52 +4,134 @@
 
 {% block title %}Calendar - Lab Booking System{% endblock %}
 
-{% block content %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h1 class="h2">Booking Calendar</h1>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <div class="btn-group me-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="today-btn">Today</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="prev-btn">Previous</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="next-btn">Next</button>
-        </div>
-        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#bookingModal">
-            <i class="bi bi-plus-circle"></i> New Booking
-        </button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="help-btn" title="Keyboard shortcuts (Press H or ?)">
-            <i class="bi bi-question-circle"></i>
-        </button>
-    </div>
-</div>
+{% block extra_css %}
+<style>
+/* Basic Calendar Styling */
+.calendar-container {
+    margin-bottom: 2rem;
+}
 
-<!-- Resource Filter -->
-<div class="resource-filter">
-    <div class="row">
-        <div class="col-md-6">
-            <select class="form-select" id="resource-filter">
-                <option value="">All Resources</option>
-                {% for resource in resources %}
-                <option value="{{ resource.id }}">{{ resource.name }} ({{ resource.get_resource_type_display }})</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-md-6">
-            <div class="btn-group" role="group">
-                <input type="radio" class="btn-check" name="view-mode" id="month-view" autocomplete="off" checked>
-                <label class="btn btn-outline-primary" for="month-view">Month</label>
-                
-                <input type="radio" class="btn-check" name="view-mode" id="week-view" autocomplete="off">
-                <label class="btn btn-outline-primary" for="week-view">Week</label>
-                
-                <input type="radio" class="btn-check" name="view-mode" id="day-view" autocomplete="off">
-                <label class="btn btn-outline-primary" for="day-view">Day</label>
+.calendar-wrapper {
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+}
+
+/* Basic button styling */
+.btn {
+    margin-right: 0.5rem;
+}
+
+/* FullCalendar basic customizations */
+.fc-toolbar {
+    margin-bottom: 1rem !important;
+}
+
+.fc-toolbar-title {
+    font-size: 1.5rem !important;
+    font-weight: 600 !important;
+    color: #212529 !important;
+}
+
+.fc-event {
+    border-radius: 0.25rem !important;
+    padding: 0.125rem 0.25rem !important;
+}
+
+/* Calendar text colors */
+.fc-col-header-cell-cushion {
+    color: #495057 !important;
+    font-weight: 600 !important;
+}
+
+.fc-daygrid-day-number {
+    color: #212529 !important;
+}
+
+.fc-timegrid-slot-label-cushion {
+    color: #6c757d !important;
+}
+
+.fc-button-primary {
+    background-color: #6c757d !important;
+    border-color: #6c757d !important;
+}
+
+.fc-button-primary:hover,
+.fc-button-primary:focus {
+    background-color: #5a6268 !important;
+    border-color: #545b62 !important;
+}
+
+/* Basic responsive design */
+@media (max-width: 768px) {
+    .calendar-container {
+        padding: 0.5rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="calendar-container">
+    <!-- Header -->
+    <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <h1><i class="bi bi-calendar3 me-2"></i>Booking Calendar</h1>
+            <div>
+                <button type="button" class="btn btn-outline-secondary" id="today-btn">Today</button>
+                <button type="button" class="btn btn-outline-secondary" id="prev-btn">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="next-btn">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#bookingModal">
+                    <i class="bi bi-plus-circle me-1"></i>New Booking
+                </button>
+                <button type="button" class="btn btn-info" id="help-btn" title="Keyboard shortcuts">
+                    <i class="bi bi-question-circle"></i>
+                </button>
             </div>
         </div>
     </div>
-</div>
 
-<!-- Calendar -->
-<div id="calendar"></div>
+    <!-- Filter Section -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <label class="form-label">Filter by Resource</label>
+                    <select class="form-select" id="resource-filter">
+                        <option value="">All Resources</option>
+                        {% for resource in resources %}
+                        <option value="{{ resource.id }}">{{ resource.name }} ({{ resource.get_resource_type_display }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Calendar View</label>
+                    <div class="btn-group w-100" role="group">
+                        <input type="radio" class="btn-check" name="view-mode" id="month-view" autocomplete="off" checked>
+                        <label class="btn btn-outline-primary" for="month-view">Month</label>
+                        
+                        <input type="radio" class="btn-check" name="view-mode" id="week-view" autocomplete="off">
+                        <label class="btn btn-outline-primary" for="week-view">Week</label>
+                        
+                        <input type="radio" class="btn-check" name="view-mode" id="day-view" autocomplete="off">
+                        <label class="btn btn-outline-primary" for="day-view">Day</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Calendar -->
+    <div class="calendar-wrapper">
+        <div id="calendar"></div>
+    </div>
+</div>
 
 <!-- Booking Modal -->
 <div class="modal fade" id="bookingModal" tabindex="-1">

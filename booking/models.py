@@ -615,6 +615,35 @@ class Booking(models.Model):
         )
         
         return True
+    
+    def has_conflicts(self):
+        """Check for booking conflicts."""
+        conflicts = Booking.objects.filter(
+            resource=self.resource,
+            status__in=['approved', 'pending'],
+            start_time__lt=self.end_time,
+            end_time__gt=self.start_time
+        ).exclude(pk=self.pk)
+        
+        return conflicts.exists()
+    
+    def save_as_template(self, template_name, template_description="", is_public=False):
+        """Save this booking as a template for future use."""
+        template = BookingTemplate.objects.create(
+            user=self.user,
+            name=template_name,
+            description=template_description,
+            resource=self.resource,
+            title_template=self.title,
+            description_template=self.description,
+            duration_hours=self.duration.seconds // 3600,
+            duration_minutes=(self.duration.seconds % 3600) // 60,
+            preferred_start_time=self.start_time.time(),
+            shared_with_group=self.shared_with_group,
+            notes_template=self.notes,
+            is_public=is_public,
+        )
+        return template
 
 
 class CheckInOutEvent(models.Model):
@@ -688,35 +717,6 @@ class UsageAnalytics(models.Model):
     
     def __str__(self):
         return f"{self.resource.name} - {self.date} (Utilization: {self.utilization_rate:.1%})"
-
-    def has_conflicts(self):
-        """Check for booking conflicts."""
-        conflicts = Booking.objects.filter(
-            resource=self.resource,
-            status__in=['approved', 'pending'],
-            start_time__lt=self.end_time,
-            end_time__gt=self.start_time
-        ).exclude(pk=self.pk)
-        
-        return conflicts.exists()
-
-    def save_as_template(self, template_name, template_description="", is_public=False):
-        """Save this booking as a template for future use."""
-        template = BookingTemplate.objects.create(
-            user=self.user,
-            name=template_name,
-            description=template_description,
-            resource=self.resource,
-            title_template=self.title,
-            description_template=self.description,
-            duration_hours=self.duration.seconds // 3600,
-            duration_minutes=(self.duration.seconds % 3600) // 60,
-            preferred_start_time=self.start_time.time(),
-            shared_with_group=self.shared_with_group,
-            notes_template=self.notes,
-            is_public=is_public,
-        )
-        return template
 
 
 class BookingAttendee(models.Model):
