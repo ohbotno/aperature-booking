@@ -21,6 +21,10 @@ router.register(r'resources', views.ResourceViewSet)
 router.register(r'bookings', views.BookingViewSet)
 router.register(r'approval-rules', views.ApprovalRuleViewSet)
 router.register(r'maintenance', views.MaintenanceViewSet)
+router.register(r'notifications', views.NotificationViewSet, basename='notification')
+router.register(r'notification-preferences', views.NotificationPreferenceViewSet, basename='notification-preference')
+router.register(r'waiting-list', views.WaitingListEntryViewSet, basename='waiting-list-entry')
+router.register(r'waiting-list-notifications', views.WaitingListNotificationViewSet, basename='waiting-list-notification')
 
 app_name = 'booking'
 
@@ -68,4 +72,25 @@ urlpatterns = [
     path('bookings/bulk/', views.bulk_booking_operations_view, name='bulk_operations'),
     path('manage/', views.booking_management_view, name='manage_bookings'),
     path('my-bookings/', views.my_bookings_view, name='my_bookings'),
+    
+    # Notification URLs
+    path('notifications/', views.notifications_list, name='notifications'),
+    path('notifications/preferences/', views.notification_preferences, name='notification_preferences'),
+    
+    # Waiting List URLs
+    path('waiting-list/', views.waiting_list_view, name='waiting_list'),
+    path('waiting-list/join/<int:resource_id>/', views.join_waiting_list, name='join_waiting_list'),
+    path('waiting-list/leave/<int:entry_id>/', views.leave_waiting_list, name='leave_waiting_list'),
+    path('waiting-list/respond/<int:notification_id>/', views.respond_to_availability, name='respond_to_availability'),
+    
+    # Check-in/Check-out URLs
+    path('booking/<int:booking_id>/checkin/', views.checkin_view, name='checkin'),
+    path('booking/<int:booking_id>/checkout/', views.checkout_view, name='checkout'),
+    path('checkin-status/', views.checkin_status_view, name='checkin_status'),
+    path('resource/<int:resource_id>/checkin-status/', views.resource_checkin_status_view, name='resource_checkin_status'),
+    path('usage-analytics/', views.usage_analytics_view, name='usage_analytics'),
+    
+    # Check-in/Check-out API URLs
+    path('api/booking/<int:booking_id>/checkin/', views.api_checkin_booking, name='api_checkin'),
+    path('api/booking/<int:booking_id>/checkout/', views.api_checkout_booking, name='api_checkout'),
 ]

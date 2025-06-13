@@ -16,13 +16,14 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
 from django.contrib.auth import login
 from django.contrib.auth.views import PasswordResetView, PasswordResetConfirmView
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
-from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate
+from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, WaitingListNotification
 from .forms import UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, SaveAsTemplateForm
 from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
@@ -30,6 +31,9 @@ from .serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
     ApprovalRuleSerializer, MaintenanceSerializer
 )
+from .notifications import notification_service
+from .waiting_list import waiting_list_service
+from .checkin_service import checkin_service
 
 
 class IsOwnerOrManagerPermission(permissions.BasePermission):
@@ -848,6 +852,399 @@ def bulk_resolve_conflicts_view(request):
 
 
 @login_required
+def notifications_list(request):
+    """Display user's notifications."""
+    notifications = notification_service.get_user_notifications(
+        request.user, 
+        limit=50, 
+        unread_only=False
+    )
+    
+    unread_count = len([n for n in notifications if n.status in ['pending', 'sent']])
+    
+    return render(request, 'booking/notifications.html', {
+        'notifications': notifications,
+        'unread_count': unread_count,
+    })
+
+
+@login_required
+def notification_preferences(request):
+    """Display and update user's notification preferences."""
+    if request.method == 'POST':
+        # Update preferences
+        for key, value in request.POST.items():
+            if key.startswith('pref_'):
+                # Parse preference key: pref_{notification_type}_{delivery_method}
+                parts = key.replace('pref_', '').split('_')
+                if len(parts) >= 2:
+                    notification_type = '_'.join(parts[:-1])
+                    delivery_method = parts[-1]
+                    
+                    preference, created = NotificationPreference.objects.get_or_create(
+                        user=request.user,
+                        notification_type=notification_type,
+                        delivery_method=delivery_method,
+                        defaults={'is_enabled': value == 'on'}
+                    )
+                    
+                    if not created:
+                        preference.is_enabled = value == 'on'
+                        preference.save()
+        
+        messages.success(request, 'Notification preferences updated successfully.')
+        return redirect('booking:notification_preferences')
+    
+    # Get current preferences
+    preferences = {}
+    user_prefs = NotificationPreference.objects.filter(user=request.user)
+    
+    for pref in user_prefs:
+        key = f"{pref.notification_type}_{pref.delivery_method}"
+        preferences[key] = pref.is_enabled
+    
+    # Available notification types and delivery methods
+    notification_types = NotificationPreference.NOTIFICATION_TYPES
+    delivery_methods = NotificationPreference.DELIVERY_METHODS
+    
+    return render(request, 'booking/notification_preferences.html', {
+        'preferences': preferences,
+        'notification_types': notification_types,
+        'delivery_methods': delivery_methods,
+    })
+
+
+# API Views for notifications
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """API viewset for user notifications."""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return Notification.objects.filter(
+            user=self.request.user,
+            delivery_method='in_app'
+        ).select_related('booking', 'resource', 'maintenance').order_by('-created_at')
+    
+    def get_serializer_class(self):
+        # Simple serializer for notifications
+        from rest_framework import serializers
+        
+        class NotificationSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = Notification
+                fields = [
+                    'id', 'notification_type', 'title', 'message', 'priority',
+                    'status', 'created_at', 'sent_at', 'read_at', 'metadata'
+                ]
+                read_only_fields = fields
+        
+        return NotificationSerializer
+    
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        """Get count of unread notifications."""
+        count = self.get_queryset().filter(status__in=['pending', 'sent']).count()
+        return Response({'unread_count': count})
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        """Mark all notifications as read."""
+        notification_ids = list(
+            self.get_queryset().filter(status__in=['pending', 'sent']).values_list('id', flat=True)
+        )
+        
+        updated_count = notification_service.mark_notifications_as_read(
+            request.user, notification_ids
+        )
+        
+        return Response({
+            'marked_read': updated_count,
+            'message': f'Marked {updated_count} notifications as read'
+        })
+    
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        """Mark a specific notification as read."""
+        notification = self.get_object()
+        notification.mark_as_read()
+        
+        return Response({
+            'status': 'read',
+            'message': 'Notification marked as read'
+        })
+
+
+class NotificationPreferenceViewSet(viewsets.ModelViewSet):
+    """API viewset for notification preferences."""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return NotificationPreference.objects.filter(user=self.request.user)
+    
+    def get_serializer_class(self):
+        from rest_framework import serializers
+        
+        class NotificationPreferenceSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = NotificationPreference
+                fields = [
+                    'id', 'notification_type', 'delivery_method', 
+                    'is_enabled', 'frequency', 'created_at', 'updated_at'
+                ]
+                read_only_fields = ['id', 'created_at', 'updated_at']
+        
+        return NotificationPreferenceSerializer
+    
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+# Waiting List Views
+@login_required
+def waiting_list_view(request):
+    """Display user's waiting list entries."""
+    entries = waiting_list_service.get_user_waiting_list_entries(request.user)
+    
+    # Get pending notifications
+    notifications = WaitingListNotification.objects.filter(
+        waiting_list_entry__user=request.user,
+        user_response='pending'
+    ).select_related('waiting_list_entry__resource').order_by('-sent_at')
+    
+    return render(request, 'booking/waiting_list.html', {
+        'waiting_list_entries': entries,
+        'pending_notifications': notifications,
+    })
+
+
+@login_required
+def join_waiting_list(request, resource_id):
+    """Join waiting list for a resource."""
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    # Check if user can access this resource
+    try:
+        user_profile = request.user.userprofile
+        if not resource.is_available_for_user(user_profile):
+            messages.error(request, f'You do not meet the requirements to book {resource.name}.')
+            return redirect('booking:calendar')
+    except:
+        messages.error(request, 'User profile not found.')
+        return redirect('booking:calendar')
+    
+    if request.method == 'POST':
+        try:
+            # Get form data
+            preferred_start = timezone.datetime.fromisoformat(request.POST['preferred_start_time'])
+            preferred_end = timezone.datetime.fromisoformat(request.POST['preferred_end_time'])
+            
+            # Optional parameters
+            options = {
+                'min_duration_minutes': int(request.POST.get('min_duration_minutes', 60)),
+                'max_duration_minutes': int(request.POST.get('max_duration_minutes', 240)),
+                'flexible_start_time': request.POST.get('flexible_start_time') == 'on',
+                'flexible_duration': request.POST.get('flexible_duration') == 'on',
+                'auto_book': request.POST.get('auto_book') == 'on',
+                'priority': request.POST.get('priority', 'normal'),
+                'notes': request.POST.get('notes', ''),
+            }
+            
+            # Add to waiting list
+            entry = waiting_list_service.add_to_waiting_list(
+                user=request.user,
+                resource=resource,
+                preferred_start=preferred_start,
+                preferred_end=preferred_end,
+                **options
+            )
+            
+            messages.success(request, f'Successfully added to waiting list for {resource.name}!')
+            return redirect('booking:waiting_list')
+            
+        except ValueError as e:
+            messages.error(request, str(e))
+        except Exception as e:
+            messages.error(request, f'Failed to join waiting list: {str(e)}')
+    
+    # Pre-fill with requested time if available
+    requested_start = request.GET.get('start_time')
+    requested_end = request.GET.get('end_time')
+    
+    return render(request, 'booking/join_waiting_list.html', {
+        'resource': resource,
+        'requested_start_time': requested_start,
+        'requested_end_time': requested_end,
+    })
+
+
+@login_required
+def leave_waiting_list(request, entry_id):
+    """Leave waiting list."""
+    success, message = waiting_list_service.cancel_waiting_list_entry(entry_id, request.user)
+    
+    if success:
+        messages.success(request, message)
+    else:
+        messages.error(request, message)
+    
+    return redirect('booking:waiting_list')
+
+
+@login_required
+def respond_to_availability(request, notification_id):
+    """Respond to availability notification."""
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'accept':
+            success, message = waiting_list_service.accept_availability_offer(notification_id, request.user)
+        elif action == 'decline':
+            success, message = waiting_list_service.decline_availability_offer(notification_id, request.user)
+        else:
+            success, message = False, 'Invalid action.'
+        
+        if success:
+            messages.success(request, message)
+        else:
+            messages.error(request, message)
+    
+    return redirect('booking:waiting_list')
+
+
+# API Views for Waiting List
+class WaitingListEntryViewSet(viewsets.ModelViewSet):
+    """API viewset for waiting list entries."""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        if self.request.user.userprofile.role in ['lab_manager', 'sysadmin']:
+            return WaitingListEntry.objects.all().select_related('user', 'resource')
+        else:
+            return WaitingListEntry.objects.filter(user=self.request.user).select_related('resource')
+    
+    def get_serializer_class(self):
+        from rest_framework import serializers
+        
+        class WaitingListEntrySerializer(serializers.ModelSerializer):
+            resource_name = serializers.CharField(source='resource.name', read_only=True)
+            duration_display = serializers.SerializerMethodField()
+            
+            class Meta:
+                model = WaitingListEntry
+                fields = [
+                    'id', 'resource', 'resource_name', 'preferred_start_time', 
+                    'preferred_end_time', 'min_duration_minutes', 'max_duration_minutes',
+                    'flexible_start_time', 'flexible_duration', 'auto_book',
+                    'status', 'priority', 'notes', 'created_at', 'duration_display'
+                ]
+                read_only_fields = ['id', 'created_at', 'resource_name', 'duration_display']
+            
+            def get_duration_display(self, obj):
+                return str(obj.preferred_duration)
+        
+        return WaitingListEntrySerializer
+    
+    def perform_create(self, serializer):
+        # Use the waiting list service to create entries
+        data = serializer.validated_data
+        resource = data.pop('resource')
+        preferred_start = data.pop('preferred_start_time')
+        preferred_end = data.pop('preferred_end_time')
+        
+        entry = waiting_list_service.add_to_waiting_list(
+            user=self.request.user,
+            resource=resource,
+            preferred_start=preferred_start,
+            preferred_end=preferred_end,
+            **data
+        )
+        
+        # Return the created entry data
+        serializer.instance = entry
+    
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Cancel waiting list entry."""
+        success, message = waiting_list_service.cancel_waiting_list_entry(pk, request.user)
+        
+        if success:
+            return Response({'status': 'success', 'message': message})
+        else:
+            return Response({'status': 'error', 'message': message}, status=400)
+    
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """Get waiting list statistics."""
+        if request.user.userprofile.role not in ['lab_manager', 'sysadmin']:
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        resource_id = request.query_params.get('resource')
+        resource = None
+        
+        if resource_id:
+            try:
+                resource = Resource.objects.get(id=resource_id)
+            except Resource.DoesNotExist:
+                return Response({'error': 'Resource not found'}, status=404)
+        
+        stats = waiting_list_service.get_waiting_list_statistics(resource)
+        return Response(stats)
+
+
+class WaitingListNotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """API viewset for waiting list notifications."""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        return WaitingListNotification.objects.filter(
+            waiting_list_entry__user=self.request.user
+        ).select_related('waiting_list_entry__resource', 'booking_created').order_by('-sent_at')
+    
+    def get_serializer_class(self):
+        from rest_framework import serializers
+        
+        class WaitingListNotificationSerializer(serializers.ModelSerializer):
+            resource_name = serializers.CharField(source='waiting_list_entry.resource.name', read_only=True)
+            response_time_remaining = serializers.SerializerMethodField()
+            
+            class Meta:
+                model = WaitingListNotification
+                fields = [
+                    'id', 'resource_name', 'available_start_time', 'available_end_time',
+                    'user_response', 'response_deadline', 'sent_at', 'responded_at',
+                    'booking_created', 'response_time_remaining'
+                ]
+                read_only_fields = fields
+            
+            def get_response_time_remaining(self, obj):
+                remaining = obj.response_time_remaining
+                if remaining.total_seconds() > 0:
+                    hours = int(remaining.total_seconds() // 3600)
+                    minutes = int((remaining.total_seconds() % 3600) // 60)
+                    return f"{hours}h {minutes}m"
+                return "0h 0m"
+        
+        return WaitingListNotificationSerializer
+    
+    @action(detail=True, methods=['post'])
+    def respond(self, request, pk=None):
+        """Respond to availability notification."""
+        action = request.data.get('action')
+        
+        if action == 'accept':
+            success, message = waiting_list_service.accept_availability_offer(pk, request.user)
+        elif action == 'decline':
+            success, message = waiting_list_service.decline_availability_offer(pk, request.user)
+        else:
+            return Response({'error': 'Invalid action'}, status=400)
+        
+        if success:
+            return Response({'status': 'success', 'message': message})
+        else:
+            return Response({'status': 'error', 'message': message}, status=400)
+
+
+@login_required
 def profile_view(request):
     """User profile management view."""
     try:
@@ -1450,3 +1847,249 @@ def duplicate_booking_view(request, pk):
         'form': form,
         'original_booking': original_booking,
     })
+
+
+# Check-in/Check-out Views
+@login_required
+def checkin_view(request, booking_id):
+    """Check in to a booking."""
+    booking = get_object_or_404(Booking, id=booking_id)
+    
+    # Check if user can check in
+    try:
+        user_profile = request.user.userprofile
+        can_checkin = (
+            booking.user == request.user or
+            booking.attendees.filter(id=request.user.id).exists() or
+            user_profile.role in ['lab_manager', 'sysadmin']
+        )
+    except UserProfile.DoesNotExist:
+        can_checkin = booking.user == request.user
+    
+    if not can_checkin:
+        messages.error(request, 'You do not have permission to check in to this booking.')
+        return redirect('booking:booking_detail', pk=booking_id)
+    
+    if request.method == 'POST':
+        notes = request.POST.get('notes', '')
+        
+        # Get client info for tracking
+        ip_address = request.META.get('REMOTE_ADDR')
+        user_agent = request.META.get('HTTP_USER_AGENT', '')
+        
+        success, message = checkin_service.check_in_booking(
+            booking_id=booking_id,
+            user=request.user,
+            notes=notes,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        
+        if success:
+            messages.success(request, message)
+        else:
+            messages.error(request, message)
+        
+        return redirect('booking:booking_detail', pk=booking_id)
+    
+    return render(request, 'booking/checkin.html', {
+        'booking': booking,
+    })
+
+
+@login_required
+def checkout_view(request, booking_id):
+    """Check out of a booking."""
+    booking = get_object_or_404(Booking, id=booking_id)
+    
+    # Check if user can check out
+    try:
+        user_profile = request.user.userprofile
+        can_checkout = (
+            booking.user == request.user or
+            booking.attendees.filter(id=request.user.id).exists() or
+            user_profile.role in ['lab_manager', 'sysadmin']
+        )
+    except UserProfile.DoesNotExist:
+        can_checkout = booking.user == request.user
+    
+    if not can_checkout:
+        messages.error(request, 'You do not have permission to check out of this booking.')
+        return redirect('booking:booking_detail', pk=booking_id)
+    
+    if request.method == 'POST':
+        notes = request.POST.get('notes', '')
+        
+        # Get client info for tracking
+        ip_address = request.META.get('REMOTE_ADDR')
+        user_agent = request.META.get('HTTP_USER_AGENT', '')
+        
+        success, message = checkin_service.check_out_booking(
+            booking_id=booking_id,
+            user=request.user,
+            notes=notes,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
+        
+        if success:
+            messages.success(request, message)
+        else:
+            messages.error(request, message)
+        
+        return redirect('booking:booking_detail', pk=booking_id)
+    
+    return render(request, 'booking/checkout.html', {
+        'booking': booking,
+    })
+
+
+@login_required
+def checkin_status_view(request):
+    """View current check-in status for user's bookings."""
+    # Get user's bookings for today
+    today = timezone.now().date()
+    user_bookings = Booking.objects.filter(
+        Q(user=request.user) | Q(attendees=request.user),
+        start_time__date=today,
+        status__in=['approved', 'confirmed']
+    ).select_related('resource').distinct().order_by('start_time')
+    
+    # Get currently checked in bookings
+    checked_in_bookings = Booking.objects.filter(
+        Q(user=request.user) | Q(attendees=request.user),
+        checked_in_at__isnull=False,
+        checked_out_at__isnull=True
+    ).select_related('resource').distinct()
+    
+    return render(request, 'booking/checkin_status.html', {
+        'user_bookings': user_bookings,
+        'checked_in_bookings': checked_in_bookings,
+        'today': today,
+    })
+
+
+@login_required
+def resource_checkin_status_view(request, resource_id):
+    """View current check-in status for a specific resource (managers only)."""
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    # Check if user has permission
+    try:
+        user_profile = request.user.userprofile
+        if user_profile.role not in ['lab_manager', 'sysadmin']:
+            messages.error(request, 'You do not have permission to view resource check-in status.')
+            return redirect('booking:calendar')
+    except UserProfile.DoesNotExist:
+        messages.error(request, 'You do not have permission to view resource check-in status.')
+        return redirect('booking:calendar')
+    
+    # Get current check-ins for this resource
+    current_checkins = checkin_service.get_current_checkins(resource)
+    
+    # Get today's bookings for this resource
+    today = timezone.now().date()
+    today_bookings = Booking.objects.filter(
+        resource=resource,
+        start_time__date=today,
+        status__in=['approved', 'confirmed']
+    ).select_related('user').order_by('start_time')
+    
+    # Get overdue check-ins and check-outs for this resource
+    overdue_checkins = [b for b in checkin_service.get_overdue_checkins() if b.resource == resource]
+    overdue_checkouts = [b for b in checkin_service.get_overdue_checkouts() if b.resource == resource]
+    
+    return render(request, 'booking/resource_checkin_status.html', {
+        'resource': resource,
+        'current_checkins': current_checkins,
+        'today_bookings': today_bookings,
+        'overdue_checkins': overdue_checkins,
+        'overdue_checkouts': overdue_checkouts,
+        'today': today,
+    })
+
+
+@login_required
+def usage_analytics_view(request):
+    """View usage analytics (managers only)."""
+    try:
+        user_profile = request.user.userprofile
+        if user_profile.role not in ['lab_manager', 'sysadmin']:
+            messages.error(request, 'You do not have permission to view usage analytics.')
+            return redirect('booking:dashboard')
+    except UserProfile.DoesNotExist:
+        messages.error(request, 'You do not have permission to view usage analytics.')
+        return redirect('booking:dashboard')
+    
+    # Get filter parameters
+    resource_id = request.GET.get('resource')
+    days = int(request.GET.get('days', 30))
+    
+    # Calculate date range
+    end_date = timezone.now()
+    start_date = end_date - timedelta(days=days)
+    
+    # Get analytics
+    resource = None
+    if resource_id:
+        try:
+            resource = Resource.objects.get(id=resource_id)
+        except Resource.DoesNotExist:
+            pass
+    
+    analytics = checkin_service.get_usage_analytics(
+        resource=resource,
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    # Get all resources for filter
+    resources = Resource.objects.filter(is_active=True).order_by('name')
+    
+    return render(request, 'booking/usage_analytics.html', {
+        'analytics': analytics,
+        'resource': resource,
+        'resources': resources,
+        'days': days,
+        'start_date': start_date,
+        'end_date': end_date,
+    })
+
+
+# API Views for Check-in/Check-out
+@login_required
+def api_checkin_booking(request, booking_id):
+    """API endpoint for checking in to a booking."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST method required'}, status=405)
+    
+    success, message = checkin_service.check_in_booking(
+        booking_id=booking_id,
+        user=request.user,
+        ip_address=request.META.get('REMOTE_ADDR'),
+        user_agent=request.META.get('HTTP_USER_AGENT', '')
+    )
+    
+    if success:
+        return JsonResponse({'success': True, 'message': message})
+    else:
+        return JsonResponse({'success': False, 'message': message}, status=400)
+
+
+@login_required  
+def api_checkout_booking(request, booking_id):
+    """API endpoint for checking out of a booking."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST method required'}, status=405)
+    
+    success, message = checkin_service.check_out_booking(
+        booking_id=booking_id,
+        user=request.user,
+        ip_address=request.META.get('REMOTE_ADDR'),
+        user_agent=request.META.get('HTTP_USER_AGENT', '')
+    )
+    
+    if success:
+        return JsonResponse({'success': True, 'message': message})
+    else:
+        return JsonResponse({'success': False, 'message': message}, status=400)

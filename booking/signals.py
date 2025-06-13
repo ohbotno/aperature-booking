@@ -14,7 +14,8 @@ the Free Software Foundation, either version 3 of the License, or
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth.models import User
-from .models import UserProfile, Booking, BookingHistory
+from .models import UserProfile, Booking, BookingHistory, Maintenance, NotificationPreference
+from .notifications import booking_notifications, maintenance_notifications
 
 
 @receiver(post_save, sender=User)
@@ -22,6 +23,8 @@ def create_user_profile(sender, instance, created, **kwargs):
     """Create UserProfile when User is created."""
     if created:
         UserProfile.objects.create(user=instance)
+        # Create default notification preferences
+        create_default_notification_preferences(instance)
 
 
 @receiver(post_save, sender=User)
@@ -46,6 +49,20 @@ def log_booking_changes(sender, instance, created, **kwargs):
                 'status': instance.status,
             }
         )
+        # Send booking creation notification
+        booking_notifications.booking_created(instance)
+    else:
+        # Handle status changes
+        try:
+            old_booking = Booking.objects.get(pk=instance.pk)
+            if old_booking.status != instance.status:
+                if instance.status == 'confirmed':
+                    booking_notifications.booking_confirmed(instance)
+                elif instance.status == 'cancelled':
+                    # Note: We'd need to track who cancelled it for proper notification
+                    booking_notifications.booking_cancelled(instance, instance.user)
+        except Booking.DoesNotExist:
+            pass
 
 
 @receiver(post_delete, sender=Booking)
@@ -62,3 +79,43 @@ def log_booking_deletion(sender, instance, **kwargs):
             'status': instance.status,
         }
     )
+
+
+@receiver(post_save, sender=Maintenance)
+def handle_maintenance_changes(sender, instance, created, **kwargs):
+    """Handle maintenance creation and updates."""
+    if created:
+        maintenance_notifications.maintenance_scheduled(instance)
+
+
+def create_default_notification_preferences(user):
+    """Create default notification preferences for a new user."""
+    default_preferences = [
+        ('booking_confirmed', 'email', True),
+        ('booking_confirmed', 'in_app', True),
+        ('booking_cancelled', 'email', True),
+        ('booking_cancelled', 'in_app', True),
+        ('booking_reminder', 'email', True),
+        ('approval_request', 'email', True),
+        ('approval_request', 'in_app', True),
+        ('approval_decision', 'email', True),
+        ('approval_decision', 'in_app', True),
+        ('maintenance_alert', 'email', True),
+        ('maintenance_alert', 'in_app', True),
+        ('conflict_detected', 'email', True),
+        ('conflict_detected', 'in_app', True),
+        ('quota_warning', 'email', True),
+    ]
+    
+    preferences_to_create = []
+    for notification_type, delivery_method, is_enabled in default_preferences:
+        preferences_to_create.append(
+            NotificationPreference(
+                user=user,
+                notification_type=notification_type,
+                delivery_method=delivery_method,
+                is_enabled=is_enabled
+            )
+        )
+    
+    NotificationPreference.objects.bulk_create(preferences_to_create, ignore_conflicts=True)

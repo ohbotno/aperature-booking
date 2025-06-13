@@ -117,7 +117,13 @@ python manage.py createsuperuser
 python manage.py loaddata fixtures/sample_data.json
 ```
 
-### 7. Run Development Server
+### 7. Set Up Notification System
+```bash
+# Create default email templates
+python manage.py create_email_templates
+```
+
+### 8. Run Development Server
 ```bash
 python manage.py runserver
 ```
@@ -212,30 +218,58 @@ ApprovalRule.objects.create(
 )
 ```
 
-## 📧 Notification Configuration
+## 📧 Notification System
 
-### Email Templates
-The system generates automatic notifications for:
-- Booking confirmations and cancellations
-- Approval requests and decisions
-- Maintenance window alerts
-- Usage quota warnings
+### Notification Types
+The system automatically sends notifications for:
+- **Booking Events**: Confirmations, cancellations, reminders
+- **Approval Workflow**: Requests and decisions
+- **Maintenance Alerts**: Scheduled maintenance affecting bookings
+- **Conflicts**: Booking conflicts and resolutions
+- **Usage Monitoring**: Quota warnings and limits
 
-### Calendar Integration
-- Automatic .ics file generation
-- Email calendar invitations
-- External calendar synchronization
-- Two-way calendar integration (planned)
+### Delivery Methods
+- **Email**: HTML and text templates with rich formatting
+- **In-App**: Dashboard notifications with read/unread status
+- **SMS**: Framework ready for SMS provider integration
 
-### SMTP Configuration
-```python
-# settings.py
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.yourdomain.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'bookings@yourdomain.com'
-EMAIL_HOST_PASSWORD = 'your-app-password'
+### Management Commands
+```bash
+# Set up email templates (run once during setup)
+python manage.py create_email_templates
+
+# Send pending notifications (run via cron job)
+python manage.py send_notifications
+
+# Send notifications + booking reminders
+python manage.py send_notifications --send-reminders --reminder-hours 24
+```
+
+### Production Cron Jobs
+```bash
+# Send notifications every 10 minutes
+*/10 * * * * cd /path/to/project && python manage.py send_notifications
+
+# Send daily reminders at 8 AM
+0 8 * * * cd /path/to/project && python manage.py send_notifications --send-reminders
+```
+
+### User Preferences
+Users can customize their notification preferences through:
+- Web interface: `/notifications/preferences/`
+- API endpoints for mobile/external applications
+- Admin panel for bulk preference management
+
+### Email Configuration
+Configure SMTP settings in environment variables:
+```env
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=your-email@domain.com
+EMAIL_HOST_PASSWORD=your-app-password
+DEFAULT_FROM_EMAIL=noreply@yourdomain.com
 ```
 
 ## 🏗️ Architecture Overview

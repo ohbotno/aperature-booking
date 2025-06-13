@@ -1,5 +1,6 @@
 <!-- booking/templates/booking/calendar.html -->
 {% extends 'booking/base.html' %}
+{% load static %}
 
 {% block title %}Calendar - Lab Booking System{% endblock %}
 
@@ -14,6 +15,9 @@
         </div>
         <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#bookingModal">
             <i class="bi bi-plus-circle"></i> New Booking
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="help-btn" title="Keyboard shortcuts (Press H or ?)">
+            <i class="bi bi-question-circle"></i>
         </button>
     </div>
 </div>
@@ -132,8 +136,96 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-warning" id="edit-booking" style="display: none;">Edit</button>
-                <button type="button" class="btn btn-danger" id="cancel-booking" style="display: none;">Cancel</button>
+                <a href="#" class="btn btn-primary" id="view-booking" style="display: none;">
+                    <i class="bi bi-eye"></i> View Details
+                </a>
+                <button type="button" class="btn btn-warning" id="edit-booking" style="display: none;">
+                    <i class="bi bi-pencil"></i> Edit
+                </button>
+                <button type="button" class="btn btn-info" id="duplicate-booking" style="display: none;">
+                    <i class="bi bi-files"></i> Duplicate
+                </button>
+                <button type="button" class="btn btn-danger" id="cancel-booking" style="display: none;">
+                    <i class="bi bi-trash"></i> Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Booking Modal -->
+<div class="modal fade" id="editBookingModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Booking</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-booking-form">
+                    {% csrf_token %}
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_title" class="form-label">Title *</label>
+                                <input type="text" class="form-control" id="edit_title" name="title" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_resource_id" class="form-label">Resource *</label>
+                                <select class="form-select" id="edit_resource_id" name="resource_id" required>
+                                    <option value="">Select Resource</option>
+                                    {% for resource in resources %}
+                                    <option value="{{ resource.id }}">{{ resource.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_start_time" class="form-label">Start Time *</label>
+                                <input type="datetime-local" class="form-control" id="edit_start_time" name="start_time" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="edit_end_time" class="form-label">End Time *</label>
+                                <input type="datetime-local" class="form-control" id="edit_end_time" name="end_time" required>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_description" class="form-label">Description</label>
+                        <textarea class="form-control" id="edit_description" name="description" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="edit_shared_with_group" name="shared_with_group">
+                        <label class="form-check-label" for="edit_shared_with_group">
+                            Share with group members
+                        </label>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="edit_notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="edit_notes" name="notes" rows="2"></textarea>
+                    </div>
+                    
+                    <div class="alert alert-info" id="edit-approval-notice" style="display: none;">
+                        <i class="bi bi-info-circle"></i> Changes to time or resource will require re-approval.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-edit-booking">
+                    <i class="bi bi-check-circle"></i> Update Booking
+                </button>
             </div>
         </div>
     </div>
@@ -141,6 +233,17 @@
 {% endblock %}
 
 {% block extra_js %}
+<!-- Load external dependencies -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Preload jsPDF from multiple CDNs for reliability -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" 
+        onerror="this.onerror=null; this.src='https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js'"></script>
+
+<!-- Load calendar enhancements -->
+<script src="{% static 'js/calendar-shortcuts.js' %}"></script>
+<script src="{% static 'js/calendar-pdf-export.js' %}"></script>
+<script src="{% static 'js/calendar-print-fallback.js' %}"></script>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const calendarEl = document.getElementById('calendar');
@@ -187,9 +290,62 @@ document.addEventListener('DOMContentLoaded', function() {
         select: function(selectionInfo) {
             const modal = new bootstrap.Modal(document.getElementById('bookingModal'));
             
-            // Set default times
-            document.getElementById('start_time').value = selectionInfo.startStr.slice(0, 16);
-            document.getElementById('end_time').value = selectionInfo.endStr.slice(0, 16);
+            // Calculate proper start and end times based on selection
+            const startDate = new Date(selectionInfo.start);
+            const endDate = new Date(selectionInfo.end);
+            
+            // Check if this is a multi-day selection
+            const isMultiDay = (endDate.getTime() - startDate.getTime()) > (24 * 60 * 60 * 1000);
+            
+            let startTime, endTime;
+            
+            if (isMultiDay) {
+                // For multi-day selections, set start to 9 AM on first day and end to 6 PM on last day
+                startTime = new Date(startDate);
+                startTime.setHours(9, 0, 0, 0);
+                
+                endTime = new Date(endDate);
+                endTime.setDate(endTime.getDate() - 1); // FullCalendar gives us day after selection ends
+                endTime.setHours(18, 0, 0, 0);
+            } else {
+                // For single day selections
+                if (selectionInfo.allDay) {
+                    // All-day selection - set to business hours (9 AM - 6 PM)
+                    startTime = new Date(startDate);
+                    startTime.setHours(9, 0, 0, 0);
+                    
+                    endTime = new Date(startDate);
+                    endTime.setHours(18, 0, 0, 0);
+                } else {
+                    // Time-specific selection (week/day view)
+                    startTime = new Date(selectionInfo.start);
+                    endTime = new Date(selectionInfo.end);
+                    
+                    // Ensure minimum 1-hour duration
+                    if (endTime.getTime() - startTime.getTime() < 60 * 60 * 1000) {
+                        endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+                    }
+                }
+            }
+            
+            // Format times for datetime-local input (YYYY-MM-DDTHH:MM)
+            const formatDateTime = (date) => {
+                return date.getFullYear() + '-' +
+                    String(date.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(date.getDate()).padStart(2, '0') + 'T' +
+                    String(date.getHours()).padStart(2, '0') + ':' +
+                    String(date.getMinutes()).padStart(2, '0');
+            };
+            
+            // Set the form values
+            document.getElementById('start_time').value = formatDateTime(startTime);
+            document.getElementById('end_time').value = formatDateTime(endTime);
+            
+            // Optional: Show a message for multi-day selections
+            if (isMultiDay) {
+                const dayCount = Math.ceil((endTime.getTime() - startTime.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+                console.log(`Multi-day selection: ${dayCount} days from ${startTime.toDateString()} to ${endTime.toDateString()}`);
+            }
             
             modal.show();
         },
@@ -211,6 +367,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     calendar.render();
+    
+    // Initialize calendar enhancements
+    const shortcuts = new CalendarShortcuts(calendar);
+    const pdfExport = new CalendarPDFExport(calendar);
+    const printFallback = new CalendarPrintFallback(calendar);
     
     // Toolbar buttons
     document.getElementById('today-btn').addEventListener('click', function() {
@@ -238,6 +399,11 @@ document.addEventListener('DOMContentLoaded', function() {
         calendar.changeView('timeGridDay');
     });
     
+    // Help button
+    document.getElementById('help-btn').addEventListener('click', function() {
+        shortcuts.toggleHelp();
+    });
+    
     // Resource filter
     document.getElementById('resource-filter').addEventListener('change', function() {
         calendar.refetchEvents();
@@ -246,6 +412,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Save booking
     document.getElementById('save-booking').addEventListener('click', function() {
         saveBooking();
+    });
+    
+    // Save edit booking
+    document.getElementById('save-edit-booking').addEventListener('click', function() {
+        saveEditBooking();
     });
     
     function saveBooking() {
@@ -332,9 +503,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 `;
                 
                 // Show/hide action buttons based on permissions
+                const viewBtn = document.getElementById('view-booking');
                 const editBtn = document.getElementById('edit-booking');
+                const duplicateBtn = document.getElementById('duplicate-booking');
                 const cancelBtn = document.getElementById('cancel-booking');
                 
+                // Always show view and duplicate buttons
+                viewBtn.style.display = 'inline-block';
+                viewBtn.href = `/booking/${bookingId}/`;
+                
+                duplicateBtn.style.display = 'inline-block';
+                duplicateBtn.onclick = () => window.location.href = `/booking/${bookingId}/duplicate/`;
+                
+                // Show edit button if user can edit
+                if (data.can_edit && ['pending', 'approved'].includes(data.status)) {
+                    editBtn.style.display = 'inline-block';
+                    editBtn.onclick = () => editBooking(data);
+                } else {
+                    editBtn.style.display = 'none';
+                }
+                
+                // Show cancel button if user can cancel
                 if (data.can_cancel) {
                     cancelBtn.style.display = 'inline-block';
                     cancelBtn.onclick = () => cancelBooking(bookingId);
