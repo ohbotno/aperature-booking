@@ -277,8 +277,8 @@ class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('student', 'Student'),
         ('researcher', 'Researcher'),
-        ('lecturer', 'Lecturer'),
-        ('lab_manager', 'Lab Manager'),
+        ('academic', 'Academic'),
+        ('technician', 'Technician'),
         ('sysadmin', 'System Administrator'),
     ]
     
@@ -347,7 +347,7 @@ class UserProfile(models.Model):
                 raise ValidationError("Student level should only be set for student role.")
         
         # Staff role validations
-        staff_roles = ['researcher', 'lecturer', 'lab_manager', 'sysadmin']
+        staff_roles = ['researcher', 'academic', 'technician', 'sysadmin']
         if self.role in staff_roles:
             if not self.staff_number:
                 raise ValidationError(f"Staff number is required for {self.get_role_display()} role.")
@@ -359,12 +359,12 @@ class UserProfile(models.Model):
     @property
     def can_book_priority(self):
         """Check if user has priority booking privileges."""
-        return self.role in ['lecturer', 'lab_manager', 'sysadmin']
+        return self.role in ['academic', 'technician', 'sysadmin']
 
     @property
     def can_create_recurring(self):
         """Check if user can create recurring bookings."""
-        return self.role in ['researcher', 'lecturer', 'lab_manager', 'sysadmin']
+        return self.role in ['researcher', 'academic', 'technician', 'sysadmin']
     
     @property
     def academic_path(self):

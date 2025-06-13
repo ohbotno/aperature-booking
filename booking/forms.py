@@ -128,7 +128,7 @@ class UserRegistrationForm(UserCreationForm):
                 raise forms.ValidationError("Student level is required for student role.")
         else:
             # Staff roles need staff number
-            if role in ['researcher', 'lecturer', 'lab_manager']:
+            if role in ['researcher', 'academic', 'technician']:
                 if not staff_number:
                     raise forms.ValidationError(f"Staff number is required for {dict(UserProfile.ROLE_CHOICES)[role]} role.")
         
@@ -290,7 +290,7 @@ class UserProfileForm(forms.ModelForm):
                 raise forms.ValidationError("Student level is required for student role.")
         else:
             # Staff roles need staff number
-            if role in ['researcher', 'lecturer', 'lab_manager', 'sysadmin']:
+            if role in ['researcher', 'academic', 'technician', 'sysadmin']:
                 if not staff_number:
                     raise forms.ValidationError(f"Staff number is required for {dict(UserProfile.ROLE_CHOICES)[role]} role.")
         

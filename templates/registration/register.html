@@ -176,7 +176,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show appropriate fields based on role
         if (role === 'student') {
             studentFields.style.display = 'block';
-        } else if (['researcher', 'lecturer', 'lab_manager'].includes(role)) {
+        } else if (['researcher', 'academic', 'technician'].includes(role)) {
             staffFields.style.display = 'block';
         }
     }
@@ -254,7 +254,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 showValidationError(studentLevel, 'Student level is required for students.');
                 isValid = false;
             }
-        } else if (['researcher', 'lecturer', 'lab_manager'].includes(role)) {
+        } else if (['researcher', 'academic', 'technician'].includes(role)) {
             const staffNumber = document.getElementById('id_staff_number');
             
             if (!staffNumber.value.trim()) {
