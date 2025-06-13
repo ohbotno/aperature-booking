@@ -381,14 +381,30 @@ document.addEventListener('DOMContentLoaded', function() {
             
             let startTime, endTime;
             
+            const now = new Date();
+            
             if (isMultiDay) {
                 // For multi-day selections, set start to 9 AM on first day and end to 6 PM on last day
                 startTime = new Date(startDate);
                 startTime.setHours(9, 0, 0, 0);
                 
+                // FullCalendar gives us day after selection ends, so subtract 1 day for actual end date
                 endTime = new Date(endDate);
-                endTime.setDate(endTime.getDate() - 1); // FullCalendar gives us day after selection ends
+                endTime.setDate(endTime.getDate() - 1);
                 endTime.setHours(18, 0, 0, 0);
+                
+                // If start time is in the past, adjust only the time, keep the selected date
+                if (startTime < now && startTime.toDateString() === now.toDateString()) {
+                    // Only adjust if it's today and time has passed
+                    const nextHour = new Date(now);
+                    nextHour.setMinutes(0, 0, 0);
+                    nextHour.setHours(nextHour.getHours() + 1);
+                    
+                    if (nextHour.getHours() < 18) {
+                        startTime.setHours(nextHour.getHours(), 0, 0, 0);
+                    }
+                    // If it's past business hours today, keep 9 AM tomorrow as planned
+                }
             } else {
                 // For single day selections
                 if (selectionInfo.allDay) {
@@ -398,10 +414,37 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     endTime = new Date(startDate);
                     endTime.setHours(18, 0, 0, 0);
+                    
+                    // If start time is in the past and it's today, adjust only the time
+                    if (startTime < now && startTime.toDateString() === now.toDateString()) {
+                        const nextHour = new Date(now);
+                        nextHour.setMinutes(0, 0, 0);
+                        nextHour.setHours(nextHour.getHours() + 1);
+                        
+                        if (nextHour.getHours() < 18) {
+                            startTime.setHours(nextHour.getHours(), 0, 0, 0);
+                            // Keep end time at 6 PM unless we need more time
+                            if (nextHour.getHours() >= 17) {
+                                endTime.setHours(nextHour.getHours() + 1, 0, 0, 0);
+                            }
+                        }
+                        // If it's past business hours today, keep the selected date with 9 AM start
+                    }
                 } else {
                     // Time-specific selection (week/day view)
                     startTime = new Date(selectionInfo.start);
                     endTime = new Date(selectionInfo.end);
+                    
+                    // Only adjust if the selected time is in the past and it's today
+                    if (startTime < now && startTime.toDateString() === now.toDateString()) {
+                        const nextHour = new Date(now);
+                        nextHour.setMinutes(0, 0, 0);
+                        nextHour.setHours(nextHour.getHours() + 1);
+                        
+                        // Preserve the selected date, just adjust the time
+                        startTime.setHours(nextHour.getHours(), 0, 0, 0);
+                        endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // 1 hour later
+                    }
                     
                     // Ensure minimum 1-hour duration
                     if (endTime.getTime() - startTime.getTime() < 60 * 60 * 1000) {
@@ -501,9 +544,82 @@ document.addEventListener('DOMContentLoaded', function() {
         saveEditBooking();
     });
     
+    // Handle modal show event to set default times when opening without selection
+    document.getElementById('bookingModal').addEventListener('show.bs.modal', function(event) {
+        // Clear any existing errors when opening modal
+        clearFormErrors();
+        
+        const startTimeInput = document.getElementById('start_time');
+        const endTimeInput = document.getElementById('end_time');
+        
+        // Only set defaults if fields are empty (not triggered by calendar selection)
+        if (!startTimeInput.value || !endTimeInput.value) {
+            const now = new Date();
+            let defaultStart = new Date(now);
+            
+            // Set to next available hour
+            defaultStart.setMinutes(0, 0, 0);
+            defaultStart.setHours(defaultStart.getHours() + 1);
+            
+            // Ensure it's within business hours
+            if (defaultStart.getHours() < 9) {
+                defaultStart.setHours(9, 0, 0, 0);
+            } else if (defaultStart.getHours() >= 18) {
+                // Move to next day at 9 AM
+                defaultStart.setDate(defaultStart.getDate() + 1);
+                defaultStart.setHours(9, 0, 0, 0);
+            }
+            
+            const defaultEnd = new Date(defaultStart.getTime() + 60 * 60 * 1000); // 1 hour later
+            
+            // Format times for datetime-local input
+            const formatDateTime = (date) => {
+                return date.getFullYear() + '-' +
+                    String(date.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(date.getDate()).padStart(2, '0') + 'T' +
+                    String(date.getHours()).padStart(2, '0') + ':' +
+                    String(date.getMinutes()).padStart(2, '0');
+            };
+            
+            startTimeInput.value = formatDateTime(defaultStart);
+            endTimeInput.value = formatDateTime(defaultEnd);
+        }
+    });
+    
     function saveBooking() {
         const form = document.getElementById('booking-form');
         const formData = new FormData(form);
+        
+        // Clear any existing errors first
+        clearFormErrors();
+        
+        // Client-side validation for past dates
+        const startTime = new Date(document.getElementById('start_time').value);
+        const endTime = new Date(document.getElementById('end_time').value);
+        const now = new Date();
+        
+        // Check if booking is in the past (with 5 minute buffer)
+        if (startTime < new Date(now.getTime() - 5 * 60 * 1000)) {
+            showModalError('Cannot book in the past. Please select a future date and time.');
+            return;
+        }
+        
+        // Check if end time is before start time
+        if (endTime <= startTime) {
+            showModalError('End time must be after start time.');
+            return;
+        }
+        
+        // Check business hours
+        if (startTime.getHours() < 9 || startTime.getHours() >= 18) {
+            showModalError('Booking start time must be between 09:00 and 18:00.');
+            return;
+        }
+        
+        if (endTime.getHours() > 18 || (endTime.getHours() === 18 && endTime.getMinutes() > 0)) {
+            showModalError('Booking must end by 18:00.');
+            return;
+        }
         
         // Convert FormData to JSON
         const data = {};
@@ -515,6 +631,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
+        // Show loading state
+        const saveBtn = document.getElementById('save-booking');
+        const originalText = saveBtn.innerHTML;
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creating...';
+        
         fetch('/api/bookings/', {
             method: 'POST',
             headers: {
@@ -523,7 +645,12 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify(data)
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => Promise.reject(err));
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.id) {
                 // Success
@@ -531,16 +658,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 calendar.refetchEvents();
                 form.reset();
                 
-                // Show success message
+                // Show success message on main page
                 showAlert('Booking created successfully!', 'success');
             } else {
-                // Handle validation errors
+                // Handle validation errors in modal
                 showFormErrors(data);
             }
         })
         .catch(error => {
             console.error('Error:', error);
-            showAlert('Error creating booking. Please try again.', 'danger');
+            
+            // Show user-friendly error messages in modal
+            if (error && typeof error === 'object') {
+                if (error.__all__ && error.__all__.includes('Cannot book in the past.')) {
+                    showModalError('Cannot book in the past. Please select a future date and time.');
+                } else if (error.non_field_errors) {
+                    showModalError(Array.isArray(error.non_field_errors) ? error.non_field_errors[0] : error.non_field_errors);
+                } else {
+                    showFormErrors(error);
+                }
+            } else {
+                showModalError('Error creating booking. Please try again.');
+            }
+        })
+        .finally(() => {
+            // Reset button state
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = originalText;
         });
     }
     
@@ -706,12 +850,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function showFormErrors(errors) {
         // Clear previous errors
-        document.querySelectorAll('.is-invalid').forEach(el => {
-            el.classList.remove('is-invalid');
-        });
-        document.querySelectorAll('.invalid-feedback').forEach(el => {
-            el.remove();
-        });
+        clearFormErrors();
         
         // Show new errors
         for (const [field, messages] of Object.entries(errors)) {
@@ -724,6 +863,52 @@ document.addEventListener('DOMContentLoaded', function() {
                 input.parentNode.appendChild(feedback);
             }
         }
+    }
+    
+    function clearFormErrors() {
+        // Clear previous errors
+        document.querySelectorAll('.is-invalid').forEach(el => {
+            el.classList.remove('is-invalid');
+        });
+        document.querySelectorAll('.invalid-feedback').forEach(el => {
+            el.remove();
+        });
+        
+        // Clear modal error messages
+        const modalError = document.getElementById('modal-error-message');
+        if (modalError) {
+            modalError.remove();
+        }
+    }
+    
+    function showModalError(message) {
+        // Clear any existing modal error
+        const existingError = document.getElementById('modal-error-message');
+        if (existingError) {
+            existingError.remove();
+        }
+        
+        // Create error alert
+        const errorDiv = document.createElement('div');
+        errorDiv.id = 'modal-error-message';
+        errorDiv.className = 'alert alert-danger alert-dismissible fade show mb-3';
+        errorDiv.innerHTML = `
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        // Insert at the top of the modal body
+        const modalBody = document.querySelector('#bookingModal .modal-body');
+        modalBody.insertBefore(errorDiv, modalBody.firstChild);
+        
+        // Auto-dismiss after 8 seconds
+        setTimeout(() => {
+            if (errorDiv.parentNode) {
+                const alert = new bootstrap.Alert(errorDiv);
+                alert.close();
+            }
+        }, 8000);
     }
 });
 </script>
