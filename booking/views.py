@@ -23,7 +23,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
-from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, WaitingListNotification
+from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, WaitingListNotification, Faculty, College, Department
 from .forms import UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, SaveAsTemplateForm
 from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
@@ -2093,3 +2093,19 @@ def api_checkout_booking(request, booking_id):
         return JsonResponse({'success': True, 'message': message})
     else:
         return JsonResponse({'success': False, 'message': message}, status=400)
+
+
+def ajax_load_colleges(request):
+    """AJAX view to load colleges based on faculty selection."""
+    faculty_id = request.GET.get('faculty_id')
+    colleges = College.objects.filter(faculty_id=faculty_id, is_active=True).order_by('name')
+    data = [{'id': college.id, 'name': college.name} for college in colleges]
+    return JsonResponse({'colleges': data})
+
+
+def ajax_load_departments(request):
+    """AJAX view to load departments based on college selection."""
+    college_id = request.GET.get('college_id')
+    departments = Department.objects.filter(college_id=college_id, is_active=True).order_by('name')
+    data = [{'id': department.id, 'name': department.name} for department in departments]
+    return JsonResponse({'departments': data})

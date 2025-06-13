@@ -222,6 +222,56 @@ class EmailVerificationToken(models.Model):
         return f"Verification token for {self.user.username}"
 
 
+class Faculty(models.Model):
+    """Academic faculties."""
+    name = models.CharField(max_length=200, unique=True)
+    code = models.CharField(max_length=10, unique=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'booking_faculty'
+        verbose_name_plural = 'Faculties'
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.name
+
+
+class College(models.Model):
+    """Academic colleges within faculties."""
+    name = models.CharField(max_length=200)
+    code = models.CharField(max_length=10)
+    faculty = models.ForeignKey(Faculty, on_delete=models.CASCADE, related_name='colleges')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'booking_college'
+        unique_together = [['faculty', 'code'], ['faculty', 'name']]
+        ordering = ['faculty__name', 'name']
+    
+    def __str__(self):
+        return f"{self.name} ({self.faculty.name})"
+
+
+class Department(models.Model):
+    """Academic departments within colleges."""
+    name = models.CharField(max_length=200)
+    code = models.CharField(max_length=10)
+    college = models.ForeignKey(College, on_delete=models.CASCADE, related_name='departments')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'booking_department'
+        unique_together = [['college', 'code'], ['college', 'name']]
+        ordering = ['college__faculty__name', 'college__name', 'name']
+    
+    def __str__(self):
+        return f"{self.name} ({self.college.name})"
+
+
 class UserProfile(models.Model):
     """Extended user profile with role and group information."""
     ROLE_CHOICES = [
@@ -232,11 +282,34 @@ class UserProfile(models.Model):
         ('sysadmin', 'System Administrator'),
     ]
     
+    STUDENT_LEVEL_CHOICES = [
+        ('undergraduate', 'Undergraduate'),
+        ('postgraduate', 'Postgraduate'),
+    ]
+    
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='student')
-    group = models.CharField(max_length=100, blank=True)
-    college = models.CharField(max_length=100, blank=True)
-    student_id = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Academic structure
+    faculty = models.ForeignKey(Faculty, on_delete=models.SET_NULL, null=True, blank=True)
+    college = models.ForeignKey(College, on_delete=models.SET_NULL, null=True, blank=True)
+    department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    # Research/academic group
+    group = models.CharField(max_length=100, blank=True, help_text="Research group or class")
+    
+    # Role-specific fields
+    student_id = models.CharField(max_length=50, blank=True, null=True, help_text="Student ID number")
+    student_level = models.CharField(
+        max_length=20, 
+        choices=STUDENT_LEVEL_CHOICES, 
+        blank=True, 
+        null=True,
+        help_text="Academic level (for students only)"
+    )
+    staff_number = models.CharField(max_length=50, blank=True, null=True, help_text="Staff ID number")
+    
+    # Contact and system fields
     phone = models.CharField(max_length=20, blank=True)
     training_level = models.PositiveIntegerField(default=1)
     is_inducted = models.BooleanField(default=False)
@@ -249,6 +322,39 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name()} ({self.role})"
+    
+    def clean(self):
+        """Validate the user profile data."""
+        super().clean()
+        
+        # Validate academic hierarchy
+        if self.department and not self.college:
+            raise ValidationError("College is required when department is specified.")
+        if self.college and not self.faculty:
+            raise ValidationError("Faculty is required when college is specified.")
+        if self.department and self.department.college != self.college:
+            raise ValidationError("Department must belong to the selected college.")
+        if self.college and self.college.faculty != self.faculty:
+            raise ValidationError("College must belong to the selected faculty.")
+        
+        # Role-specific validations
+        if self.role == 'student':
+            if not self.student_level:
+                raise ValidationError("Student level is required for student role.")
+        else:
+            # Clear student-specific fields for non-students
+            if self.student_level:
+                raise ValidationError("Student level should only be set for student role.")
+        
+        # Staff role validations
+        staff_roles = ['researcher', 'lecturer', 'lab_manager', 'sysadmin']
+        if self.role in staff_roles:
+            if not self.staff_number:
+                raise ValidationError(f"Staff number is required for {self.get_role_display()} role.")
+        else:
+            # Clear staff-specific fields for non-staff
+            if self.staff_number:
+                raise ValidationError("Staff number should only be set for staff roles.")
 
     @property
     def can_book_priority(self):
@@ -259,6 +365,18 @@ class UserProfile(models.Model):
     def can_create_recurring(self):
         """Check if user can create recurring bookings."""
         return self.role in ['researcher', 'lecturer', 'lab_manager', 'sysadmin']
+    
+    @property
+    def academic_path(self):
+        """Get full academic path as string."""
+        parts = []
+        if self.faculty:
+            parts.append(self.faculty.name)
+        if self.college:
+            parts.append(self.college.name)
+        if self.department:
+            parts.append(self.department.name)
+        return " > ".join(parts) if parts else "Not specified"
 
 
 class Resource(models.Model):

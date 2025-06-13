@@ -7,52 +7,140 @@ from django.utils.html import strip_tags
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
-from .models import UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate
+from .models import UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate, Faculty, College, Department
 from .recurring import RecurringBookingPattern
 
 
 class UserRegistrationForm(UserCreationForm):
     """Extended user registration form with profile fields."""
-    email = forms.EmailField(required=True)
+    # Use email as username
+    email = forms.EmailField(
+        required=True,
+        label="Email Address",
+        help_text="This will be your username for logging in"
+    )
     first_name = forms.CharField(max_length=30, required=True)
     last_name = forms.CharField(max_length=30, required=True)
+    
     # Exclude sysadmin role from registration - only admins can create sysadmins
     role = forms.ChoiceField(
         choices=[choice for choice in UserProfile.ROLE_CHOICES if choice[0] != 'sysadmin'],
         initial='student'
     )
+    
+    # Academic structure
+    faculty = forms.ModelChoiceField(
+        queryset=Faculty.objects.filter(is_active=True),
+        required=False,
+        empty_label="Select Faculty"
+    )
+    college = forms.ModelChoiceField(
+        queryset=College.objects.none(),  # Will be populated dynamically
+        required=False,
+        empty_label="Select College"
+    )
+    department = forms.ModelChoiceField(
+        queryset=Department.objects.none(),  # Will be populated dynamically
+        required=False,
+        empty_label="Select Department"
+    )
+    
+    # Research/academic group
     group = forms.CharField(max_length=100, required=False, help_text="Research group or class")
-    college = forms.CharField(max_length=100, required=False)
-    student_id = forms.CharField(max_length=50, required=False, help_text="Student ID (if applicable)")
+    
+    # Role-specific fields
+    student_id = forms.CharField(
+        max_length=50, 
+        required=False, 
+        label="Student ID",
+        help_text="Required for students"
+    )
+    student_level = forms.ChoiceField(
+        choices=[('', 'Select Level')] + UserProfile.STUDENT_LEVEL_CHOICES,
+        required=False,
+        label="Student Level",
+        help_text="Required for students"
+    )
+    staff_number = forms.CharField(
+        max_length=50, 
+        required=False, 
+        label="Staff Number",
+        help_text="Required for staff members"
+    )
+    
+    # Contact info
     phone = forms.CharField(max_length=20, required=False)
 
     class Meta:
         model = User
-        fields = ('username', 'first_name', 'last_name', 'email', 'password1', 'password2')
+        fields = ('first_name', 'last_name', 'email', 'password1', 'password2')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['email'].widget.attrs.update({'class': 'form-control'})
-        self.fields['first_name'].widget.attrs.update({'class': 'form-control'})
-        self.fields['last_name'].widget.attrs.update({'class': 'form-control'})
-        self.fields['username'].widget.attrs.update({'class': 'form-control'})
-        self.fields['password1'].widget.attrs.update({'class': 'form-control'})
-        self.fields['password2'].widget.attrs.update({'class': 'form-control'})
-        self.fields['role'].widget.attrs.update({'class': 'form-control'})
-        self.fields['group'].widget.attrs.update({'class': 'form-control'})
-        self.fields['college'].widget.attrs.update({'class': 'form-control'})
-        self.fields['student_id'].widget.attrs.update({'class': 'form-control'})
-        self.fields['phone'].widget.attrs.update({'class': 'form-control'})
+        
+        # Remove username field since we're using email
+        if 'username' in self.fields:
+            del self.fields['username']
+        
+        # Add CSS classes to all fields
+        for field_name, field in self.fields.items():
+            field.widget.attrs.update({'class': 'form-control'})
+        
+        # Set up dynamic choices for college and department
+        if 'faculty' in self.data:
+            try:
+                faculty_id = int(self.data.get('faculty'))
+                self.fields['college'].queryset = College.objects.filter(
+                    faculty_id=faculty_id, is_active=True
+                ).order_by('name')
+            except (ValueError, TypeError):
+                pass
+        
+        if 'college' in self.data:
+            try:
+                college_id = int(self.data.get('college'))
+                self.fields['department'].queryset = Department.objects.filter(
+                    college_id=college_id, is_active=True
+                ).order_by('name')
+            except (ValueError, TypeError):
+                pass
 
     def clean_email(self):
         email = self.cleaned_data.get('email')
         if User.objects.filter(email=email).exists():
             raise forms.ValidationError("A user with this email already exists.")
+        if User.objects.filter(username=email).exists():
+            raise forms.ValidationError("A user with this email already exists.")
         return email
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        role = cleaned_data.get('role')
+        student_id = cleaned_data.get('student_id')
+        student_level = cleaned_data.get('student_level')
+        staff_number = cleaned_data.get('staff_number')
+        
+        # Role-specific validation
+        if role == 'student':
+            if not student_id:
+                raise forms.ValidationError("Student ID is required for student role.")
+            if not student_level:
+                raise forms.ValidationError("Student level is required for student role.")
+        else:
+            # Staff roles need staff number
+            if role in ['researcher', 'lecturer', 'lab_manager']:
+                if not staff_number:
+                    raise forms.ValidationError(f"Staff number is required for {dict(UserProfile.ROLE_CHOICES)[role]} role.")
+        
+        return cleaned_data
 
     def save(self, commit=True):
         user = super().save(commit=False)
-        user.email = self.cleaned_data['email']
+        email = self.cleaned_data['email']
+        
+        # Use email as username
+        user.username = email
+        user.email = email
         user.first_name = self.cleaned_data['first_name']
         user.last_name = self.cleaned_data['last_name']
         user.is_active = False  # Deactivate until email verification
@@ -62,9 +150,13 @@ class UserRegistrationForm(UserCreationForm):
             profile = UserProfile.objects.create(
                 user=user,
                 role=self.cleaned_data['role'],
+                faculty=self.cleaned_data.get('faculty'),
+                college=self.cleaned_data.get('college'),
+                department=self.cleaned_data.get('department'),
                 group=self.cleaned_data.get('group', ''),
-                college=self.cleaned_data.get('college', ''),
-                student_id=self.cleaned_data.get('student_id', ''),
+                student_id=self.cleaned_data.get('student_id', '') if self.cleaned_data['role'] == 'student' else '',
+                student_level=self.cleaned_data.get('student_level', '') if self.cleaned_data['role'] == 'student' else '',
+                staff_number=self.cleaned_data.get('staff_number', '') if self.cleaned_data['role'] != 'student' else '',
                 phone=self.cleaned_data.get('phone', ''),
                 email_verified=False
             )
@@ -113,12 +205,19 @@ class UserProfileForm(forms.ModelForm):
 
     class Meta:
         model = UserProfile
-        fields = ['role', 'group', 'college', 'student_id', 'phone']
+        fields = [
+            'role', 'faculty', 'college', 'department', 'group', 
+            'student_id', 'student_level', 'staff_number', 'phone'
+        ]
         widgets = {
             'role': forms.Select(attrs={'class': 'form-control'}),
+            'faculty': forms.Select(attrs={'class': 'form-control'}),
+            'college': forms.Select(attrs={'class': 'form-control'}),
+            'department': forms.Select(attrs={'class': 'form-control'}),
             'group': forms.TextInput(attrs={'class': 'form-control'}),
-            'college': forms.TextInput(attrs={'class': 'form-control'}),
             'student_id': forms.TextInput(attrs={'class': 'form-control'}),
+            'student_level': forms.Select(attrs={'class': 'form-control'}),
+            'staff_number': forms.TextInput(attrs={'class': 'form-control'}),
             'phone': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
@@ -145,13 +244,73 @@ class UserProfileForm(forms.ModelForm):
                 # Filter out sysadmin role for non-admin users
                 role_choices = [choice for choice in UserProfile.ROLE_CHOICES if choice[0] != 'sysadmin']
                 self.fields['role'].choices = role_choices
+        
+        # Set up dynamic choices for college and department based on existing data
+        if self.instance.pk:
+            if self.instance.faculty:
+                self.fields['college'].queryset = College.objects.filter(
+                    faculty=self.instance.faculty, is_active=True
+                ).order_by('name')
+            if self.instance.college:
+                self.fields['department'].queryset = Department.objects.filter(
+                    college=self.instance.college, is_active=True
+                ).order_by('name')
+        
+        # Set up dynamic choices based on form data (for validation)
+        if 'faculty' in self.data:
+            try:
+                faculty_id = int(self.data.get('faculty'))
+                self.fields['college'].queryset = College.objects.filter(
+                    faculty_id=faculty_id, is_active=True
+                ).order_by('name')
+            except (ValueError, TypeError):
+                pass
+        
+        if 'college' in self.data:
+            try:
+                college_id = int(self.data.get('college'))
+                self.fields['department'].queryset = Department.objects.filter(
+                    college_id=college_id, is_active=True
+                ).order_by('name')
+            except (ValueError, TypeError):
+                pass
+
+    def clean(self):
+        cleaned_data = super().clean()
+        role = cleaned_data.get('role')
+        student_id = cleaned_data.get('student_id')
+        student_level = cleaned_data.get('student_level')
+        staff_number = cleaned_data.get('staff_number')
+        
+        # Role-specific validation
+        if role == 'student':
+            if not student_id:
+                raise forms.ValidationError("Student ID is required for student role.")
+            if not student_level:
+                raise forms.ValidationError("Student level is required for student role.")
+        else:
+            # Staff roles need staff number
+            if role in ['researcher', 'lecturer', 'lab_manager', 'sysadmin']:
+                if not staff_number:
+                    raise forms.ValidationError(f"Staff number is required for {dict(UserProfile.ROLE_CHOICES)[role]} role.")
+        
+        return cleaned_data
 
     def save(self, commit=True):
         profile = super().save(commit=False)
         if commit:
+            # Update username to match email if email changed
+            old_email = profile.user.email
+            new_email = self.cleaned_data['email']
+            
             profile.user.first_name = self.cleaned_data['first_name']
             profile.user.last_name = self.cleaned_data['last_name']
-            profile.user.email = self.cleaned_data['email']
+            profile.user.email = new_email
+            
+            # Update username if email changed
+            if old_email != new_email:
+                profile.user.username = new_email
+            
             profile.user.save()
             profile.save()
         return profile

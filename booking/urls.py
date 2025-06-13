@@ -93,4 +93,8 @@ urlpatterns = [
     # Check-in/Check-out API URLs
     path('api/booking/<int:booking_id>/checkin/', views.api_checkin_booking, name='api_checkin'),
     path('api/booking/<int:booking_id>/checkout/', views.api_checkout_booking, name='api_checkout'),
+    
+    # AJAX URLs for dynamic form loading
+    path('ajax/load-colleges/', views.ajax_load_colleges, name='ajax_load_colleges'),
+    path('ajax/load-departments/', views.ajax_load_departments, name='ajax_load_departments'),
 ]

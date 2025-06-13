@@ -19,7 +19,8 @@ from .models import (
     ApprovalRule, Maintenance, BookingHistory,
     Notification, NotificationPreference, EmailTemplate,
     WaitingListEntry, WaitingListNotification,
-    CheckInOutEvent, UsageAnalytics
+    CheckInOutEvent, UsageAnalytics,
+    Faculty, College, Department
 )
 
 
@@ -37,12 +38,57 @@ admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
 
 
+@admin.register(Faculty)
+class FacultyAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'is_active', 'created_at')
+    list_filter = ('is_active',)
+    search_fields = ('name', 'code')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(College)
+class CollegeAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'faculty', 'is_active', 'created_at')
+    list_filter = ('faculty', 'is_active')
+    search_fields = ('name', 'code', 'faculty__name')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'college', 'is_active', 'created_at')
+    list_filter = ('college__faculty', 'college', 'is_active')
+    search_fields = ('name', 'code', 'college__name', 'college__faculty__name')
+    readonly_fields = ('created_at',)
+
+
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'role', 'group', 'college', 'training_level', 'is_inducted')
-    list_filter = ('role', 'group', 'college', 'training_level', 'is_inducted')
-    search_fields = ('user__username', 'user__email', 'user__first_name', 'user__last_name', 'student_id')
+    list_display = ('user', 'role', 'academic_path', 'student_level', 'training_level', 'is_inducted')
+    list_filter = ('role', 'faculty', 'college', 'department', 'student_level', 'training_level', 'is_inducted')
+    search_fields = (
+        'user__username', 'user__email', 'user__first_name', 'user__last_name', 
+        'student_id', 'staff_number', 'faculty__name', 'college__name', 'department__name'
+    )
     readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('User Information', {
+            'fields': ('user', 'role')
+        }),
+        ('Academic Structure', {
+            'fields': ('faculty', 'college', 'department', 'group')
+        }),
+        ('Role-Specific Information', {
+            'fields': ('student_id', 'student_level', 'staff_number')
+        }),
+        ('System Information', {
+            'fields': ('training_level', 'is_inducted', 'email_verified', 'phone')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
 
 
 @admin.register(Resource)
