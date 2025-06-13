@@ -1253,7 +1253,7 @@ def profile_view(request):
         profile = UserProfile.objects.create(user=request.user)
     
     if request.method == 'POST':
-        form = UserProfileForm(request.POST, instance=profile)
+        form = UserProfileForm(request.POST, instance=profile, current_user=request.user)
         if form.is_valid():
             form.save()
             messages.success(request, 'Profile updated successfully.')
@@ -1261,7 +1261,7 @@ def profile_view(request):
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
-        form = UserProfileForm(instance=profile)
+        form = UserProfileForm(instance=profile, current_user=request.user)
     
     return render(request, 'registration/profile.html', {'form': form, 'profile': profile})
 

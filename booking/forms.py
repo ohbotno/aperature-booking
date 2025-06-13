@@ -16,7 +16,11 @@ class UserRegistrationForm(UserCreationForm):
     email = forms.EmailField(required=True)
     first_name = forms.CharField(max_length=30, required=True)
     last_name = forms.CharField(max_length=30, required=True)
-    role = forms.ChoiceField(choices=UserProfile.ROLE_CHOICES, initial='student')
+    # Exclude sysadmin role from registration - only admins can create sysadmins
+    role = forms.ChoiceField(
+        choices=[choice for choice in UserProfile.ROLE_CHOICES if choice[0] != 'sysadmin'],
+        initial='student'
+    )
     group = forms.CharField(max_length=100, required=False, help_text="Research group or class")
     college = forms.CharField(max_length=100, required=False)
     student_id = forms.CharField(max_length=50, required=False, help_text="Student ID (if applicable)")
@@ -119,7 +123,10 @@ class UserProfileForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        # Extract current user to check permissions
+        self.current_user = kwargs.pop('current_user', None)
         super().__init__(*args, **kwargs)
+        
         if self.instance and self.instance.user:
             self.fields['first_name'].initial = self.instance.user.first_name
             self.fields['last_name'].initial = self.instance.user.last_name
@@ -128,6 +135,16 @@ class UserProfileForm(forms.ModelForm):
         self.fields['first_name'].widget.attrs.update({'class': 'form-control'})
         self.fields['last_name'].widget.attrs.update({'class': 'form-control'})
         self.fields['email'].widget.attrs.update({'class': 'form-control'})
+        
+        # Restrict role choices based on current user permissions
+        if self.current_user:
+            # Only superusers or sysadmins can assign sysadmin role
+            if not (self.current_user.is_superuser or 
+                    (hasattr(self.current_user, 'userprofile') and 
+                     self.current_user.userprofile.role == 'sysadmin')):
+                # Filter out sysadmin role for non-admin users
+                role_choices = [choice for choice in UserProfile.ROLE_CHOICES if choice[0] != 'sysadmin']
+                self.fields['role'].choices = role_choices
 
     def save(self, commit=True):
         profile = super().save(commit=False)
