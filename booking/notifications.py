@@ -1,9 +1,9 @@
 # booking/notifications.py
 """
-Notification service for the Lab Booking System.
+Notification service for the Aperture Booking.
 
-This file is part of the Lab Booking System.
-Copyright (C) 2025 Lab Booking System Contributors
+This file is part of the Aperture Booking.
+Copyright (C) 2025 Aperture Booking Contributors
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -193,7 +193,7 @@ class NotificationService:
             'user': notification.user,
             'user_profile': getattr(notification.user, 'userprofile', None),
             'notification': notification,
-            'site_name': getattr(settings, 'SITE_NAME', 'Lab Booking System'),
+            'site_name': getattr(settings, 'SITE_NAME', 'Aperture Booking'),
             'site_url': getattr(settings, 'SITE_URL', 'http://localhost:8000'),
         }
         

@@ -1,5 +1,5 @@
 """
-Recurring booking logic for the Lab Booking System.
+Recurring booking logic for the Aperture Booking.
 
 This module handles the creation and management of recurring bookings,
 including pattern validation, conflict detection, and booking generation.

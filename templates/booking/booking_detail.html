@@ -1,7 +1,7 @@
 {% extends 'booking/base.html' %}
 {% load static %}
 
-{% block title %}Booking Details - Lab Booking System{% endblock %}
+{% block title %}Booking Details - Aperture Booking{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -101,7 +101,7 @@
 
                 <!-- Action buttons -->
                 <div class="d-flex gap-2 mb-3">
-                    {% if booking.user == request.user or user.userprofile.role in 'lab_manager,sysadmin' %}
+                    {% if booking.user == request.user or user.userprofile.role in 'technician,sysadmin' %}
                         {% if booking.can_be_cancelled %}
                             <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#cancelModal">
                                 <i class="bi bi-x-circle"></i> Cancel Booking
@@ -121,7 +121,7 @@
                         {% endif %}
                     {% endif %}
                     
-                    {% if user.userprofile.role in 'lab_manager,sysadmin' and booking.status == 'pending' %}
+                    {% if user.userprofile.role in 'technician,sysadmin' and booking.status == 'pending' %}
                         <button type="button" class="btn btn-success" onclick="approveBooking()">
                             <i class="bi bi-check-circle"></i> Approve
                         </button>

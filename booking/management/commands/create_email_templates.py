@@ -2,8 +2,8 @@
 """
 Management command to create default email templates.
 
-This file is part of the Lab Booking System.
-Copyright (C) 2025 Lab Booking System Contributors
+This file is part of the Aperture Booking.
+Copyright (C) 2025 Aperture Booking Contributors
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -44,7 +44,7 @@ class Command(BaseCommand):
                     
                     <p>Please arrive on time and follow all safety protocols.</p>
                     
-                    <p>If you need to modify or cancel this booking, please log into the <a href="{{ site_url }}">Lab Booking System</a>.</p>
+                    <p>If you need to modify or cancel this booking, please log into the <a href="{{ site_url }}">Aperture Booking</a>.</p>
                     
                     <p>Best regards,<br>
                     {{ site_name }} Team</p>
@@ -65,7 +65,7 @@ class Command(BaseCommand):
                 
                 Please arrive on time and follow all safety protocols.
                 
-                If you need to modify or cancel this booking, please log into the Lab Booking System at {{ site_url }}.
+                If you need to modify or cancel this booking, please log into the Aperture Booking at {{ site_url }}.
                 
                 Best regards,
                 {{ site_name }} Team
@@ -100,7 +100,7 @@ class Command(BaseCommand):
                     
                     <p>If you have any questions about this cancellation, please contact the lab management team.</p>
                     
-                    <p>You can make a new booking anytime through the <a href="{{ site_url }}">Lab Booking System</a>.</p>
+                    <p>You can make a new booking anytime through the <a href="{{ site_url }}">Aperture Booking</a>.</p>
                     
                     <p>Best regards,<br>
                     {{ site_name }} Team</p>
@@ -120,7 +120,7 @@ class Command(BaseCommand):
                 
                 If you have any questions about this cancellation, please contact the lab management team.
                 
-                You can make a new booking anytime through the Lab Booking System at {{ site_url }}.
+                You can make a new booking anytime through the Aperture Booking at {{ site_url }}.
                 
                 Best regards,
                 {{ site_name }} Team
@@ -208,7 +208,7 @@ class Command(BaseCommand):
                     
                     <p><strong>⚠️ Important:</strong> This maintenance may affect your upcoming bookings. Please check your bookings and reschedule if necessary.</p>
                     
-                    <p>You can view and manage your bookings in the <a href="{{ site_url }}">Lab Booking System</a>.</p>
+                    <p>You can view and manage your bookings in the <a href="{{ site_url }}">Aperture Booking</a>.</p>
                     
                     <p>If you have any questions, please contact the lab management team.</p>
                     
@@ -230,7 +230,7 @@ class Command(BaseCommand):
                 
                 ⚠️ Important: This maintenance may affect your upcoming bookings. Please check your bookings and reschedule if necessary.
                 
-                You can view and manage your bookings in the Lab Booking System at {{ site_url }}.
+                You can view and manage your bookings in the Aperture Booking at {{ site_url }}.
                 
                 If you have any questions, please contact the lab management team.
                 
@@ -273,7 +273,7 @@ class Command(BaseCommand):
                         <li>Plan to arrive 5-10 minutes early</li>
                     </ul>
                     
-                    <p>If you need to cancel or modify this booking, please do so through the <a href="{{ site_url }}">Lab Booking System</a>.</p>
+                    <p>If you need to cancel or modify this booking, please do so through the <a href="{{ site_url }}">Aperture Booking</a>.</p>
                     
                     <p>Best regards,<br>
                     {{ site_name }} Team</p>
@@ -297,7 +297,7 @@ class Command(BaseCommand):
                 - Gather any materials you need
                 - Plan to arrive 5-10 minutes early
                 
-                If you need to cancel or modify this booking, please do so through the Lab Booking System at {{ site_url }}.
+                If you need to cancel or modify this booking, please do so through the Aperture Booking at {{ site_url }}.
                 
                 Best regards,
                 {{ site_name }} Team

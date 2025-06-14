@@ -3,19 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Lab Booking System</title>
+    <title>Login - Aperture Booking</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    {% load static %}
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}">
 </head>
 <body class="bg-light">
     <div class="container">
         <div class="row justify-content-center">
             <div class="col-md-6 col-lg-4">
-                <div class="card shadow mt-5">
+                <!-- Logo Section -->
+                <div class="text-center mb-4 mt-5">
+                    <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" style="width: 400px; height: 280px; max-width: 100%; object-fit: cover; object-position: center top;">
+                </div>
+                
+                <div class="card shadow">
                     <div class="card-header text-center bg-primary text-white">
-                        <h4 class="mb-0">
-                            <i class="bi bi-calendar3"></i> Lab Booking System
-                        </h4>
+                        <h4 class="mb-0">Aperture Booking</h4>
                     </div>
                     <div class="card-body">
                         <h5 class="card-title text-center mb-4">Sign In</h5>
@@ -79,7 +86,7 @@
                 
                 <div class="text-center mt-3">
                     <small class="text-muted">
-                        Lab Booking System - Open Source Laboratory Management
+                        Aperture Booking - A Lab booking system
                     </small>
                 </div>
             </div>

@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Verify Your Account - Lab Booking System</title>
+    <title>Verify Your Account - Aperture Booking</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -23,14 +23,17 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Lab Booking System</h1>
+            <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 10px;">
+                <img src="data:image/png;base64,{{ logo_base64 }}" alt="Aperture Booking" style="height: 40px; width: auto; margin-right: 12px;">
+                <h1 style="margin: 0;">Aperture Booking</h1>
+            </div>
             <h2>Account Verification</h2>
         </div>
         
         <div class="content">
             <h3>Hello {{ user.first_name }}!</h3>
             
-            <p>Thank you for registering with the Lab Booking System. To complete your registration and activate your account, please verify your email address by clicking the button below:</p>
+            <p>Thank you for registering with Aperture Booking. To complete your registration and activate your account, please verify your email address by clicking the button below:</p>
             
             <div style="text-align: center;">
                 <a href="http://{{ domain }}/verify-email/{{ token }}/" class="button">Verify Email Address</a>
@@ -58,9 +61,9 @@
         </div>
         
         <div class="footer">
-            <p>This is an automated message from the Lab Booking System.<br>
+            <p>This is an automated message from Aperture Booking.<br>
             If you have questions, please contact your system administrator.</p>
-            <p>&copy; 2025 Lab Booking System</p>
+            <p>&copy; 2025 Aperture Booking</p>
         </div>
     </div>
 </body>

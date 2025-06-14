@@ -1,3 +1,5 @@
+import base64
+import os
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, PasswordResetForm, SetPasswordForm
 from django.contrib.auth.models import User
@@ -9,6 +11,23 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 from .models import UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate, Faculty, College, Department
 from .recurring import RecurringBookingPattern
+
+
+def get_logo_base64():
+    """Get the logo as a base64 encoded string for email templates."""
+    try:
+        logo_path = os.path.join(settings.STATIC_ROOT or 'static', 'images', 'logo.png')
+        if not os.path.exists(logo_path):
+            # Fallback to development path
+            logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'logo.png')
+        
+        if os.path.exists(logo_path):
+            with open(logo_path, 'rb') as logo_file:
+                logo_data = logo_file.read()
+                return base64.b64encode(logo_data).decode('utf-8')
+    except Exception:
+        pass
+    return None
 
 
 class UserRegistrationForm(UserCreationForm):
@@ -171,13 +190,14 @@ class UserRegistrationForm(UserCreationForm):
     
     def send_verification_email(self, user, token):
         """Send email verification to the user."""
-        subject = 'Verify your Lab Booking System account'
+        subject = 'Verify your Aperture Booking account'
         
         # Render email template
         html_message = render_to_string('registration/verification_email.html', {
             'user': user,
             'token': token.token,
             'domain': getattr(settings, 'SITE_DOMAIN', 'localhost:8000'),
+            'logo_base64': get_logo_base64(),
         })
         plain_message = strip_tags(html_message)
         
@@ -347,7 +367,7 @@ class CustomPasswordResetForm(PasswordResetForm):
     
     def send_reset_email(self, user, token, request=None):
         """Send password reset email."""
-        subject = 'Reset your Lab Booking System password'
+        subject = 'Reset your Aperture Booking password'
         
         # Get domain from request or settings
         if request:
@@ -361,6 +381,7 @@ class CustomPasswordResetForm(PasswordResetForm):
             'token': token.token,
             'domain': domain,
             'protocol': 'https' if getattr(settings, 'USE_HTTPS', False) else 'http',
+            'logo_base64': get_logo_base64(),
         })
         plain_message = strip_tags(html_message)
         

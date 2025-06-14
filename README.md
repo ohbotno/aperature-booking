@@ -1,4 +1,4 @@
-# Lab Booking System
+# Aperture Booking
 
 An open-source Django application for managing laboratory resource bookings across academic institutions. Prevents double-booking conflicts while enabling group collaboration and providing comprehensive usage analytics.
 
@@ -57,7 +57,7 @@ An open-source Django application for managing laboratory resource bookings acro
 ### 1. Clone the Repository
 ```bash
 git clone https://github.com/yourusername/lab-booking-system.git
-cd lab-booking-system/aperature_booking
+cd lab-booking-system/aperture_booking
 ```
 
 ### 2. Create Virtual Environment
@@ -83,7 +83,7 @@ python manage.py migrate
 ```bash
 # Set environment variables
 export DB_ENGINE=mysql
-export DB_NAME=aperature_booking
+export DB_NAME=aperture_booking
 export DB_USER=your_username
 export DB_PASSWORD=your_password
 export DB_HOST=localhost
@@ -362,7 +362,7 @@ pip install gunicorn whitenoise
 python manage.py collectstatic
 
 # Run production server
-gunicorn aperature_booking.wsgi:application
+gunicorn aperture_booking.wsgi:application
 ```
 
 ### Docker Deployment
@@ -484,6 +484,6 @@ For institutional deployment, training, or custom development:
 
 ---
 
-**Lab Booking System** - Streamlining laboratory resource management for academic institutions worldwide.
+**Aperture Booking** - A Lab booking system. Streamlining laboratory resource management for academic institutions worldwide.
 
 Made with ❤️ for the open source community.

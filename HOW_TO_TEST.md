@@ -6,7 +6,7 @@ This guide explains how to run tests for the Lab Booking System.
 
 1. **Activate the virtual environment**
    ```bash
-   cd "/path/to/aperature_booking"
+   cd "/path/to/aperture_booking"
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 

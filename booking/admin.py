@@ -1,9 +1,9 @@
 # booking/admin.py
 """
-Django admin configuration for the Lab Booking System.
+Django admin configuration for the Aperture Booking.
 
-This file is part of the Lab Booking System.
-Copyright (C) 2025 Lab Booking System Contributors
+This file is part of the Aperture Booking.
+Copyright (C) 2025 Aperture Booking Contributors
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

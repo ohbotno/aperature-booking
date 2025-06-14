@@ -1,14 +1,18 @@
 {% extends 'booking/base.html' %}
 {% load static %}
 
-{% block title %}Register - Lab Booking System{% endblock %}
+{% block title %}Register - Aperture Booking{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8 col-lg-6">
         <div class="card shadow">
             <div class="card-header bg-primary text-white">
-                <h4 class="mb-0">Register for Lab Booking System</h4>
+                <h4 class="mb-0">
+                    <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" class="logo-cropped" style="height: 24px; width: 34px; margin-right: 8px;">
+                    Register for Aperture Booking
+                </h4>
+                <small class="text-muted">A Lab booking system</small>
             </div>
             <div class="card-body">
                 <form method="post">
