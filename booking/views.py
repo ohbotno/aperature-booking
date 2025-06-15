@@ -48,9 +48,23 @@ class IsOwnerOrManagerPermission(permissions.BasePermission):
         if hasattr(request.user, 'userprofile'):
             user_profile = request.user.userprofile
             return (obj.user == request.user or 
-                   user_profile.role in ['lab_manager', 'sysadmin'])
+                   user_profile.role in ['technician', 'sysadmin'])
         
         return obj.user == request.user
+
+
+class IsManagerPermission(permissions.BasePermission):
+    """Custom permission for managers only."""
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        
+        if hasattr(request.user, 'userprofile'):
+            user_profile = request.user.userprofile
+            return user_profile.role in ['technician', 'sysadmin']
+        
+        return False
 
 
 class UserProfileViewSet(viewsets.ReadOnlyModelViewSet):
@@ -64,7 +78,7 @@ class UserProfileViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         try:
             user_profile = user.userprofile
-            if user_profile.role in ['lab_manager', 'sysadmin']:
+            if user_profile.role in ['technician', 'sysadmin']:
                 return UserProfile.objects.all()
             else:
                 # Regular users can only see their own profile and group members
@@ -75,11 +89,30 @@ class UserProfileViewSet(viewsets.ReadOnlyModelViewSet):
             return UserProfile.objects.filter(user=user)
 
 
-class ResourceViewSet(viewsets.ReadOnlyModelViewSet):
+class ResourceViewSet(viewsets.ModelViewSet):
     """ViewSet for resources."""
     queryset = Resource.objects.filter(is_active=True)
     serializer_class = ResourceSerializer
     permission_classes = [permissions.IsAuthenticated]
+    filterset_fields = ['resource_type', 'requires_induction', 'required_training_level']
+    
+    def get_permissions(self):
+        """Different permissions for different actions."""
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            # Only technicians and sysadmins can modify resources
+            self.permission_classes = [permissions.IsAuthenticated, IsManagerPermission]
+        return super().get_permissions()
+    
+    def get_queryset(self):
+        """Filter resources based on query parameters."""
+        queryset = super().get_queryset()
+        
+        # Filter by resource_type if provided
+        resource_type = self.request.query_params.get('resource_type')
+        if resource_type:
+            queryset = queryset.filter(resource_type=resource_type)
+            
+        return queryset
     
     @action(detail=False, methods=['get'])
     def available(self, request):
@@ -117,7 +150,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             user_profile = user.userprofile
             
             # Filter by user role
-            if user_profile.role in ['lab_manager', 'sysadmin']:
+            if user_profile.role in ['technician', 'sysadmin']:
                 # Managers can see all bookings
                 pass
             elif user_profile.role == 'lecturer':
@@ -162,7 +195,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking = self.get_object()
         user_profile = request.user.userprofile
         
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             return Response(
                 {"error": "Permission denied"}, 
                 status=status.HTTP_403_FORBIDDEN
@@ -188,7 +221,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking = self.get_object()
         user_profile = request.user.userprofile
         
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             return Response(
                 {"error": "Permission denied"}, 
                 status=status.HTTP_403_FORBIDDEN
@@ -263,7 +296,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         """Get booking statistics."""
         user_profile = request.user.userprofile
         
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             return Response(
                 {"error": "Permission denied"}, 
                 status=status.HTTP_403_FORBIDDEN
@@ -283,6 +316,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             'approved_bookings': bookings.filter(status='approved').count(),
             'pending_bookings': bookings.filter(status='pending').count(),
             'rejected_bookings': bookings.filter(status='rejected').count(),
+            'cancelled_bookings': bookings.filter(status='cancelled').count(),
             'bookings_by_resource': list(
                 bookings.values('resource__name')
                 .annotate(count=Count('id'))
@@ -301,6 +335,32 @@ class BookingViewSet(viewsets.ModelViewSet):
         }
         
         return Response(stats)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy to cancel booking instead of deleting it."""
+        booking = self.get_object()
+        
+        # Check if booking can be cancelled
+        if not booking.can_be_cancelled:
+            return Response(
+                {"error": "This booking cannot be cancelled"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Mark as cancelled instead of deleting
+        booking.status = 'cancelled'
+        booking.save()
+        
+        # Create booking history entry
+        from .models import BookingHistory
+        BookingHistory.objects.create(
+            booking=booking,
+            user=request.user,
+            action='cancelled',
+            notes='Cancelled via API'
+        )
+        
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ApprovalRuleViewSet(viewsets.ReadOnlyModelViewSet):
@@ -494,7 +554,7 @@ def booking_detail_view(request, pk):
     try:
         user_profile = request.user.userprofile
         if (booking.user != request.user and 
-            user_profile.role not in ['lab_manager', 'sysadmin'] and
+            user_profile.role not in ['technician', 'sysadmin'] and
             not booking.shared_with_group):
             messages.error(request, 'You do not have permission to view this booking.')
             return redirect('booking:dashboard')
@@ -511,7 +571,7 @@ def booking_detail_view(request, pk):
             # Check if user can cancel this booking
             if (booking.user == request.user or 
                 (hasattr(request.user, 'userprofile') and 
-                 request.user.userprofile.role in ['lab_manager', 'sysadmin'])):
+                 request.user.userprofile.role in ['technician', 'sysadmin'])):
                 
                 if booking.can_be_cancelled:
                     booking.status = 'cancelled'
@@ -596,7 +656,7 @@ def cancel_recurring_series_view(request, booking_pk):
     try:
         user_profile = request.user.userprofile
         if (booking.user != request.user and 
-            user_profile.role not in ['lab_manager', 'sysadmin']):
+            user_profile.role not in ['technician', 'sysadmin']):
             messages.error(request, 'You do not have permission to cancel this booking series.')
             return redirect('booking:booking_detail', pk=booking_pk)
     except UserProfile.DoesNotExist:
@@ -645,7 +705,7 @@ def conflict_detection_view(request):
     # Check if user has permission to view conflicts
     try:
         user_profile = request.user.userprofile
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             messages.error(request, 'You do not have permission to access conflict management.')
             return redirect('booking:dashboard')
     except UserProfile.DoesNotExist:
@@ -684,7 +744,7 @@ def resolve_conflict_view(request, conflict_type, id1, id2):
     """Resolve a specific conflict between two bookings."""
     try:
         user_profile = request.user.userprofile
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             messages.error(request, 'You do not have permission to resolve conflicts.')
             return redirect('booking:dashboard')
     except UserProfile.DoesNotExist:
@@ -789,7 +849,7 @@ def bulk_resolve_conflicts_view(request):
     """Bulk resolve multiple conflicts."""
     try:
         user_profile = request.user.userprofile
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             messages.error(request, 'You do not have permission to resolve conflicts.')
             return redirect('booking:dashboard')
     except UserProfile.DoesNotExist:
@@ -1117,7 +1177,7 @@ class WaitingListEntryViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        if self.request.user.userprofile.role in ['lab_manager', 'sysadmin']:
+        if self.request.user.userprofile.role in ['technician', 'sysadmin']:
             return WaitingListEntry.objects.all().select_related('user', 'resource')
         else:
             return WaitingListEntry.objects.filter(user=self.request.user).select_related('resource')
@@ -1175,7 +1235,7 @@ class WaitingListEntryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def statistics(self, request):
         """Get waiting list statistics."""
-        if request.user.userprofile.role not in ['lab_manager', 'sysadmin']:
+        if request.user.userprofile.role not in ['technician', 'sysadmin']:
             return Response({'error': 'Permission denied'}, status=403)
         
         resource_id = request.query_params.get('resource')
@@ -1723,7 +1783,7 @@ def bulk_booking_operations_view(request):
             return redirect('booking:dashboard')
         
         # Get bookings that user has permission to modify
-        if user_profile.role in ['lab_manager', 'sysadmin']:
+        if user_profile.role in ['technician', 'sysadmin']:
             bookings = Booking.objects.filter(pk__in=booking_ids)
         else:
             bookings = Booking.objects.filter(pk__in=booking_ids, user=request.user)
@@ -1751,7 +1811,7 @@ def bulk_booking_operations_view(request):
             if error_count > 0:
                 messages.warning(request, f'{error_count} booking(s) could not be cancelled: {", ".join(errors[:3])}')
         
-        elif action == 'approve' and user_profile.role in ['lab_manager', 'sysadmin']:
+        elif action == 'approve' and user_profile.role in ['technician', 'sysadmin']:
             for booking in bookings:
                 if booking.status == 'pending':
                     booking.status = 'approved'
@@ -1768,7 +1828,7 @@ def bulk_booking_operations_view(request):
             if error_count > 0:
                 messages.warning(request, f'{error_count} booking(s) could not be approved: {", ".join(errors[:3])}')
         
-        elif action == 'reject' and user_profile.role in ['lab_manager', 'sysadmin']:
+        elif action == 'reject' and user_profile.role in ['technician', 'sysadmin']:
             for booking in bookings:
                 if booking.status == 'pending':
                     booking.status = 'rejected'
@@ -1794,7 +1854,7 @@ def booking_management_view(request):
     """Management interface for bookings with bulk operations."""
     try:
         user_profile = request.user.userprofile
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             messages.error(request, 'You do not have permission to access booking management.')
             return redirect('booking:dashboard')
     except UserProfile.DoesNotExist:
@@ -1934,7 +1994,7 @@ def edit_booking_view(request, pk):
     try:
         user_profile = request.user.userprofile
         can_edit = (booking.user == request.user or 
-                   user_profile.role in ['lab_manager', 'sysadmin'])
+                   user_profile.role in ['technician', 'sysadmin'])
     except UserProfile.DoesNotExist:
         can_edit = booking.user == request.user
     
@@ -1961,7 +2021,7 @@ def edit_booking_view(request, pk):
                 # If the booking was approved and user made changes, set it back to pending
                 if (booking.status == 'approved' and 
                     booking.user == request.user and 
-                    user_profile.role not in ['lab_manager', 'sysadmin']):
+                    user_profile.role not in ['technician', 'sysadmin']):
                     
                     # Check if any important fields changed
                     important_changes = (
@@ -2008,7 +2068,7 @@ def cancel_booking_view(request, pk):
     try:
         user_profile = request.user.userprofile
         can_cancel = (booking.user == request.user or 
-                     user_profile.role in ['lab_manager', 'sysadmin'])
+                     user_profile.role in ['technician', 'sysadmin'])
     except UserProfile.DoesNotExist:
         can_cancel = booking.user == request.user
     
@@ -2028,7 +2088,7 @@ def cancel_booking_view(request, pk):
             messages.success(request, f'Booking "{booking.title}" has been cancelled.')
             
             # Redirect based on user role
-            if hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['lab_manager', 'sysadmin']:
+            if hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['technician', 'sysadmin']:
                 return redirect('booking:manage_bookings')
             else:
                 return redirect('booking:my_bookings')
@@ -2050,7 +2110,7 @@ def duplicate_booking_view(request, pk):
         user_profile = request.user.userprofile
         can_access = (
             original_booking.user == request.user or 
-            user_profile.role in ['lab_manager', 'sysadmin'] or
+            user_profile.role in ['technician', 'sysadmin'] or
             (original_booking.shared_with_group and 
              user_profile.group == original_booking.user.userprofile.group)
         )
@@ -2124,7 +2184,7 @@ def checkin_view(request, booking_id):
         can_checkin = (
             booking.user == request.user or
             booking.attendees.filter(id=request.user.id).exists() or
-            user_profile.role in ['lab_manager', 'sysadmin']
+            user_profile.role in ['technician', 'sysadmin']
         )
     except UserProfile.DoesNotExist:
         can_checkin = booking.user == request.user
@@ -2171,7 +2231,7 @@ def checkout_view(request, booking_id):
         can_checkout = (
             booking.user == request.user or
             booking.attendees.filter(id=request.user.id).exists() or
-            user_profile.role in ['lab_manager', 'sysadmin']
+            user_profile.role in ['technician', 'sysadmin']
         )
     except UserProfile.DoesNotExist:
         can_checkout = booking.user == request.user
@@ -2240,7 +2300,7 @@ def resource_checkin_status_view(request, resource_id):
     # Check if user has permission
     try:
         user_profile = request.user.userprofile
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             messages.error(request, 'You do not have permission to view resource check-in status.')
             return redirect('booking:calendar')
     except UserProfile.DoesNotExist:
@@ -2277,7 +2337,7 @@ def usage_analytics_view(request):
     """View usage analytics (managers only)."""
     try:
         user_profile = request.user.userprofile
-        if user_profile.role not in ['lab_manager', 'sysadmin']:
+        if user_profile.role not in ['technician', 'sysadmin']:
             messages.error(request, 'You do not have permission to view usage analytics.')
             return redirect('booking:dashboard')
     except UserProfile.DoesNotExist:

@@ -1,5 +1,4 @@
 """Test cases for booking models."""
-import pytest
 from django.test import TestCase
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -13,22 +12,21 @@ from booking.tests.factories import (
 )
 
 
-@pytest.mark.django_db
-class TestUserProfile:
+class TestUserProfile(TestCase):
     """Test UserProfile model functionality."""
     
     def test_user_profile_creation(self):
         """Test creating a user profile."""
         profile = UserProfileFactory()
-        assert profile.user.username
-        assert profile.role == 'student'
-        assert profile.email_verified is True
+        self.assertTrue(profile.user.username)
+        self.assertEqual(profile.role, 'student')
+        self.assertTrue(profile.email_verified)
     
     def test_user_profile_str(self):
         """Test UserProfile string representation."""
         profile = UserProfileFactory(user__username="testuser", user__first_name="Test", user__last_name="User")
         expected = "Test User (student)"
-        assert str(profile) == expected
+        self.assertEqual(str(profile), expected)
     
     def test_role_permissions(self):
         """Test role-based permission methods."""
@@ -37,33 +35,32 @@ class TestUserProfile:
         technician = UserProfileFactory(role='technician')
         
         # Test priority booking permissions
-        assert not student.can_book_priority
-        assert academic.can_book_priority
-        assert technician.can_book_priority
+        self.assertFalse(student.can_book_priority)
+        self.assertTrue(academic.can_book_priority)
+        self.assertTrue(technician.can_book_priority)
         
         # Test recurring booking permissions
-        assert not student.can_create_recurring
-        assert academic.can_create_recurring
-        assert technician.can_create_recurring
+        self.assertFalse(student.can_create_recurring)
+        self.assertTrue(academic.can_create_recurring)
+        self.assertTrue(technician.can_create_recurring)
 
 
-@pytest.mark.django_db
-class TestResource:
+class TestResource(TestCase):
     """Test Resource model functionality."""
     
     def test_resource_creation(self):
         """Test creating a resource."""
         resource = ResourceFactory()
-        assert resource.name
-        assert resource.resource_type == 'instrument'
-        assert resource.capacity == 1
-        assert resource.is_active is True
+        self.assertTrue(resource.name)
+        self.assertEqual(resource.resource_type, 'instrument')
+        self.assertEqual(resource.capacity, 1)
+        self.assertTrue(resource.is_active)
     
     def test_resource_str(self):
         """Test Resource string representation."""
         resource = ResourceFactory(name="Test Robot", resource_type="robot")
-        assert "Test Robot" in str(resource)
-        assert "Robot" in str(resource)
+        self.assertIn("Test Robot", str(resource))
+        self.assertIn("Robot", str(resource))
     
     def test_user_can_access_resource(self):
         """Test user access to resources based on training."""
@@ -74,12 +71,12 @@ class TestResource:
         advanced_user = UserProfileFactory(training_level=3)
         
         # Basic user can access basic resource
-        assert basic_resource.is_available_for_user(basic_user)
+        self.assertTrue(basic_resource.is_available_for_user(basic_user))
         # Basic user cannot access advanced resource
-        assert not advanced_resource.is_available_for_user(basic_user)
+        self.assertFalse(advanced_resource.is_available_for_user(basic_user))
         # Advanced user can access both
-        assert basic_resource.is_available_for_user(advanced_user)
-        assert advanced_resource.is_available_for_user(advanced_user)
+        self.assertTrue(basic_resource.is_available_for_user(advanced_user))
+        self.assertTrue(advanced_resource.is_available_for_user(advanced_user))
     
     def test_induction_requirements(self):
         """Test induction requirement checking."""
@@ -88,20 +85,19 @@ class TestResource:
         inducted_user = UserProfileFactory(is_inducted=True)
         non_inducted_user = UserProfileFactory(is_inducted=False)
         
-        assert resource.is_available_for_user(inducted_user)
-        assert not resource.is_available_for_user(non_inducted_user)
+        self.assertTrue(resource.is_available_for_user(inducted_user))
+        self.assertFalse(resource.is_available_for_user(non_inducted_user))
 
 
-@pytest.mark.django_db
-class TestBooking:
+class TestBooking(TestCase):
     """Test Booking model functionality."""
     
     def test_booking_creation(self):
         """Test creating a booking."""
         booking = BookingFactory()
-        assert booking.title
-        assert booking.status == 'pending'
-        assert booking.start_time < booking.end_time
+        self.assertTrue(booking.title)
+        self.assertEqual(booking.status, 'pending')
+        self.assertLess(booking.start_time, booking.end_time)
     
     def test_booking_str(self):
         """Test Booking string representation."""
@@ -109,41 +105,41 @@ class TestBooking:
         booking = BookingFactory(title="Test Booking", start_time=start_time)
         expected_date = start_time.strftime('%Y-%m-%d %H:%M')
         expected = f"Test Booking - {booking.resource.name} ({expected_date})"
-        assert str(booking) == expected
+        self.assertEqual(str(booking), expected)
     
     def test_booking_duration(self):
         """Test booking duration calculation."""
         start = timezone.now().replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=1)
         end = start + timedelta(hours=3)
         booking = BookingFactory(start_time=start, end_time=end)
-        assert booking.duration == timedelta(hours=3)
+        self.assertEqual(booking.duration, timedelta(hours=3))
     
     def test_booking_validation_time_order(self):
         """Test that booking end time must be after start time."""
-        start = timezone.now()
+        start = timezone.now() + timedelta(days=1)
         end = start - timedelta(hours=1)  # End before start
         
-        with pytest.raises(ValidationError):
+        with self.assertRaises(ValidationError):
             booking = BookingFactory(start_time=start, end_time=end)
             booking.full_clean()
     
     def test_booking_validation_working_hours(self):
         """Test booking time validation within working hours."""
         # Create booking outside working hours (before 9 AM)
-        start = timezone.now().replace(hour=8, minute=0, second=0, microsecond=0)
+        start = timezone.now().replace(hour=8, minute=0, second=0, microsecond=0) + timedelta(days=1)
         end = start + timedelta(hours=1)
         
-        with pytest.raises(ValidationError):
+        with self.assertRaises(ValidationError):
             booking = BookingFactory(start_time=start, end_time=end)
             booking.full_clean()
     
     def test_booking_validation_max_duration(self):
         """Test booking duration validation against resource limits."""
         resource = ResourceFactory(max_booking_hours=4)
-        start = timezone.now().replace(hour=10, minute=0, second=0, microsecond=0)
+        start = timezone.now().replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=1)
         end = start + timedelta(hours=6)  # Exceeds 4-hour limit
         
-        with pytest.raises(ValidationError):
+        with self.assertRaises(ValidationError):
             booking = BookingFactory(
                 resource=resource,
                 start_time=start,
@@ -174,9 +170,9 @@ class TestBooking:
             end_time=overlap_end
         )
         
-        # Check for conflicts (method returns boolean)
+        # Check for conflicts
         has_conflicts = booking2.has_conflicts()
-        assert has_conflicts is True
+        self.assertTrue(has_conflicts)
     
     def test_can_be_cancelled_by_user(self):
         """Test booking cancellation permissions."""
@@ -190,15 +186,15 @@ class TestBooking:
         )
         
         # Pending booking in future can be cancelled
-        assert booking.can_be_cancelled
+        self.assertTrue(booking.can_be_cancelled)
         
         # Approved booking in future can be cancelled
         booking.status = 'approved'
-        assert booking.can_be_cancelled
+        self.assertTrue(booking.can_be_cancelled)
         
         # Cancelled booking cannot be cancelled again
         booking.status = 'cancelled'
-        assert not booking.can_be_cancelled
+        self.assertFalse(booking.can_be_cancelled)
         
         # Past booking cannot be cancelled  
         past_time = timezone.now() - timedelta(hours=1)
@@ -208,25 +204,24 @@ class TestBooking:
             start_time=past_time,
             end_time=past_time + timedelta(hours=1)
         )
-        assert not past_booking.can_be_cancelled
+        self.assertFalse(past_booking.can_be_cancelled)
 
 
-@pytest.mark.django_db
-class TestBookingTemplate:
+class TestBookingTemplate(TestCase):
     """Test BookingTemplate model functionality."""
     
     def test_template_creation(self):
         """Test creating a booking template."""
         template = BookingTemplateFactory()
-        assert template.name
-        assert template.duration_hours == 2
+        self.assertTrue(template.name)
+        self.assertEqual(template.duration_hours, 2)
     
     def test_template_str(self):
         """Test BookingTemplate string representation."""
         resource = ResourceFactory(name="Test Lab")
         template = BookingTemplateFactory(name="Weekly Meeting", resource=resource)
         expected = "Weekly Meeting - Test Lab"
-        assert str(template) == expected
+        self.assertEqual(str(template), expected)
     
     def test_template_usage_tracking(self):
         """Test template usage count tracking."""
@@ -238,26 +233,25 @@ class TestBookingTemplate:
         template.create_booking_from_template(start_time)
         template.refresh_from_db()
         
-        assert template.use_count == initial_count + 1
+        self.assertEqual(template.use_count, initial_count + 1)
 
 
-@pytest.mark.django_db
-class TestApprovalRule:
+class TestApprovalRule(TestCase):
     """Test ApprovalRule model functionality."""
     
     def test_approval_rule_creation(self):
         """Test creating an approval rule."""
         rule = ApprovalRuleFactory()
-        assert rule.name
-        assert rule.approval_type == 'auto'
-        assert rule.is_active is True
+        self.assertTrue(rule.name)
+        self.assertEqual(rule.approval_type, 'auto')
+        self.assertTrue(rule.is_active)
     
     def test_approval_rule_str(self):
         """Test ApprovalRule string representation."""
         resource = ResourceFactory(name="Test Robot")
         rule = ApprovalRuleFactory(name="Auto Approve Students", resource=resource)
         expected = "Auto Approve Students - Test Robot"
-        assert str(rule) == expected
+        self.assertEqual(str(rule), expected)
     
     def test_applies_to_user(self):
         """Test if approval rule applies to a user."""
@@ -271,8 +265,8 @@ class TestApprovalRule:
         student_user = UserProfileFactory(role='student')
         academic_user = UserProfileFactory(role='academic')
         
-        assert rule.applies_to_user(student_user)
-        assert not rule.applies_to_user(academic_user)
+        self.assertTrue(rule.applies_to_user(student_user))
+        self.assertFalse(rule.applies_to_user(academic_user))
     
     def test_applies_to_all_users(self):
         """Test approval rule that applies to all users."""
@@ -286,8 +280,8 @@ class TestApprovalRule:
         student_user = UserProfileFactory(role='student')
         academic_user = UserProfileFactory(role='academic')
         
-        assert rule.applies_to_user(student_user)
-        assert rule.applies_to_user(academic_user)
+        self.assertTrue(rule.applies_to_user(student_user))
+        self.assertTrue(rule.applies_to_user(academic_user))
     
     def test_inactive_rule(self):
         """Test that inactive rules don't apply."""
@@ -299,4 +293,4 @@ class TestApprovalRule:
         )
         
         user = UserProfileFactory(role='student')
-        assert not rule.applies_to_user(user)
+        self.assertFalse(rule.applies_to_user(user))

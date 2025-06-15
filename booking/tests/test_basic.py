@@ -1,12 +1,10 @@
 """Basic test to validate Django setup."""
-import pytest
 from django.test import TestCase
 from django.contrib.auth.models import User
 from booking.models import UserProfile
 
 
-@pytest.mark.django_db
-class TestBasicSetup:
+class TestBasicSetup(TestCase):
     """Test basic Django setup and model creation."""
     
     def test_user_creation(self):
@@ -16,8 +14,8 @@ class TestBasicSetup:
             email='test@example.com',
             password='testpass123'
         )
-        assert user.username == 'testuser'
-        assert user.email == 'test@example.com'
+        self.assertEqual(user.username, 'testuser')
+        self.assertEqual(user.email, 'test@example.com')
     
     def test_user_profile_creation(self):
         """Test that user profile is automatically created via signal."""
@@ -28,19 +26,18 @@ class TestBasicSetup:
         )
         
         # UserProfile should be automatically created via signal
-        assert hasattr(user, 'userprofile')
+        self.assertTrue(hasattr(user, 'userprofile'))
         profile = user.userprofile
         
         # Update the profile
         profile.role = 'student'
         profile.group = 'test_group'
-        profile.college = 'test_college'
         profile.training_level = 1
         profile.is_inducted = True
         profile.email_verified = True
         profile.save()
         
-        assert profile.role == 'student'
-        assert profile.group == 'test_group'
-        assert profile.training_level == 1
-        assert str(profile) == f"{user.get_full_name()} (student)"
+        self.assertEqual(profile.role, 'student')
+        self.assertEqual(profile.group, 'test_group')
+        self.assertEqual(profile.training_level, 1)
+        self.assertEqual(str(profile), f"{user.get_full_name()} (student)")

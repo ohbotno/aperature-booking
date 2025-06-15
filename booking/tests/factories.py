@@ -54,6 +54,7 @@ class UserProfileFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = UserProfile
         django_get_or_create = ('user',)
+        skip_postgeneration_save = True
     
     user = factory.SubFactory(UserFactory)
     role = 'student'
@@ -128,7 +129,7 @@ class BookingFactory(factory.django.DjangoModelFactory):
     title = factory.Faker('sentence', nb_words=4)
     description = factory.Faker('text', max_nb_chars=100)
     start_time = factory.LazyFunction(
-        lambda: timezone.now().replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        lambda: timezone.now().replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=2)
     )
     end_time = factory.LazyAttribute(lambda obj: obj.start_time + timedelta(hours=2))
     status = 'pending'
@@ -166,6 +167,8 @@ class MaintenanceFactory(factory.django.DjangoModelFactory):
     description = factory.Faker('text', max_nb_chars=100)
     start_time = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2))
     end_time = factory.LazyAttribute(lambda obj: obj.start_time + timedelta(hours=4))
+    maintenance_type = 'scheduled'
+    created_by = factory.SubFactory(UserFactory)
 
 
 class BookingHistoryFactory(factory.django.DjangoModelFactory):
