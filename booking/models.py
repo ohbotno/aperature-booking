@@ -34,17 +34,25 @@ class NotificationPreference(models.Model):
         ('waitlist_joined', 'Joined Waiting List'),
         ('waitlist_availability', 'Waiting List Slot Available'),
         ('waitlist_cancelled', 'Left Waiting List'),
+        ('access_request_submitted', 'Access Request Submitted'),
+        ('access_request_approved', 'Access Request Approved'),
+        ('access_request_rejected', 'Access Request Rejected'),
+        ('training_request_submitted', 'Training Request Submitted'),
+        ('training_request_scheduled', 'Training Scheduled'),
+        ('training_request_completed', 'Training Completed'),
+        ('training_request_cancelled', 'Training Cancelled'),
     ]
     
     DELIVERY_METHODS = [
         ('email', 'Email'),
         ('sms', 'SMS'),
         ('in_app', 'In-App'),
+        ('push', 'Push Notification'),
     ]
     
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notification_preferences')
     notification_type = models.CharField(max_length=30, choices=NOTIFICATION_TYPES)
-    delivery_method = models.CharField(max_length=10, choices=DELIVERY_METHODS)
+    delivery_method = models.CharField(max_length=20, choices=DELIVERY_METHODS)
     is_enabled = models.BooleanField(default=True)
     frequency = models.CharField(max_length=20, default='immediate', choices=[
         ('immediate', 'Immediate'),
@@ -60,6 +68,35 @@ class NotificationPreference(models.Model):
     
     def __str__(self):
         return f"{self.user.username} - {self.get_notification_type_display()} via {self.get_delivery_method_display()}"
+
+
+class PushSubscription(models.Model):
+    """User push notification subscription details."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_subscriptions')
+    endpoint = models.URLField(max_length=500)
+    p256dh_key = models.CharField(max_length=100, help_text="Public key for encryption")
+    auth_key = models.CharField(max_length=50, help_text="Authentication secret")
+    user_agent = models.CharField(max_length=200, blank=True, help_text="Browser/device info")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_pushsubscription'
+        unique_together = ['user', 'endpoint']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.endpoint[:50]}..."
+    
+    def to_dict(self):
+        """Convert subscription to dictionary format for pywebpush."""
+        return {
+            "endpoint": self.endpoint,
+            "keys": {
+                "p256dh": self.p256dh_key,
+                "auth": self.auth_key
+            }
+        }
 
 
 class Notification(models.Model):
@@ -83,13 +120,15 @@ class Notification(models.Model):
     title = models.CharField(max_length=200)
     message = models.TextField()
     priority = models.CharField(max_length=10, choices=PRIORITY_LEVELS, default='medium')
-    delivery_method = models.CharField(max_length=10, choices=NotificationPreference.DELIVERY_METHODS)
+    delivery_method = models.CharField(max_length=20, choices=NotificationPreference.DELIVERY_METHODS)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     
     # Related objects
     booking = models.ForeignKey('Booking', on_delete=models.CASCADE, null=True, blank=True)
     resource = models.ForeignKey('Resource', on_delete=models.CASCADE, null=True, blank=True)
     maintenance = models.ForeignKey('Maintenance', on_delete=models.CASCADE, null=True, blank=True)
+    access_request = models.ForeignKey('AccessRequest', on_delete=models.CASCADE, null=True, blank=True)
+    training_request = models.ForeignKey('TrainingRequest', on_delete=models.CASCADE, null=True, blank=True)
     
     # Metadata
     metadata = models.JSONField(default=dict, blank=True)
@@ -127,7 +166,7 @@ class Notification(models.Model):
         self.read_at = timezone.now()
         self.save(update_fields=['status', 'read_at', 'updated_at'])
     
-    def mark_as_failed(self):
+    def mark_as_failed(self, reason=None):
         """Mark notification as failed and handle retry logic."""
         self.status = 'failed'
         self.retry_count += 1
@@ -136,7 +175,18 @@ class Notification(models.Model):
             delay_minutes = 5 * (3 ** (self.retry_count - 1))
             self.next_retry_at = timezone.now() + timedelta(minutes=delay_minutes)
             self.status = 'pending'  # Reset to pending for retry
-        self.save(update_fields=['status', 'retry_count', 'next_retry_at', 'updated_at'])
+        
+        # Store the failure reason in metadata
+        if reason:
+            if 'failure_reasons' not in self.metadata:
+                self.metadata['failure_reasons'] = []
+            self.metadata['failure_reasons'].append({
+                'reason': reason,
+                'timestamp': timezone.now().isoformat(),
+                'retry_count': self.retry_count
+            })
+        
+        self.save(update_fields=['status', 'retry_count', 'next_retry_at', 'metadata', 'updated_at'])
     
     def can_retry(self):
         """Check if notification can be retried."""
@@ -398,6 +448,7 @@ class Resource(models.Model):
     requires_induction = models.BooleanField(default=False)
     max_booking_hours = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    image = models.ImageField(upload_to='resources/', blank=True, null=True, help_text="Resource image")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -417,6 +468,269 @@ class Resource(models.Model):
         if user_profile.training_level < self.required_training_level:
             return False
         return True
+    
+    def user_has_access(self, user):
+        """Check if user has explicit access to this resource."""
+        return ResourceAccess.objects.filter(
+            resource=self,
+            user=user,
+            is_active=True
+        ).exists()
+    
+    def can_user_view_calendar(self, user):
+        """Check if user can view the resource calendar."""
+        if self.user_has_access(user):
+            return True
+        
+        try:
+            return user.userprofile.role in ['technician', 'sysadmin']
+        except:
+            return False
+
+
+class ResourceAccess(models.Model):
+    """User access permissions to specific resources."""
+    ACCESS_TYPES = [
+        ('view', 'View Only'),
+        ('book', 'View and Book'),
+        ('manage', 'Full Management'),
+    ]
+    
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='access_permissions')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='resource_access')
+    access_type = models.CharField(max_length=10, choices=ACCESS_TYPES, default='book')
+    granted_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='granted_access')
+    granted_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True, help_text="Optional expiration date")
+    
+    class Meta:
+        db_table = 'booking_resourceaccess'
+        unique_together = ['resource', 'user']
+        ordering = ['-granted_at']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.resource.name} ({self.get_access_type_display()})"
+    
+    @property
+    def is_expired(self):
+        """Check if access has expired."""
+        if not self.expires_at:
+            return False
+        return timezone.now() > self.expires_at
+    
+    @property
+    def is_valid(self):
+        """Check if access is currently valid."""
+        return self.is_active and not self.is_expired
+
+
+class TrainingRequest(models.Model):
+    """Requests for training on specific resources."""
+    STATUS_CHOICES = [
+        ('pending', 'Training Pending'),
+        ('scheduled', 'Training Scheduled'),
+        ('completed', 'Training Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='training_requests')
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='training_requests')
+    requested_level = models.PositiveIntegerField(help_text="Training level being requested")
+    current_level = models.PositiveIntegerField(help_text="User's current training level")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    
+    # Training details
+    justification = models.TextField(help_text="Why training is needed")
+    training_date = models.DateTimeField(null=True, blank=True, help_text="Scheduled training date")
+    completed_date = models.DateTimeField(null=True, blank=True, help_text="When training was completed")
+    
+    # Review information
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_training_requests')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_notes = models.TextField(blank=True)
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_trainingrequest'
+        ordering = ['-created_at']
+        unique_together = ['user', 'resource', 'status']  # Prevent duplicate pending requests
+    
+    def __str__(self):
+        return f"{self.user.username} requesting level {self.requested_level} training for {self.resource.name}"
+    
+    def complete_training(self, reviewed_by, completed_date=None):
+        """Mark training as completed and update user's training level."""
+        self.status = 'completed'
+        self.completed_date = completed_date or timezone.now()
+        self.reviewed_by = reviewed_by
+        self.reviewed_at = timezone.now()
+        self.save()
+        
+        # Update user's training level
+        user_profile = self.user.userprofile
+        if user_profile.training_level < self.requested_level:
+            user_profile.training_level = self.requested_level
+            user_profile.save()
+        
+        # Send notification
+        try:
+            from .notifications import training_request_notifications
+            training_request_notifications.training_request_completed(self)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send training completion notification: {e}")
+    
+    def schedule_training(self, training_date, reviewed_by, notes=""):
+        """Schedule training for the user."""
+        self.status = 'scheduled'
+        self.training_date = training_date
+        self.reviewed_by = reviewed_by
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.save()
+        
+        # Send notification
+        try:
+            from .notifications import training_request_notifications
+            training_request_notifications.training_request_scheduled(self, training_date)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send training scheduled notification: {e}")
+    
+    def cancel_training(self, cancelled_by, reason=""):
+        """Cancel the training request."""
+        if self.status not in ['pending', 'scheduled']:
+            raise ValueError("Can only cancel pending or scheduled training")
+        
+        self.status = 'cancelled'
+        self.reviewed_by = cancelled_by
+        self.reviewed_at = timezone.now()
+        self.review_notes = reason
+        self.save()
+        
+        # Send notification
+        try:
+            from .notifications import training_request_notifications
+            training_request_notifications.training_request_cancelled(self, cancelled_by, reason)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send training cancellation notification: {e}")
+
+
+class AccessRequest(models.Model):
+    """Requests for resource access."""
+    REQUEST_TYPES = [
+        ('view', 'View Only'),
+        ('book', 'View and Book'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending Review'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='access_requests')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='access_requests')
+    access_type = models.CharField(max_length=10, choices=REQUEST_TYPES, default='book')
+    justification = models.TextField(help_text="Why do you need access to this resource?")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    
+    # Approval workflow
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_access_requests')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_notes = models.TextField(blank=True)
+    
+    # Duration request
+    requested_duration_days = models.PositiveIntegerField(null=True, blank=True, help_text="Requested access duration in days")
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_accessrequest'
+        ordering = ['-created_at']
+        unique_together = ['resource', 'user', 'status']  # Prevent duplicate pending requests
+    
+    def __str__(self):
+        return f"{self.user.username} requesting {self.get_access_type_display()} access to {self.resource.name}"
+    
+    def approve(self, reviewed_by, review_notes="", expires_in_days=None):
+        """Approve the access request and create ResourceAccess."""
+        if self.status != 'pending':
+            raise ValueError("Can only approve pending requests")
+        
+        # Create the access permission
+        expires_at = None
+        if expires_in_days or self.requested_duration_days:
+            days = expires_in_days or self.requested_duration_days
+            expires_at = timezone.now() + timedelta(days=days)
+        
+        ResourceAccess.objects.update_or_create(
+            resource=self.resource,
+            user=self.user,
+            defaults={
+                'access_type': self.access_type,
+                'granted_by': reviewed_by,
+                'is_active': True,
+                'expires_at': expires_at,
+                'notes': f"Approved via request: {review_notes}" if review_notes else "Approved via access request"
+            }
+        )
+        
+        # Update request status
+        self.status = 'approved'
+        self.reviewed_by = reviewed_by
+        self.reviewed_at = timezone.now()
+        self.review_notes = review_notes
+        self.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_notes', 'updated_at'])
+        
+        # Send notification
+        try:
+            from .notifications import access_request_notifications
+            access_request_notifications.access_request_approved(self, reviewed_by)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send access request approval notification: {e}")
+    
+    def reject(self, reviewed_by, review_notes=""):
+        """Reject the access request."""
+        if self.status != 'pending':
+            raise ValueError("Can only reject pending requests")
+        
+        self.status = 'rejected'
+        self.reviewed_by = reviewed_by
+        self.reviewed_at = timezone.now()
+        self.review_notes = review_notes
+        self.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_notes', 'updated_at'])
+        
+        # Send notification
+        try:
+            from .notifications import access_request_notifications
+            access_request_notifications.access_request_rejected(self, reviewed_by, review_notes)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send access request rejection notification: {e}")
+    
+    def cancel(self):
+        """Cancel the access request."""
+        if self.status != 'pending':
+            raise ValueError("Can only cancel pending requests")
+        
+        self.status = 'cancelled'
+        self.save(update_fields=['status', 'updated_at'])
 
 
 class BookingTemplate(models.Model):
@@ -542,6 +856,12 @@ class Booking(models.Model):
 
     def clean(self):
         """Validate booking constraints."""
+        # Ensure timezone-aware datetimes
+        if self.start_time and timezone.is_naive(self.start_time):
+            self.start_time = timezone.make_aware(self.start_time)
+        if self.end_time and timezone.is_naive(self.end_time):
+            self.end_time = timezone.make_aware(self.end_time)
+        
         if self.start_time and self.end_time:
             if self.start_time >= self.end_time:
                 raise ValidationError("End time must be after start time.")
@@ -1177,3 +1497,192 @@ class WaitingListNotification(models.Model):
         self.save(update_fields=['user_response', 'responded_at'])
         
         return True
+
+
+class SystemSetting(models.Model):
+    """System-wide configuration settings."""
+    
+    SETTING_TYPES = [
+        ('string', 'Text String'),
+        ('integer', 'Integer'),
+        ('boolean', 'True/False'),
+        ('json', 'JSON Data'),
+        ('float', 'Decimal Number'),
+    ]
+    
+    key = models.CharField(max_length=100, unique=True, help_text="Setting identifier")
+    value = models.TextField(help_text="Setting value (stored as text)")
+    value_type = models.CharField(max_length=10, choices=SETTING_TYPES, default='string')
+    description = models.TextField(help_text="What this setting controls")
+    category = models.CharField(max_length=50, default='general', help_text="Setting category")
+    is_editable = models.BooleanField(default=True, help_text="Can be modified through admin")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_systemsetting'
+        ordering = ['category', 'key']
+    
+    def __str__(self):
+        return f"{self.key} = {self.value}"
+    
+    def clean(self):
+        """Validate value based on type."""
+        if self.value_type == 'integer':
+            try:
+                int(self.value)
+            except ValueError:
+                raise ValidationError({'value': 'Must be a valid integer'})
+        elif self.value_type == 'float':
+            try:
+                float(self.value)
+            except ValueError:
+                raise ValidationError({'value': 'Must be a valid decimal number'})
+        elif self.value_type == 'boolean':
+            if self.value.lower() not in ['true', 'false', '1', '0']:
+                raise ValidationError({'value': 'Must be true/false or 1/0'})
+        elif self.value_type == 'json':
+            try:
+                json.loads(self.value)
+            except json.JSONDecodeError:
+                raise ValidationError({'value': 'Must be valid JSON'})
+    
+    def get_value(self):
+        """Get typed value."""
+        if self.value_type == 'integer':
+            return int(self.value)
+        elif self.value_type == 'float':
+            return float(self.value)
+        elif self.value_type == 'boolean':
+            return self.value.lower() in ['true', '1']
+        elif self.value_type == 'json':
+            return json.loads(self.value)
+        else:
+            return self.value
+    
+    @classmethod
+    def get_setting(cls, key, default=None):
+        """Get a setting value by key."""
+        try:
+            setting = cls.objects.get(key=key)
+            return setting.get_value()
+        except cls.DoesNotExist:
+            return default
+    
+    @classmethod
+    def set_setting(cls, key, value, value_type='string', description='', category='general'):
+        """Set a setting value."""
+        if value_type == 'json' and not isinstance(value, str):
+            value = json.dumps(value)
+        elif value_type == 'boolean':
+            value = 'true' if value else 'false'
+        else:
+            value = str(value)
+        
+        setting, created = cls.objects.update_or_create(
+            key=key,
+            defaults={
+                'value': value,
+                'value_type': value_type,
+                'description': description,
+                'category': category
+            }
+        )
+        return setting
+
+
+class PDFExportSettings(models.Model):
+    """PDF export configuration settings."""
+    
+    QUALITY_CHOICES = [
+        ('high', 'High Quality (2x scale)'),
+        ('medium', 'Medium Quality (1.5x scale)'),
+        ('low', 'Low Quality (1x scale)'),
+    ]
+    
+    ORIENTATION_CHOICES = [
+        ('landscape', 'Landscape'),
+        ('portrait', 'Portrait'),
+    ]
+    
+    name = models.CharField(max_length=100, unique=True, help_text="Configuration name")
+    is_default = models.BooleanField(default=False, help_text="Use as default configuration")
+    
+    # Export settings
+    default_quality = models.CharField(max_length=10, choices=QUALITY_CHOICES, default='high')
+    default_orientation = models.CharField(max_length=10, choices=ORIENTATION_CHOICES, default='landscape')
+    include_header = models.BooleanField(default=True, help_text="Include enhanced header")
+    include_footer = models.BooleanField(default=True, help_text="Include enhanced footer")
+    include_legend = models.BooleanField(default=True, help_text="Include status legend")
+    include_details = models.BooleanField(default=True, help_text="Include booking details in footer")
+    preserve_colors = models.BooleanField(default=True, help_text="Maintain booking status colors")
+    multi_page_support = models.BooleanField(default=True, help_text="Split large calendars across pages")
+    compress_pdf = models.BooleanField(default=False, help_text="Compress PDF (smaller file size)")
+    
+    # Custom styling
+    header_logo_url = models.URLField(blank=True, help_text="URL to logo image for PDF header")
+    custom_css = models.TextField(blank=True, help_text="Custom CSS for PDF export")
+    watermark_text = models.CharField(max_length=100, blank=True, help_text="Watermark text")
+    
+    # Metadata
+    author_name = models.CharField(max_length=100, blank=True, help_text="Default author name")
+    organization_name = models.CharField(max_length=100, blank=True, help_text="Organization name")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_pdfexportsettings'
+        ordering = ['-is_default', 'name']
+    
+    def __str__(self):
+        default_marker = " (Default)" if self.is_default else ""
+        return f"{self.name}{default_marker}"
+    
+    def save(self, *args, **kwargs):
+        # Ensure only one default configuration
+        if self.is_default:
+            PDFExportSettings.objects.filter(is_default=True).update(is_default=False)
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def get_default_config(cls):
+        """Get the default PDF export configuration."""
+        try:
+            return cls.objects.get(is_default=True)
+        except cls.DoesNotExist:
+            # Create default configuration if none exists
+            return cls.objects.create(
+                name="Default Configuration",
+                is_default=True,
+                default_quality='high',
+                default_orientation='landscape',
+                include_header=True,
+                include_footer=True,
+                include_legend=True,
+                include_details=True,
+                preserve_colors=True,
+                multi_page_support=True,
+                compress_pdf=False,
+                organization_name="Aperture Booking"
+            )
+    
+    def to_json(self):
+        """Convert settings to JSON for frontend use."""
+        return {
+            'name': self.name,
+            'defaultQuality': self.default_quality,
+            'defaultOrientation': self.default_orientation,
+            'includeHeader': self.include_header,
+            'includeFooter': self.include_footer,
+            'includeLegend': self.include_legend,
+            'includeDetails': self.include_details,
+            'preserveColors': self.preserve_colors,
+            'multiPageSupport': self.multi_page_support,
+            'compressPdf': self.compress_pdf,
+            'headerLogoUrl': self.header_logo_url,
+            'customCss': self.custom_css,
+            'watermarkText': self.watermark_text,
+            'authorName': self.author_name,
+            'organizationName': self.organization_name
+        }

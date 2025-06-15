@@ -367,8 +367,9 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Load external dependencies -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Load external dependencies with multiple CDN fallbacks -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" 
+        onerror="this.onerror=null; this.src='https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js'"></script>
 <!-- Preload jsPDF from multiple CDNs for reliability -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" 
         onerror="this.onerror=null; this.src='https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js'"></script>
@@ -377,6 +378,7 @@
 <script src="{% static 'js/calendar-shortcuts.js' %}"></script>
 <script src="{% static 'js/calendar-pdf-export.js' %}"></script>
 <script src="{% static 'js/calendar-print-fallback.js' %}"></script>
+<script src="{% static 'js/calendar-view-persistence.js' %}"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -549,6 +551,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const shortcuts = new CalendarShortcuts(calendar);
     const pdfExport = new CalendarPDFExport(calendar);
     const printFallback = new CalendarPrintFallback(calendar);
+    const viewPersistence = new CalendarViewPersistence(calendar);
     
     // Toolbar buttons
     document.getElementById('today-btn').addEventListener('click', function() {

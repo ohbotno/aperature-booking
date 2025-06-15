@@ -1,6 +1,6 @@
-# aperature_booking/wsgi.py
+# aperture_booking/wsgi.py
 """
-WSGI config for aperature_booking project.
+WSGI config for aperture_booking project.
 
 This file is part of the Aperture Booking.
 Copyright (C) 2025 Aperture Booking Contributors
@@ -15,6 +15,6 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'aperature_booking.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'aperture_booking.settings')
 
 application = get_wsgi_application()

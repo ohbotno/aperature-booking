@@ -17,10 +17,12 @@ from django.contrib.auth.models import User
 from .models import (
     UserProfile, Resource, Booking, BookingAttendee, 
     ApprovalRule, Maintenance, BookingHistory,
-    Notification, NotificationPreference, EmailTemplate,
+    Notification, NotificationPreference, EmailTemplate, PushSubscription,
     WaitingListEntry, WaitingListNotification,
     CheckInOutEvent, UsageAnalytics,
-    Faculty, College, Department
+    Faculty, College, Department,
+    ResourceAccess, AccessRequest, TrainingRequest,
+    SystemSetting, PDFExportSettings
 )
 
 
@@ -211,11 +213,88 @@ class BookingHistoryAdmin(admin.ModelAdmin):
 
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):
-    list_display = ('title', 'user', 'notification_type', 'delivery_method', 'status', 'priority', 'created_at')
+    list_display = ('title', 'user', 'notification_type', 'delivery_method', 'status', 'priority', 'created_at', 'retry_count')
     list_filter = ('notification_type', 'delivery_method', 'status', 'priority', 'created_at')
     search_fields = ('title', 'message', 'user__username', 'user__email')
-    readonly_fields = ('created_at', 'updated_at', 'sent_at', 'read_at')
+    readonly_fields = ('created_at', 'updated_at', 'sent_at', 'read_at', 'next_retry_at')
     date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Notification Details', {
+            'fields': ('user', 'notification_type', 'title', 'message', 'priority', 'delivery_method', 'status')
+        }),
+        ('Related Objects', {
+            'fields': ('booking', 'resource', 'maintenance', 'access_request', 'training_request'),
+            'classes': ('collapse',)
+        }),
+        ('Delivery Information', {
+            'fields': ('sent_at', 'read_at', 'retry_count', 'next_retry_at'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('metadata',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    actions = ['mark_as_sent', 'mark_as_read', 'retry_failed', 'send_pending', 'delete_old_notifications']
+    
+    def mark_as_sent(self, request, queryset):
+        """Mark selected notifications as sent."""
+        count = 0
+        for notification in queryset.filter(status__in=['pending', 'failed']):
+            notification.mark_as_sent()
+            count += 1
+        self.message_user(request, f'Marked {count} notifications as sent.')
+    mark_as_sent.short_description = 'Mark as sent'
+    
+    def mark_as_read(self, request, queryset):
+        """Mark selected notifications as read."""
+        count = 0
+        for notification in queryset.filter(status__in=['pending', 'sent']):
+            notification.mark_as_read()
+            count += 1
+        self.message_user(request, f'Marked {count} notifications as read.')
+    mark_as_read.short_description = 'Mark as read'
+    
+    def retry_failed(self, request, queryset):
+        """Retry failed notifications."""
+        from .notifications import notification_service
+        
+        failed_notifications = queryset.filter(status='failed')
+        for notification in failed_notifications:
+            notification.status = 'pending'
+            notification.next_retry_at = None
+            notification.save(update_fields=['status', 'next_retry_at'])
+        
+        sent_count = notification_service.send_pending_notifications()
+        self.message_user(request, f'Reset {failed_notifications.count()} failed notifications. {sent_count} notifications processed.')
+    retry_failed.short_description = 'Retry failed notifications'
+    
+    def send_pending(self, request, queryset):
+        """Send pending notifications."""
+        from .notifications import notification_service
+        
+        sent_count = notification_service.send_pending_notifications()
+        self.message_user(request, f'Processed pending notifications. {sent_count} notifications sent.')
+    send_pending.short_description = 'Send pending notifications'
+    
+    def delete_old_notifications(self, request, queryset):
+        """Delete notifications older than 30 days."""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        cutoff_date = timezone.now() - timedelta(days=30)
+        old_notifications = queryset.filter(created_at__lt=cutoff_date)
+        count = old_notifications.count()
+        old_notifications.delete()
+        
+        self.message_user(request, f'Deleted {count} notifications older than 30 days.')
+    delete_old_notifications.short_description = 'Delete notifications older than 30 days'
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('user', 'booking', 'resource', 'maintenance')
@@ -227,6 +306,32 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):
     list_filter = ('notification_type', 'delivery_method', 'is_enabled', 'frequency')
     search_fields = ('user__username', 'user__email')
     readonly_fields = ('created_at', 'updated_at')
+    
+    actions = ['enable_notifications', 'disable_notifications', 'set_immediate_frequency', 'set_daily_digest']
+    
+    def enable_notifications(self, request, queryset):
+        """Enable selected notification preferences."""
+        updated = queryset.update(is_enabled=True)
+        self.message_user(request, f'Enabled {updated} notification preferences.')
+    enable_notifications.short_description = 'Enable selected preferences'
+    
+    def disable_notifications(self, request, queryset):
+        """Disable selected notification preferences.""" 
+        updated = queryset.update(is_enabled=False)
+        self.message_user(request, f'Disabled {updated} notification preferences.')
+    disable_notifications.short_description = 'Disable selected preferences'
+    
+    def set_immediate_frequency(self, request, queryset):
+        """Set frequency to immediate for selected preferences."""
+        updated = queryset.update(frequency='immediate')
+        self.message_user(request, f'Set {updated} preferences to immediate frequency.')
+    set_immediate_frequency.short_description = 'Set to immediate frequency'
+    
+    def set_daily_digest(self, request, queryset):
+        """Set frequency to daily digest for selected preferences."""
+        updated = queryset.update(frequency='daily_digest')
+        self.message_user(request, f'Set {updated} preferences to daily digest.')
+    set_daily_digest.short_description = 'Set to daily digest'
 
 
 @admin.register(EmailTemplate)
@@ -252,6 +357,75 @@ class EmailTemplateAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         })
     )
+
+
+@admin.register(PushSubscription)
+class PushSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ('user', 'endpoint_preview', 'user_agent', 'is_active', 'created_at', 'last_used')
+    list_filter = ('is_active', 'created_at', 'last_used')
+    search_fields = ('user__username', 'user__email', 'user_agent', 'endpoint')
+    readonly_fields = ('created_at', 'last_used', 'endpoint', 'p256dh_key', 'auth_key')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('User Information', {
+            'fields': ('user', 'is_active')
+        }),
+        ('Subscription Details', {
+            'fields': ('endpoint', 'p256dh_key', 'auth_key', 'user_agent')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'last_used'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def endpoint_preview(self, obj):
+        """Show preview of endpoint URL."""
+        return f"{obj.endpoint[:60]}..." if len(obj.endpoint) > 60 else obj.endpoint
+    endpoint_preview.short_description = 'Endpoint'
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user')
+    
+    actions = ['activate_subscriptions', 'deactivate_subscriptions', 'cleanup_inactive', 'test_push_notification']
+    
+    def activate_subscriptions(self, request, queryset):
+        """Activate selected push subscriptions."""
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f'Activated {updated} push subscriptions.')
+    activate_subscriptions.short_description = 'Activate selected subscriptions'
+    
+    def deactivate_subscriptions(self, request, queryset):
+        """Deactivate selected push subscriptions."""
+        updated = queryset.update(is_active=False)
+        self.message_user(request, f'Deactivated {updated} push subscriptions.')
+    deactivate_subscriptions.short_description = 'Deactivate selected subscriptions'
+    
+    def cleanup_inactive(self, request, queryset):
+        """Remove inactive push subscriptions."""
+        from .push_service import push_service
+        removed = push_service.cleanup_inactive_subscriptions(days_old=30)
+        self.message_user(request, f'Removed {removed} inactive push subscriptions.')
+    cleanup_inactive.short_description = 'Clean up inactive subscriptions (30+ days)'
+    
+    def test_push_notification(self, request, queryset):
+        """Send test push notifications to selected subscriptions."""
+        from .push_service import push_service
+        
+        sent_count = 0
+        for subscription in queryset.filter(is_active=True):
+            success = push_service.send_push_notification(
+                subscription=subscription,
+                title="Test Notification",
+                message="This is a test push notification from the admin interface.",
+                data={'test': True, 'source': 'admin'}
+            )
+            if success:
+                sent_count += 1
+        
+        self.message_user(request, f'Sent test notifications to {sent_count} devices.')
+    test_push_notification.short_description = 'Send test push notification'
 
 
 @admin.register(WaitingListEntry)
@@ -414,3 +588,369 @@ class UsageAnalyticsAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('resource')
+
+
+@admin.register(ResourceAccess)
+class ResourceAccessAdmin(admin.ModelAdmin):
+    list_display = ('user', 'resource', 'access_type', 'granted_by', 'granted_at', 'is_active', 'is_expired')
+    list_filter = ('access_type', 'is_active', 'granted_at', 'expires_at')
+    search_fields = ('user__username', 'user__email', 'resource__name', 'granted_by__username')
+    readonly_fields = ('granted_at',)
+    date_hierarchy = 'granted_at'
+    
+    fieldsets = (
+        ('Access Information', {
+            'fields': ('user', 'resource', 'access_type', 'is_active')
+        }),
+        ('Grant Details', {
+            'fields': ('granted_by', 'granted_at', 'expires_at')
+        }),
+        ('Notes', {
+            'fields': ('notes',)
+        })
+    )
+    
+    def is_expired(self, obj):
+        return obj.is_expired
+    is_expired.boolean = True
+    is_expired.short_description = 'Expired'
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'resource', 'granted_by')
+    
+    actions = ['activate_access', 'deactivate_access', 'extend_access']
+    
+    def activate_access(self, request, queryset):
+        """Activate selected access permissions."""
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f'Activated {updated} access permissions.')
+    activate_access.short_description = 'Activate selected access permissions'
+    
+    def deactivate_access(self, request, queryset):
+        """Deactivate selected access permissions."""
+        updated = queryset.update(is_active=False)
+        self.message_user(request, f'Deactivated {updated} access permissions.')
+    deactivate_access.short_description = 'Deactivate selected access permissions'
+    
+    def extend_access(self, request, queryset):
+        """Extend access by 30 days."""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        count = 0
+        for access in queryset:
+            if access.expires_at:
+                access.expires_at = access.expires_at + timedelta(days=30)
+                access.save()
+                count += 1
+        
+        self.message_user(request, f'Extended {count} access permissions by 30 days.')
+    extend_access.short_description = 'Extend selected access by 30 days'
+
+
+@admin.register(AccessRequest)
+class AccessRequestAdmin(admin.ModelAdmin):
+    list_display = ('user', 'resource', 'access_type', 'status', 'created_at', 'reviewed_by', 'reviewed_at')
+    list_filter = ('status', 'access_type', 'created_at', 'reviewed_at')
+    search_fields = ('user__username', 'user__email', 'resource__name', 'justification', 'review_notes')
+    readonly_fields = ('created_at', 'updated_at', 'reviewed_at')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Request Information', {
+            'fields': ('user', 'resource', 'access_type', 'status')
+        }),
+        ('Request Details', {
+            'fields': ('justification', 'requested_duration_days')
+        }),
+        ('Review Information', {
+            'fields': ('reviewed_by', 'reviewed_at', 'review_notes'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'resource', 'reviewed_by')
+    
+    actions = ['approve_requests', 'reject_requests']
+    
+    def approve_requests(self, request, queryset):
+        """Approve selected access requests."""
+        count = 0
+        for access_request in queryset.filter(status='pending'):
+            try:
+                access_request.approve(request.user, "Approved via admin action")
+                count += 1
+            except Exception as e:
+                self.message_user(request, f'Error approving request {access_request.id}: {str(e)}', level='ERROR')
+        
+        self.message_user(request, f'Approved {count} access requests.')
+    approve_requests.short_description = 'Approve selected requests'
+    
+    def reject_requests(self, request, queryset):
+        """Reject selected access requests."""
+        count = 0
+        for access_request in queryset.filter(status='pending'):
+            try:
+                access_request.reject(request.user, "Rejected via admin action")
+                count += 1
+            except Exception as e:
+                self.message_user(request, f'Error rejecting request {access_request.id}: {str(e)}', level='ERROR')
+        
+        self.message_user(request, f'Rejected {count} access requests.')
+    reject_requests.short_description = 'Reject selected requests'
+
+
+@admin.register(TrainingRequest)
+class TrainingRequestAdmin(admin.ModelAdmin):
+    list_display = ('user', 'resource', 'requested_level', 'current_level', 'status', 'created_at', 'training_date', 'reviewed_by')
+    list_filter = ('status', 'requested_level', 'created_at', 'training_date')
+    search_fields = ('user__username', 'user__email', 'resource__name', 'justification')
+    readonly_fields = ('created_at', 'updated_at', 'reviewed_at', 'completed_date')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Training Request', {
+            'fields': ('user', 'resource', 'requested_level', 'current_level', 'status')
+        }),
+        ('Request Details', {
+            'fields': ('justification',)
+        }),
+        ('Training Schedule', {
+            'fields': ('training_date', 'completed_date'),
+            'classes': ('collapse',)
+        }),
+        ('Review Information', {
+            'fields': ('reviewed_by', 'reviewed_at', 'review_notes'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'resource', 'reviewed_by')
+    
+    actions = ['schedule_training', 'complete_training', 'cancel_training']
+    
+    def schedule_training(self, request, queryset):
+        """Schedule training for selected requests."""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        count = 0
+        training_date = timezone.now() + timedelta(days=7)  # Default to 1 week from now
+        
+        for training_request in queryset.filter(status='pending'):
+            try:
+                training_request.schedule_training(
+                    training_date=training_date,
+                    reviewed_by=request.user,
+                    notes="Scheduled via admin action"
+                )
+                count += 1
+            except Exception as e:
+                self.message_user(request, f'Error scheduling training for request {training_request.id}: {str(e)}', level='ERROR')
+        
+        self.message_user(request, f'Scheduled training for {count} requests.')
+    schedule_training.short_description = 'Schedule training for selected requests'
+    
+    def complete_training(self, request, queryset):
+        """Mark training as completed for selected requests."""
+        count = 0
+        for training_request in queryset.filter(status__in=['pending', 'scheduled']):
+            try:
+                training_request.complete_training(request.user)
+                count += 1
+            except Exception as e:
+                self.message_user(request, f'Error completing training for request {training_request.id}: {str(e)}', level='ERROR')
+        
+        self.message_user(request, f'Completed training for {count} requests.')
+    complete_training.short_description = 'Mark training as completed'
+    
+    def cancel_training(self, request, queryset):
+        """Cancel selected training requests."""
+        updated = queryset.filter(status__in=['pending', 'scheduled']).update(status='cancelled')
+        self.message_user(request, f'Cancelled {updated} training requests.')
+    cancel_training.short_description = 'Cancel selected training requests'
+
+
+@admin.register(SystemSetting)
+class SystemSettingAdmin(admin.ModelAdmin):
+    list_display = ('key', 'value_preview', 'value_type', 'category', 'is_editable', 'updated_at')
+    list_filter = ('value_type', 'category', 'is_editable')
+    search_fields = ('key', 'description', 'value')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Setting Information', {
+            'fields': ('key', 'description', 'category', 'is_editable')
+        }),
+        ('Value Configuration', {
+            'fields': ('value_type', 'value')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def value_preview(self, obj):
+        """Show abbreviated value for display."""
+        value = obj.value
+        if len(value) > 50:
+            return f"{value[:47]}..."
+        return value
+    value_preview.short_description = 'Value'
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request)
+    
+    actions = ['duplicate_settings', 'export_settings']
+    
+    def duplicate_settings(self, request, queryset):
+        """Duplicate selected settings."""
+        duplicated = 0
+        for setting in queryset:
+            new_key = f"{setting.key}_copy"
+            if not SystemSetting.objects.filter(key=new_key).exists():
+                SystemSetting.objects.create(
+                    key=new_key,
+                    value=setting.value,
+                    value_type=setting.value_type,
+                    description=f"Copy of {setting.description}",
+                    category=setting.category,
+                    is_editable=setting.is_editable
+                )
+                duplicated += 1
+        
+        self.message_user(request, f'Duplicated {duplicated} settings.')
+    duplicate_settings.short_description = 'Duplicate selected settings'
+    
+    def export_settings(self, request, queryset):
+        """Export settings as JSON."""
+        import json
+        from django.http import HttpResponse
+        
+        settings_data = []
+        for setting in queryset:
+            settings_data.append({
+                'key': setting.key,
+                'value': setting.value,
+                'value_type': setting.value_type,
+                'description': setting.description,
+                'category': setting.category,
+                'is_editable': setting.is_editable
+            })
+        
+        response = HttpResponse(
+            json.dumps(settings_data, indent=2),
+            content_type='application/json'
+        )
+        response['Content-Disposition'] = 'attachment; filename="system_settings.json"'
+        return response
+    export_settings.short_description = 'Export settings as JSON'
+
+
+@admin.register(PDFExportSettings)
+class PDFExportSettingsAdmin(admin.ModelAdmin):
+    list_display = ('name', 'is_default', 'default_quality', 'default_orientation', 'organization_name', 'updated_at')
+    list_filter = ('is_default', 'default_quality', 'default_orientation', 'include_header', 'include_legend')
+    search_fields = ('name', 'description', 'organization_name', 'author_name')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Configuration Information', {
+            'fields': ('name', 'is_default')
+        }),
+        ('Default Export Settings', {
+            'fields': ('default_quality', 'default_orientation')
+        }),
+        ('Content Options', {
+            'fields': (
+                ('include_header', 'include_footer'),
+                ('include_legend', 'include_details'),
+                ('preserve_colors', 'multi_page_support'),
+                'compress_pdf'
+            )
+        }),
+        ('Customization', {
+            'fields': ('header_logo_url', 'watermark_text', 'custom_css'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('author_name', 'organization_name')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    actions = ['make_default', 'test_export_config', 'duplicate_config']
+    
+    def make_default(self, request, queryset):
+        """Make selected configuration the default."""
+        if queryset.count() != 1:
+            self.message_user(request, 'Please select exactly one configuration to make default.', level='ERROR')
+            return
+        
+        config = queryset.first()
+        PDFExportSettings.objects.filter(is_default=True).update(is_default=False)
+        config.is_default = True
+        config.save()
+        
+        self.message_user(request, f'"{config.name}" is now the default PDF export configuration.')
+    make_default.short_description = 'Make selected configuration default'
+    
+    def test_export_config(self, request, queryset):
+        """Test export configuration by generating sample JSON."""
+        from django.http import HttpResponse
+        import json
+        
+        configs = []
+        for config in queryset:
+            configs.append(config.to_json())
+        
+        response = HttpResponse(
+            json.dumps(configs, indent=2),
+            content_type='application/json'
+        )
+        response['Content-Disposition'] = 'attachment; filename="pdf_export_configs.json"'
+        return response
+    test_export_config.short_description = 'Export configuration as JSON'
+    
+    def duplicate_config(self, request, queryset):
+        """Duplicate selected configurations."""
+        duplicated = 0
+        for config in queryset:
+            new_name = f"{config.name} (Copy)"
+            if not PDFExportSettings.objects.filter(name=new_name).exists():
+                PDFExportSettings.objects.create(
+                    name=new_name,
+                    is_default=False,  # Never duplicate as default
+                    default_quality=config.default_quality,
+                    default_orientation=config.default_orientation,
+                    include_header=config.include_header,
+                    include_footer=config.include_footer,
+                    include_legend=config.include_legend,
+                    include_details=config.include_details,
+                    preserve_colors=config.preserve_colors,
+                    multi_page_support=config.multi_page_support,
+                    compress_pdf=config.compress_pdf,
+                    header_logo_url=config.header_logo_url,
+                    custom_css=config.custom_css,
+                    watermark_text=config.watermark_text,
+                    author_name=config.author_name,
+                    organization_name=config.organization_name
+                )
+                duplicated += 1
+        
+        self.message_user(request, f'Duplicated {duplicated} configurations.')
+    duplicate_config.short_description = 'Duplicate selected configurations'

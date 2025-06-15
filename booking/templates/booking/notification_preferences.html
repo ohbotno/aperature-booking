@@ -1,5 +1,6 @@
 {% extends "booking/base.html" %}
 {% load static %}
+{% load notification_tags %}
 
 {% block title %}Notification Preferences - {{ block.super }}{% endblock %}
 
@@ -77,6 +78,20 @@
                                                         When waiting list slots become available
                                                     {% elif type_code == 'waitlist_cancelled' %}
                                                         When leaving waiting lists
+                                                    {% elif type_code == 'access_request_submitted' %}
+                                                        When you submit access requests
+                                                    {% elif type_code == 'access_request_approved' %}
+                                                        When your access is granted
+                                                    {% elif type_code == 'access_request_rejected' %}
+                                                        When your access is denied
+                                                    {% elif type_code == 'training_request_submitted' %}
+                                                        When you submit training requests
+                                                    {% elif type_code == 'training_request_scheduled' %}
+                                                        When your training is scheduled
+                                                    {% elif type_code == 'training_request_completed' %}
+                                                        When you complete training
+                                                    {% elif type_code == 'training_request_cancelled' %}
+                                                        When training is cancelled
                                                     {% endif %}
                                                 </small>
                                             </td>
@@ -84,16 +99,26 @@
                                             {% for method_code, method_display in delivery_methods %}
                                                 <td class="text-center">
                                                     {% with pref_key=type_code|add:"_"|add:method_code %}
-                                                        <div class="form-check d-flex justify-content-center">
+                                                        <div class="form-check d-flex justify-content-center mb-2">
                                                             <input class="form-check-input" 
                                                                    type="checkbox" 
-                                                                   name="pref_{{ pref_key }}"
-                                                                   id="pref_{{ pref_key }}"
-                                                                   {% if preferences|lookup:pref_key %}checked{% endif %}
-                                                                   {% if method_code == 'sms' and not user.userprofile.phone %}disabled{% endif %}>
+                                                                   name="{{ type_code }}_{{ method_code }}_enabled"
+                                                                   id="{{ type_code }}_{{ method_code }}_enabled"
+                                                                   {% if current_preferences|get_item:pref_key.enabled %}checked{% endif %}
+                                                                   {% if method_code == 'sms' %}disabled{% endif %}>
                                                         </div>
-                                                        {% if method_code == 'sms' and not user.userprofile.phone %}
-                                                            <small class="text-muted">No phone number</small>
+                                                        <select class="form-select form-select-sm" 
+                                                                name="{{ type_code }}_{{ method_code }}_frequency"
+                                                                {% if method_code == 'sms' %}disabled{% endif %}>
+                                                            {% for freq_value, freq_display in frequency_choices %}
+                                                            <option value="{{ freq_value }}" 
+                                                                    {% if current_preferences|get_item:pref_key.frequency == freq_value %}selected{% endif %}>
+                                                                {{ freq_display }}
+                                                            </option>
+                                                            {% endfor %}
+                                                        </select>
+                                                        {% if method_code == 'sms' %}
+                                                            <small class="text-muted">Coming soon</small>
                                                         {% endif %}
                                                     {% endwith %}
                                                 </td>

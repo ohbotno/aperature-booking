@@ -1,6 +1,6 @@
-# aperature_booking/settings.py
+# aperture_booking/settings.py
 """
-Django settings for aperature_booking project.
+Django settings for aperture_booking project.
 
 This file is part of the Aperture Booking.
 Copyright (C) 2025 Aperture Booking Contributors
@@ -45,7 +45,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'aperature_booking.urls'
+ROOT_URLCONF = 'aperture_booking.urls'
 
 TEMPLATES = [
     {
@@ -63,7 +63,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'aperature_booking.wsgi.application'
+WSGI_APPLICATION = 'aperture_booking.wsgi.application'
 
 # Database configuration with environment-based switching
 DB_ENGINE = os.environ.get('DB_ENGINE', 'sqlite')
@@ -72,7 +72,7 @@ if DB_ENGINE == 'mysql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.environ.get('DB_NAME', 'aperature_booking'),
+            'NAME': os.environ.get('DB_NAME', 'aperture_booking'),
             'USER': os.environ.get('DB_USER', 'root'),
             'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST': os.environ.get('DB_HOST', 'localhost'),
@@ -87,7 +87,7 @@ elif DB_ENGINE == 'postgresql':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('DB_NAME', 'aperature_booking'),
+            'NAME': os.environ.get('DB_NAME', 'aperture_booking'),
             'USER': os.environ.get('DB_USER', 'postgres'),
             'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST': os.environ.get('DB_HOST', 'localhost'),
@@ -159,6 +159,16 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@example.com')
 
+# SMS configuration (Twilio)
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
+TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER', '')  # Your Twilio phone number in +1234567890 format
+
+# Push notification configuration
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
+VAPID_SUBJECT = os.environ.get('VAPID_SUBJECT', 'mailto:admin@example.com')
+
 # Lab booking specific settings
 LAB_BOOKING_WINDOW_START = 9  # 09:00
 LAB_BOOKING_WINDOW_END = 18   # 18:00
@@ -182,7 +192,7 @@ LOGGING = {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': 'aperature_booking.log',
+            'filename': 'aperture_booking.log',
         },
         'console': {
             'level': 'DEBUG',

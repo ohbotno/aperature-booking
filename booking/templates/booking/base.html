@@ -136,6 +136,12 @@
                                 <i class="bi bi-file-earmark-text"></i> Templates
                             </a>
                         </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if 'resource' in request.resolver_match.url_name %}active{% endif %}" 
+                               href="{% url 'booking:resources_list' %}">
+                                <i class="bi bi-tools"></i> Resources
+                            </a>
+                        </li>
                         {% if user.userprofile.role in 'technician,sysadmin' %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.resolver_match.url_name == 'conflicts' %}active{% endif %}" 

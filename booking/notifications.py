@@ -20,7 +20,7 @@ from django.utils import timezone
 from django.db.models import Q
 from .models import (
     Notification, NotificationPreference, EmailTemplate, 
-    Booking, Resource, Maintenance, UserProfile
+    Booking, Resource, Maintenance, UserProfile, AccessRequest, TrainingRequest
 )
 
 logger = logging.getLogger(__name__)
@@ -31,14 +31,29 @@ class NotificationService:
     
     def __init__(self):
         self.default_preferences = {
-            'booking_confirmed': {'email': True, 'in_app': True},
-            'booking_cancelled': {'email': True, 'in_app': True},
-            'booking_reminder': {'email': True, 'in_app': False},
-            'approval_request': {'email': True, 'in_app': True},
-            'approval_decision': {'email': True, 'in_app': True},
-            'maintenance_alert': {'email': True, 'in_app': True},
-            'conflict_detected': {'email': True, 'in_app': True},
-            'quota_warning': {'email': True, 'in_app': False},
+            'booking_confirmed': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'booking_cancelled': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'booking_reminder': {'email': True, 'in_app': False, 'push': True, 'sms': False},
+            'approval_request': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'approval_decision': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'maintenance_alert': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'conflict_detected': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'quota_warning': {'email': True, 'in_app': False, 'push': False, 'sms': False},
+            'waitlist_joined': {'email': False, 'in_app': True, 'push': True, 'sms': False},
+            'waitlist_availability': {'email': True, 'in_app': True, 'push': True, 'sms': True},
+            'waitlist_cancelled': {'email': False, 'in_app': True, 'push': False, 'sms': False},
+            'access_request_submitted': {'email': True, 'in_app': True, 'push': False, 'sms': False},
+            'access_request_approved': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'access_request_rejected': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'training_request_submitted': {'email': True, 'in_app': True, 'push': False, 'sms': False},
+            'training_request_scheduled': {'email': True, 'in_app': True, 'push': True, 'sms': True},
+            'training_request_completed': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'training_request_cancelled': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'escalation_notification': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'emergency_alert': {'email': True, 'in_app': True, 'push': True, 'sms': True},
+            'safety_alert': {'email': True, 'in_app': True, 'push': True, 'sms': True},
+            'evacuation_notice': {'email': True, 'in_app': True, 'push': True, 'sms': True},
+            'emergency_maintenance': {'email': True, 'in_app': True, 'push': True, 'sms': True},
         }
     
     def create_notification(
@@ -51,6 +66,8 @@ class NotificationService:
         booking: Optional[Booking] = None,
         resource: Optional[Resource] = None,
         maintenance: Optional[Maintenance] = None,
+        access_request: Optional[AccessRequest] = None,
+        training_request: Optional[TrainingRequest] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> List[Notification]:
         """Create notifications based on user preferences."""
@@ -71,6 +88,8 @@ class NotificationService:
                     booking=booking,
                     resource=resource,
                     maintenance=maintenance,
+                    access_request=access_request,
+                    training_request=training_request,
                     metadata=metadata or {}
                 )
                 notifications.append(notification)
@@ -117,6 +136,8 @@ class NotificationService:
                 elif notification.delivery_method == 'in_app':
                     # In-app notifications are already "sent" when created
                     notification.mark_as_sent()
+                elif notification.delivery_method == 'push':
+                    self._send_push_notification(notification)
                 
                 sent_count += 1
                 logger.info(f"Sent {notification.delivery_method} notification to {notification.user.username}")
@@ -172,19 +193,60 @@ class NotificationService:
         notification.mark_as_sent()
     
     def _send_sms_notification(self, notification: Notification):
-        """Send SMS notification (placeholder for future implementation)."""
-        # TODO: Implement SMS service (Twilio, AWS SNS, etc.)
-        logger.info(f"SMS notification queued for {notification.user.username}: {notification.title}")
-        notification.mark_as_sent()
+        """Send SMS notification using Twilio service."""
+        from .sms_service import sms_service
+        
+        # Get user's phone number
+        phone_number = sms_service.get_user_phone_number(notification.user)
+        
+        if not phone_number:
+            logger.warning(f"No phone number found for user {notification.user.username}")
+            notification.mark_as_failed("No phone number available")
+            return
+        
+        # Format message for SMS
+        sms_message = sms_service.format_notification_message(notification)
+        
+        # Send SMS
+        success = sms_service.send_sms(phone_number, sms_message)
+        
+        if success:
+            notification.mark_as_sent()
+            logger.info(f"SMS notification sent to {notification.user.username} at {phone_number}")
+        else:
+            notification.mark_as_failed("SMS delivery failed")
+            logger.error(f"Failed to send SMS to {notification.user.username} at {phone_number}")
+    
+    def _send_push_notification(self, notification: Notification):
+        """Send push notification using web push service."""
+        from .push_service import push_service
+        
+        # Format notification for push
+        push_data = push_service.format_notification_for_push(notification)
+        
+        # Send to all user's active push subscriptions
+        sent_count = push_service.send_to_user(
+            user=notification.user,
+            title=notification.title,
+            message=notification.message,
+            **push_data
+        )
+        
+        if sent_count > 0:
+            notification.mark_as_sent()
+            logger.info(f"Push notification sent to {sent_count} devices for {notification.user.username}")
+        else:
+            notification.mark_as_failed("No active push subscriptions")
+            logger.warning(f"No active push subscriptions for user {notification.user.username}")
     
     def _get_email_template(self, notification_type: str) -> Optional[EmailTemplate]:
         """Get active email template for notification type."""
         try:
-            return EmailTemplate.objects.get(
+            return EmailTemplate.objects.filter(
                 notification_type=notification_type,
                 is_active=True
-            )
-        except EmailTemplate.DoesNotExist:
+            ).first()
+        except Exception:
             return None
     
     def _build_email_context(self, notification: Notification) -> Dict[str, Any]:
@@ -208,6 +270,14 @@ class NotificationService:
         if notification.maintenance:
             context['maintenance'] = notification.maintenance
             context['resource'] = notification.maintenance.resource
+        
+        if notification.access_request:
+            context['access_request'] = notification.access_request
+            context['resource'] = notification.access_request.resource
+        
+        if notification.training_request:
+            context['training_request'] = notification.training_request
+            context['resource'] = notification.training_request.resource
         
         # Add metadata
         context.update(notification.metadata)
@@ -240,6 +310,150 @@ class NotificationService:
         )
         
         return updated
+    
+    def send_escalation_notifications(self):
+        """Send escalation notifications for overdue requests."""
+        from .models import AccessRequest, TrainingRequest
+        from datetime import timedelta
+        
+        # Define escalation timeframes
+        now = timezone.now()
+        escalation_1_cutoff = now - timedelta(days=3)  # 3 days old
+        escalation_2_cutoff = now - timedelta(days=7)  # 7 days old
+        escalation_3_cutoff = now - timedelta(days=14) # 14 days old
+        
+        escalated_count = 0
+        
+        try:
+            # Check overdue access requests
+            overdue_access_requests = AccessRequest.objects.filter(
+                status='pending',
+                created_at__lte=escalation_1_cutoff
+            )
+            
+            for access_request in overdue_access_requests:
+                days_old = (now - access_request.created_at).days
+                
+                # Determine escalation level
+                if days_old >= 14:
+                    escalation_level = 3
+                    priority = 'urgent'
+                elif days_old >= 7:
+                    escalation_level = 2
+                    priority = 'high'
+                else:
+                    escalation_level = 1
+                    priority = 'medium'
+                
+                # Check if we already sent this escalation
+                existing_escalation = Notification.objects.filter(
+                    access_request=access_request,
+                    notification_type='escalation_notification',
+                    metadata__escalation_level=escalation_level
+                ).exists()
+                
+                if not existing_escalation:
+                    self._send_access_escalation_notification(
+                        access_request, 
+                        escalation_level, 
+                        priority, 
+                        days_old
+                    )
+                    escalated_count += 1
+            
+            # Check overdue training requests
+            overdue_training_requests = TrainingRequest.objects.filter(
+                status='pending',
+                created_at__lte=escalation_1_cutoff
+            )
+            
+            for training_request in overdue_training_requests:
+                days_old = (now - training_request.created_at).days
+                
+                # Determine escalation level
+                if days_old >= 14:
+                    escalation_level = 3
+                    priority = 'urgent'
+                elif days_old >= 7:
+                    escalation_level = 2
+                    priority = 'high'
+                else:
+                    escalation_level = 1
+                    priority = 'medium'
+                
+                # Check if we already sent this escalation
+                existing_escalation = Notification.objects.filter(
+                    training_request=training_request,
+                    notification_type='escalation_notification',
+                    metadata__escalation_level=escalation_level
+                ).exists()
+                
+                if not existing_escalation:
+                    self._send_training_escalation_notification(
+                        training_request, 
+                        escalation_level, 
+                        priority, 
+                        days_old
+                    )
+                    escalated_count += 1
+                    
+            return escalated_count
+                    
+        except Exception as e:
+            logger.error(f"Error sending escalation notifications: {e}")
+            return 0
+    
+    def _send_access_escalation_notification(self, access_request, escalation_level, priority, days_old):
+        """Send escalation notification for access request."""
+        escalation_messages = {
+            1: f"Access request for {access_request.resource.name} has been pending for {days_old} days.",
+            2: f"REMINDER: Access request for {access_request.resource.name} has been pending for {days_old} days.",
+            3: f"URGENT: Access request for {access_request.resource.name} has been pending for {days_old} days and requires immediate attention."
+        }
+        
+        # Notify lab managers
+        lab_managers = UserProfile.objects.filter(role='lab_manager')
+        for manager in lab_managers:
+            self.create_notification(
+                user=manager.user,
+                notification_type='escalation_notification',
+                title=f"Overdue Access Request: {access_request.resource.name}",
+                message=escalation_messages[escalation_level],
+                priority=priority,
+                resource=access_request.resource,
+                access_request=access_request,
+                metadata={
+                    'escalation_level': escalation_level,
+                    'days_old': days_old,
+                    'request_type': 'access_request'
+                }
+            )
+    
+    def _send_training_escalation_notification(self, training_request, escalation_level, priority, days_old):
+        """Send escalation notification for training request."""
+        escalation_messages = {
+            1: f"Training request for {training_request.resource.name} has been pending for {days_old} days.",
+            2: f"REMINDER: Training request for {training_request.resource.name} has been pending for {days_old} days.",
+            3: f"URGENT: Training request for {training_request.resource.name} has been pending for {days_old} days and requires immediate attention."
+        }
+        
+        # Notify lab managers
+        lab_managers = UserProfile.objects.filter(role='lab_manager')
+        for manager in lab_managers:
+            self.create_notification(
+                user=manager.user,
+                notification_type='escalation_notification',
+                title=f"Overdue Training Request: {training_request.resource.name}",
+                message=escalation_messages[escalation_level],
+                priority=priority,
+                resource=training_request.resource,
+                training_request=training_request,
+                metadata={
+                    'escalation_level': escalation_level,
+                    'days_old': days_old,
+                    'request_type': 'training_request'
+                }
+            )
 
 
 class BookingNotifications:
@@ -379,7 +593,190 @@ class MaintenanceNotifications:
             )
 
 
+class AccessRequestNotifications:
+    """Helper class for access request notifications."""
+    
+    def __init__(self):
+        self.service = NotificationService()
+    
+    def access_request_submitted(self, access_request: AccessRequest):
+        """Send notification when access request is submitted."""
+        # Notify the user who submitted the request
+        self.service.create_notification(
+            user=access_request.user,
+            notification_type='access_request_submitted',
+            title=f'Access Request Submitted: {access_request.resource.name}',
+            message=f'Your access request for {access_request.resource.name} has been submitted and is under review.',
+            priority='medium',
+            resource=access_request.resource,
+            access_request=access_request,
+            metadata={
+                'access_request_id': access_request.id,
+                'resource_name': access_request.resource.name,
+            }
+        )
+        
+        # Notify lab managers
+        lab_managers = UserProfile.objects.filter(role='lab_manager').select_related('user')
+        for manager_profile in lab_managers:
+            self.service.create_notification(
+                user=manager_profile.user,
+                notification_type='access_request_submitted',
+                title=f'New Access Request: {access_request.resource.name}',
+                message=f'{access_request.user.get_full_name()} has requested access to {access_request.resource.name}.',
+                priority='medium',
+                resource=access_request.resource,
+                access_request=access_request,
+                metadata={
+                    'access_request_id': access_request.id,
+                    'requester': access_request.user.get_full_name(),
+                    'requester_email': access_request.user.email,
+                }
+            )
+    
+    def access_request_approved(self, access_request: AccessRequest, approved_by):
+        """Send notification when access request is approved."""
+        self.service.create_notification(
+            user=access_request.user,
+            notification_type='access_request_approved',
+            title=f'Access Granted: {access_request.resource.name}',
+            message=f'Your access request for {access_request.resource.name} has been approved by {approved_by.get_full_name()}. You can now book this resource.',
+            priority='high',
+            resource=access_request.resource,
+            access_request=access_request,
+            metadata={
+                'access_request_id': access_request.id,
+                'approved_by': approved_by.get_full_name(),
+                'resource_name': access_request.resource.name,
+            }
+        )
+    
+    def access_request_rejected(self, access_request: AccessRequest, rejected_by, reason=None):
+        """Send notification when access request is rejected."""
+        message = f'Your access request for {access_request.resource.name} has been declined by {rejected_by.get_full_name()}.'
+        if reason:
+            message += f' Reason: {reason}'
+        message += ' Please contact the lab manager for more information.'
+        
+        self.service.create_notification(
+            user=access_request.user,
+            notification_type='access_request_rejected',
+            title=f'Access Request Declined: {access_request.resource.name}',
+            message=message,
+            priority='high',
+            resource=access_request.resource,
+            access_request=access_request,
+            metadata={
+                'access_request_id': access_request.id,
+                'rejected_by': rejected_by.get_full_name(),
+                'reason': reason or '',
+            }
+        )
+
+
+class TrainingRequestNotifications:
+    """Helper class for training request notifications."""
+    
+    def __init__(self):
+        self.service = NotificationService()
+    
+    def training_request_submitted(self, training_request: TrainingRequest):
+        """Send notification when training request is submitted."""
+        # Notify the user who submitted the request
+        self.service.create_notification(
+            user=training_request.user,
+            notification_type='training_request_submitted',
+            title=f'Training Request Submitted: {training_request.resource.name}',
+            message=f'Your training request for {training_request.resource.name} has been submitted. You will be contacted with training details.',
+            priority='medium',
+            resource=training_request.resource,
+            training_request=training_request,
+            metadata={
+                'training_request_id': training_request.id,
+                'resource_name': training_request.resource.name,
+            }
+        )
+        
+        # Notify lab managers
+        lab_managers = UserProfile.objects.filter(role='lab_manager').select_related('user')
+        for manager_profile in lab_managers:
+            self.service.create_notification(
+                user=manager_profile.user,
+                notification_type='training_request_submitted',
+                title=f'New Training Request: {training_request.resource.name}',
+                message=f'{training_request.user.get_full_name()} has requested training for {training_request.resource.name}.',
+                priority='medium',
+                resource=training_request.resource,
+                training_request=training_request,
+                metadata={
+                    'training_request_id': training_request.id,
+                    'requester': training_request.user.get_full_name(),
+                    'requester_email': training_request.user.email,
+                }
+            )
+    
+    def training_request_scheduled(self, training_request: TrainingRequest, scheduled_date=None):
+        """Send notification when training is scheduled."""
+        message = f'Training for {training_request.resource.name} has been scheduled.'
+        if scheduled_date:
+            message += f' Training date: {scheduled_date.strftime("%B %d, %Y")}.'
+        message += ' Check your email for detailed instructions.'
+        
+        self.service.create_notification(
+            user=training_request.user,
+            notification_type='training_request_scheduled',
+            title=f'Training Scheduled: {training_request.resource.name}',
+            message=message,
+            priority='high',
+            resource=training_request.resource,
+            training_request=training_request,
+            metadata={
+                'training_request_id': training_request.id,
+                'scheduled_date': scheduled_date.isoformat() if scheduled_date else None,
+            }
+        )
+    
+    def training_request_completed(self, training_request: TrainingRequest):
+        """Send notification when training is completed."""
+        self.service.create_notification(
+            user=training_request.user,
+            notification_type='training_request_completed',
+            title=f'Training Completed: {training_request.resource.name}',
+            message=f'You have successfully completed training for {training_request.resource.name}. You can now request access to this resource.',
+            priority='high',
+            resource=training_request.resource,
+            training_request=training_request,
+            metadata={
+                'training_request_id': training_request.id,
+                'resource_name': training_request.resource.name,
+            }
+        )
+    
+    def training_request_cancelled(self, training_request: TrainingRequest, cancelled_by, reason=None):
+        """Send notification when training is cancelled."""
+        message = f'Training for {training_request.resource.name} has been cancelled by {cancelled_by.get_full_name()}.'
+        if reason:
+            message += f' Reason: {reason}'
+        
+        self.service.create_notification(
+            user=training_request.user,
+            notification_type='training_request_cancelled',
+            title=f'Training Cancelled: {training_request.resource.name}',
+            message=message,
+            priority='medium',
+            resource=training_request.resource,
+            training_request=training_request,
+            metadata={
+                'training_request_id': training_request.id,
+                'cancelled_by': cancelled_by.get_full_name(),
+                'reason': reason or '',
+            }
+        )
+
+
 # Global service instances
 notification_service = NotificationService()
 booking_notifications = BookingNotifications()
 maintenance_notifications = MaintenanceNotifications()
+access_request_notifications = AccessRequestNotifications()
+training_request_notifications = TrainingRequestNotifications()

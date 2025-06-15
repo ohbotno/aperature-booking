@@ -35,10 +35,15 @@ python-dateutil>=2.8.0  # Recurring booking logic
 celery>=5.3.0  # Task queue for notifications
 redis>=4.5.0  # Celery broker
 django-extensions>=3.2.0  # Development utilities
+Pillow>=10.0.0  # Image processing for resource images
 
 # Email & Calendar
 icalendar>=5.0.0  # ICS calendar generation
 django-sendgrid-v5>=1.2.0  # Email backend (optional)
+
+# SMS & Push Notifications
+twilio>=8.10.0  # SMS notifications
+pywebpush>=1.14.0  # Web push notifications
 
 # Production
 gunicorn>=21.0.0  # WSGI server

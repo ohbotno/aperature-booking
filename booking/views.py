@@ -23,7 +23,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
-from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, WaitingListNotification, Faculty, College, Department
+from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, WaitingListNotification, Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest
 from .forms import UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, SaveAsTemplateForm
 from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
@@ -1242,6 +1242,269 @@ class WaitingListNotificationViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'status': 'success', 'message': message})
         else:
             return Response({'status': 'error', 'message': message}, status=400)
+
+
+@login_required
+def resources_list_view(request):
+    """View to display all available resources with access control."""
+    resources = Resource.objects.filter(is_active=True).order_by('resource_type', 'name')
+    
+    # Add access information for each resource
+    for resource in resources:
+        resource.user_has_access_result = resource.user_has_access(request.user)
+        resource.can_view_calendar_result = resource.can_user_view_calendar(request.user)
+        
+        # Check if user has pending access request
+        resource.has_pending_request = AccessRequest.objects.filter(
+            resource=resource,
+            user=request.user,
+            status='pending'
+        ).exists()
+        
+        # Check if user has pending training request
+        resource.has_pending_training = TrainingRequest.objects.filter(
+            resource=resource,
+            user=request.user,
+            status__in=['pending', 'scheduled']
+        ).exists()
+    
+    return render(request, 'booking/resources_list.html', {
+        'resources': resources,
+        'user': request.user,
+    })
+
+
+@login_required
+def resource_detail_view(request, resource_id):
+    """View to show resource details and calendar or access request form."""
+    resource = get_object_or_404(Resource, id=resource_id, is_active=True)
+    
+    # Check user's access
+    user_has_access = resource.user_has_access(request.user)
+    can_view_calendar = resource.can_user_view_calendar(request.user)
+    
+    # Check if user has pending access request
+    has_pending_request = AccessRequest.objects.filter(
+        resource=resource,
+        user=request.user,
+        status='pending'
+    ).exists()
+    
+    # Check if user has pending training request
+    has_pending_training = TrainingRequest.objects.filter(
+        resource=resource,
+        user=request.user,
+        status__in=['pending', 'scheduled']
+    ).exists()
+    
+    # If user can view calendar, show calendar view
+    if can_view_calendar:
+        return render(request, 'booking/resource_detail.html', {
+            'resource': resource,
+            'user_has_access': user_has_access,
+            'can_view_calendar': can_view_calendar,
+            'has_pending_training': has_pending_training,
+            'show_calendar': True,
+        })
+    
+    # Otherwise show access request form
+    return render(request, 'booking/resource_detail.html', {
+        'resource': resource,
+        'user_has_access': user_has_access,
+        'can_view_calendar': can_view_calendar,
+        'has_pending_request': has_pending_request,
+        'has_pending_training': has_pending_training,
+        'show_calendar': False,
+    })
+
+
+@login_required
+def request_resource_access_view(request, resource_id):
+    """Handle resource access requests."""
+    resource = get_object_or_404(Resource, id=resource_id, is_active=True)
+    
+    # Check if user already has access or pending request
+    if resource.user_has_access(request.user):
+        messages.info(request, 'You already have access to this resource.')
+        return redirect('booking:resource_detail', resource_id=resource.id)
+    
+    if AccessRequest.objects.filter(resource=resource, user=request.user, status='pending').exists():
+        messages.info(request, 'You already have a pending access request for this resource.')
+        return redirect('booking:resource_detail', resource_id=resource.id)
+    
+    # Check if user has pending training request
+    if TrainingRequest.objects.filter(resource=resource, user=request.user, status__in=['pending', 'scheduled']).exists():
+        messages.info(request, 'You already have a pending training request for this resource.')
+        return redirect('booking:resource_detail', resource_id=resource.id)
+    
+    if request.method == 'POST':
+        access_type = request.POST.get('access_type', 'book')
+        justification = request.POST.get('justification', '').strip()
+        requested_duration_days = request.POST.get('requested_duration_days')
+        has_training = request.POST.get('has_training', '')
+        
+        if not justification:
+            messages.error(request, 'Please provide a justification for your access request.')
+            return redirect('booking:request_resource_access', resource_id=resource.id)
+        
+        # Check if user meets training requirements
+        user_profile = request.user.userprofile
+        needs_training = resource.required_training_level > user_profile.training_level
+        
+        if needs_training:
+            if has_training == 'yes':
+                # User claims to have training but system shows they don't
+                messages.warning(request, 
+                    f'Our records show you have training level {user_profile.training_level}, but {resource.name} requires level {resource.required_training_level}. '
+                    'Training information will be sent to you to update your qualifications.')
+                
+                # Create training request for verification
+                training_request, created = TrainingRequest.objects.get_or_create(
+                    user=request.user,
+                    resource=resource,
+                    status__in=['pending', 'scheduled'],
+                    defaults={
+                        'requested_level': resource.required_training_level,
+                        'current_level': user_profile.training_level,
+                        'justification': f"Training verification needed for access to {resource.name}. User claims training completion. Original request: {justification}",
+                        'status': 'pending'
+                    }
+                )
+                
+            elif has_training == 'no':
+                # User acknowledges they need training
+                messages.info(request, 'Training information will be sent to you as this resource requires additional training.')
+                
+                # Create training request
+                training_request, created = TrainingRequest.objects.get_or_create(
+                    user=request.user,
+                    resource=resource,
+                    status__in=['pending', 'scheduled'],
+                    defaults={
+                        'requested_level': resource.required_training_level,
+                        'current_level': user_profile.training_level,
+                        'justification': f"Training needed for access to {resource.name}. Original request: {justification}",
+                        'status': 'pending'
+                    }
+                )
+            
+            if 'training_request' in locals():
+                if created:
+                    messages.success(request, f'Training request for {resource.name} has been submitted. You will be contacted with training details.')
+                    
+                    # Send notifications
+                    try:
+                        from .notifications import training_request_notifications
+                        training_request_notifications.training_request_submitted(training_request)
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Failed to send training request submission notification: {e}")
+                else:
+                    messages.info(request, f'You already have a pending training request for {resource.name}.')
+            
+            return redirect('booking:resource_detail', resource_id=resource.id)
+        
+        # User has sufficient training, proceed with access request
+        access_request = AccessRequest.objects.create(
+            resource=resource,
+            user=request.user,
+            access_type=access_type,
+            justification=justification,
+            requested_duration_days=int(requested_duration_days) if requested_duration_days else None
+        )
+        
+        messages.success(request, f'Access request for {resource.name} has been submitted successfully.')
+        
+        # Send notifications
+        try:
+            from .notifications import access_request_notifications
+            access_request_notifications.access_request_submitted(access_request)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send access request submission notification: {e}")
+        
+        return redirect('booking:resource_detail', resource_id=resource.id)
+    
+    return render(request, 'booking/request_access.html', {
+        'resource': resource,
+    })
+
+
+@login_required
+def notification_preferences_view(request):
+    """Notification preferences management view."""
+    from .models import NotificationPreference
+    
+    # Get all notification types
+    notification_types = NotificationPreference.NOTIFICATION_TYPES
+    delivery_methods = NotificationPreference.DELIVERY_METHODS
+    frequency_choices = [
+        ('immediate', 'Immediate'),
+        ('daily_digest', 'Daily Digest'),
+        ('weekly_digest', 'Weekly Digest'),
+    ]
+    
+    if request.method == 'POST':
+        # Process preference updates
+        updated_count = 0
+        
+        for notification_type, _ in notification_types:
+            for delivery_method, _ in delivery_methods:
+                # Get form field names
+                enabled_field = f"{notification_type}_{delivery_method}_enabled"
+                frequency_field = f"{notification_type}_{delivery_method}_frequency"
+                
+                is_enabled = request.POST.get(enabled_field) == 'on'
+                frequency = request.POST.get(frequency_field, 'immediate')
+                
+                # Update or create preference
+                preference, created = NotificationPreference.objects.update_or_create(
+                    user=request.user,
+                    notification_type=notification_type,
+                    delivery_method=delivery_method,
+                    defaults={
+                        'is_enabled': is_enabled,
+                        'frequency': frequency
+                    }
+                )
+                
+                if created or preference.is_enabled != is_enabled:
+                    updated_count += 1
+        
+        messages.success(request, f'Updated {updated_count} notification preferences.')
+        return redirect('booking:notification_preferences')
+    
+    # Get current preferences
+    current_preferences = {}
+    user_prefs = NotificationPreference.objects.filter(user=request.user)
+    
+    for pref in user_prefs:
+        key = f"{pref.notification_type}_{pref.delivery_method}"
+        current_preferences[key] = {
+            'enabled': pref.is_enabled,
+            'frequency': pref.frequency
+        }
+    
+    # Add default values for missing preferences
+    from .notifications import notification_service
+    for notification_type, _ in notification_types:
+        for delivery_method, _ in delivery_methods:
+            key = f"{notification_type}_{delivery_method}"
+            if key not in current_preferences:
+                defaults = notification_service.default_preferences.get(notification_type, {})
+                current_preferences[key] = {
+                    'enabled': defaults.get(delivery_method, False),
+                    'frequency': defaults.get('frequency', 'immediate')
+                }
+    
+    return render(request, 'booking/notification_preferences.html', {
+        'notification_types': notification_types,
+        'delivery_methods': delivery_methods,
+        'frequency_choices': frequency_choices,
+        'current_preferences': current_preferences,
+    })
 
 
 @login_required

@@ -1,0 +1,267 @@
+{% extends 'booking/base.html' %}
+{% load static %}
+
+{% block title %}{{ resource.name }} - Resources - Aperture Booking{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <!-- Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1><i class="bi bi-{{ resource.resource_type|default:'box' }} me-2"></i>{{ resource.name }}</h1>
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb mb-0">
+                        <li class="breadcrumb-item"><a href="{% url 'booking:calendar' %}">Home</a></li>
+                        <li class="breadcrumb-item"><a href="{% url 'booking:resources_list' %}">Resources</a></li>
+                        <li class="breadcrumb-item active" aria-current="page">{{ resource.name }}</li>
+                    </ol>
+                </nav>
+            </div>
+
+            <div class="row">
+                <!-- Resource Information Panel -->
+                <div class="col-lg-4 mb-4">
+                    <div class="card">
+                        <!-- Resource Image -->
+                        {% if resource.image %}
+                        <img src="{{ resource.image.url }}" alt="{{ resource.name }}" class="card-img-top" style="height: 250px; object-fit: cover;">
+                        {% else %}
+                        <div class="card-img-top d-flex align-items-center justify-content-center bg-light" style="height: 250px;">
+                            {% if resource.resource_type == 'robot' %}
+                                <i class="bi bi-robot text-muted" style="font-size: 4rem;"></i>
+                            {% elif resource.resource_type == 'instrument' %}
+                                <i class="bi bi-tools text-muted" style="font-size: 4rem;"></i>
+                            {% elif resource.resource_type == 'room' %}
+                                <i class="bi bi-door-open text-muted" style="font-size: 4rem;"></i>
+                            {% elif resource.resource_type == 'safety_cabinet' %}
+                                <i class="bi bi-shield-check text-muted" style="font-size: 4rem;"></i>
+                            {% else %}
+                                <i class="bi bi-box text-muted" style="font-size: 4rem;"></i>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                {{ resource.name }}
+                                <span class="badge bg-primary ms-2">{{ resource.get_resource_type_display }}</span>
+                            </h5>
+                            
+                            {% if resource.description %}
+                            <p class="card-text">{{ resource.description }}</p>
+                            {% endif %}
+
+                            <!-- Resource Details -->
+                            <div class="row">
+                                <div class="col-12">
+                                    <h6 class="fw-bold">Details</h6>
+                                    <ul class="list-unstyled">
+                                        <li><i class="bi bi-geo-alt me-2"></i><strong>Location:</strong> {{ resource.location }}</li>
+                                        <li><i class="bi bi-people me-2"></i><strong>Capacity:</strong> {{ resource.capacity }} user{{ resource.capacity|pluralize }}</li>
+                                        {% if resource.required_training_level > 1 %}
+                                        <li><i class="bi bi-mortarboard me-2"></i><strong>Training Level Required:</strong> {{ resource.required_training_level }}</li>
+                                        {% endif %}
+                                        {% if resource.requires_induction %}
+                                        <li><i class="bi bi-info-circle me-2"></i><strong>Induction Required:</strong> Yes</li>
+                                        {% endif %}
+                                        {% if resource.max_booking_hours %}
+                                        <li><i class="bi bi-clock me-2"></i><strong>Max Booking:</strong> {{ resource.max_booking_hours }} hour{{ resource.max_booking_hours|pluralize }}</li>
+                                        {% endif %}
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Access Status -->
+                            <div class="mt-3">
+                                <h6 class="fw-bold">Access Status</h6>
+                                {% if user_has_access %}
+                                    <div class="alert alert-success">
+                                        <i class="bi bi-check-circle-fill me-2"></i>
+                                        You have access to this resource
+                                    </div>
+                                {% elif has_pending_training %}
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-book-fill me-2"></i>
+                                        Training pending - You will be contacted with training details
+                                    </div>
+                                {% elif has_pending_request %}
+                                    <div class="alert alert-warning">
+                                        <i class="bi bi-clock-fill me-2"></i>
+                                        Your access request is pending review
+                                    </div>
+                                {% else %}
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-lock-fill me-2"></i>
+                                        You do not have access to this resource
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <!-- Action Button -->
+                            <div class="d-grid gap-2">
+                                {% if show_calendar %}
+                                    <a href="{% url 'booking:create_booking' %}?resource={{ resource.id }}" class="btn btn-primary">
+                                        <i class="bi bi-plus-circle me-1"></i>Create Booking
+                                    </a>
+                                {% elif has_pending_training %}
+                                    <div class="btn btn-info" role="button">
+                                        <i class="bi bi-book me-1"></i>Training Pending
+                                    </div>
+                                {% elif has_pending_request %}
+                                    <div class="btn btn-warning" role="button">
+                                        <i class="bi bi-clock me-1"></i>Request Pending
+                                    </div>
+                                {% else %}
+                                    <a href="{% url 'booking:request_resource_access' resource.id %}" class="btn btn-outline-primary">
+                                        <i class="bi bi-key me-1"></i>Request Access
+                                    </a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Content Panel -->
+                <div class="col-lg-8">
+                    {% if show_calendar %}
+                        <!-- Calendar View -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-calendar3 me-2"></i>{{ resource.name }} Calendar
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="resource-calendar" style="min-height: 600px;"></div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <!-- Access Request Information -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">
+                                    <i class="bi bi-key me-2"></i>Resource Access
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                {% if has_pending_training %}
+                                    <div class="alert alert-info">
+                                        <h6><i class="bi bi-book-fill me-2"></i>Training Pending</h6>
+                                        <p class="mb-0">You have requested training for this resource. You will be contacted with training details and schedule information.</p>
+                                    </div>
+                                {% elif has_pending_request %}
+                                    <div class="alert alert-warning">
+                                        <h6><i class="bi bi-clock-fill me-2"></i>Request Pending</h6>
+                                        <p class="mb-0">Your access request for this resource is currently being reviewed. You will be notified once a decision is made.</p>
+                                    </div>
+                                {% else %}
+                                    <div class="alert alert-info">
+                                        <h6><i class="bi bi-info-circle-fill me-2"></i>Access Required</h6>
+                                        <p>To view the calendar and book this resource, you need to request access first. Click the "Request Access" button to submit your request.</p>
+                                    </div>
+
+                                    <h6>Why might I need access?</h6>
+                                    <ul>
+                                        <li>This resource may require specific training or qualifications</li>
+                                        <li>Access may be restricted to certain user groups or roles</li>
+                                        <li>The resource manager needs to approve users before they can book</li>
+                                        {% if resource.requires_induction %}
+                                        <li>This resource requires completion of a safety induction</li>
+                                        {% endif %}
+                                        {% if resource.required_training_level > 1 %}
+                                        <li>This resource requires training level {{ resource.required_training_level }} or higher</li>
+                                        {% endif %}
+                                    </ul>
+
+                                    <div class="d-grid gap-2 mt-3">
+                                        <a href="{% url 'booking:request_resource_access' resource.id %}" class="btn btn-primary">
+                                            <i class="bi bi-key me-1"></i>Request Access to {{ resource.name }}
+                                        </a>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if show_calendar %}
+<!-- FullCalendar Integration -->
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const calendarEl = document.getElementById('resource-calendar');
+    
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'timeGridWeek',
+        headerToolbar: {
+            left: 'prev,next today',
+            center: 'title',
+            right: 'timeGridWeek,timeGridDay,listWeek'
+        },
+        slotMinTime: '09:00:00',
+        slotMaxTime: '18:00:00',
+        allDaySlot: false,
+        businessHours: {
+            daysOfWeek: [1, 2, 3, 4, 5], // Monday - Friday
+            startTime: '09:00',
+            endTime: '18:00'
+        },
+        height: 'auto',
+        contentHeight: 600,
+        events: '/api/bookings/?resource={{ resource.id }}',
+        eventClick: function(info) {
+            // Handle event click - could open booking details
+            window.location.href = `/booking/${info.event.extendedProps.booking_id}/`;
+        },
+        selectable: true,
+        selectMirror: true,
+        select: function(selectionInfo) {
+            // Handle time slot selection for new booking
+            const startTime = selectionInfo.start.toISOString();
+            const endTime = selectionInfo.end.toISOString();
+            window.location.href = `/booking/create/?resource={{ resource.id }}&start=${startTime}&end=${endTime}`;
+        },
+        eventDisplay: 'block',
+        eventClassNames: function(info) {
+            // Style events based on status
+            switch(info.event.extendedProps.status) {
+                case 'approved': return ['fc-event-approved'];
+                case 'pending': return ['fc-event-pending'];
+                case 'cancelled': return ['fc-event-cancelled'];
+                default: return [];
+            }
+        }
+    });
+
+    calendar.render();
+});
+</script>
+
+<style>
+.fc-event-approved {
+    background-color: #28a745 !important;
+    border-color: #1e7e34 !important;
+}
+
+.fc-event-pending {
+    background-color: #ffc107 !important;
+    border-color: #d39e00 !important;
+    color: #000 !important;
+}
+
+.fc-event-cancelled {
+    background-color: #6c757d !important;
+    border-color: #545b62 !important;
+}
+
+.fc-event:hover {
+    opacity: 0.8;
+}
+</style>
+{% endif %}
+{% endblock %}

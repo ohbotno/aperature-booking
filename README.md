@@ -97,7 +97,7 @@ python manage.py migrate
 ```bash
 # Set environment variables
 export DB_ENGINE=postgresql
-export DB_NAME=aperature_booking
+export DB_NAME=aperture_booking
 export DB_USER=your_username
 export DB_PASSWORD=your_password
 export DB_HOST=localhost

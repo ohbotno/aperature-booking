@@ -1,6 +1,6 @@
-# aperature_booking/urls.py
+# aperture_booking/urls.py
 """
-URL configuration for aperature_booking project.
+URL configuration for aperture_booking project.
 
 This file is part of the Aperture Booking.
 Copyright (C) 2025 Aperture Booking Contributors
@@ -18,7 +18,7 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/', include('django.contrib.auth.urls')),
-    path('api/', include('booking.urls')),
+    path('api/', include('booking.api_urls')),
     path('', include('booking.urls')),
 ]
 
