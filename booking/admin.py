@@ -18,7 +18,7 @@ from .models import (
     UserProfile, Resource, Booking, BookingAttendee, 
     ApprovalRule, Maintenance, BookingHistory,
     Notification, NotificationPreference, EmailTemplate, PushSubscription,
-    WaitingListEntry, WaitingListNotification,
+    WaitingListEntry,
     CheckInOutEvent, UsageAnalytics,
     Faculty, College, Department,
     ResourceAccess, AccessRequest, TrainingRequest,
@@ -91,6 +91,148 @@ class UserProfileAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         })
     )
+    
+    actions = ['export_users_csv', 'bulk_assign_group', 'bulk_change_role', 'bulk_set_training_level']
+    
+    def export_users_csv(self, request, queryset):
+        """Export selected users to CSV format."""
+        import csv
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="users_export.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'username', 'email', 'first_name', 'last_name', 'role', 'group',
+            'faculty_code', 'college_code', 'department_code', 'student_id',
+            'staff_number', 'training_level', 'phone'
+        ])
+        
+        for profile in queryset.select_related('user', 'faculty', 'college', 'department'):
+            writer.writerow([
+                profile.user.username,
+                profile.user.email,
+                profile.user.first_name,
+                profile.user.last_name,
+                profile.role,
+                profile.group,
+                profile.faculty.code if profile.faculty else '',
+                profile.college.code if profile.college else '',
+                profile.department.code if profile.department else '',
+                profile.student_id or '',
+                profile.staff_number or '',
+                profile.training_level,
+                profile.phone,
+            ])
+        
+        return response
+    export_users_csv.short_description = 'Export selected users as CSV'
+    
+    def bulk_assign_group(self, request, queryset):
+        """Bulk assign group to selected users."""
+        # This could be expanded to show a form, for now we'll use a simple approach
+        from django.contrib import messages
+        
+        group_name = request.POST.get('group_name', '').strip()
+        if group_name:
+            updated = queryset.update(group=group_name)
+            messages.success(request, f'Assigned {updated} users to group "{group_name}"')
+        else:
+            messages.error(request, 'Please provide a group name')
+    bulk_assign_group.short_description = 'Assign group to selected users'
+    
+    def bulk_change_role(self, request, queryset):
+        """Bulk change role for selected users."""
+        # This would benefit from a proper form interface
+        pass
+    bulk_change_role.short_description = 'Change role for selected users'
+    
+    def bulk_set_training_level(self, request, queryset):
+        """Bulk set training level for selected users."""
+        training_level = request.POST.get('training_level')
+        if training_level and training_level.isdigit():
+            level = int(training_level)
+            if 1 <= level <= 5:
+                updated = queryset.update(training_level=level)
+                self.message_user(request, f'Set training level to {level} for {updated} users.')
+            else:
+                self.message_user(request, 'Training level must be between 1 and 5.', level='error')
+        else:
+            self.message_user(request, 'Please provide a valid training level (1-5).', level='error')
+    bulk_set_training_level.short_description = 'Set training level for selected users'
+    
+    def changelist_view(self, request, extra_context=None):
+        """Add CSV import functionality to the changelist view."""
+        extra_context = extra_context or {}
+        
+        if request.method == 'POST' and 'csv_file' in request.FILES:
+            return self.handle_csv_import(request)
+        
+        # Add groups summary for group management
+        try:
+            from django.db.models import Count
+            groups_summary = UserProfile.objects.exclude(group='').values('group').annotate(
+                count=Count('id')
+            ).order_by('-count')[:10]
+            extra_context['groups_summary'] = groups_summary
+        except:
+            pass
+            
+        return super().changelist_view(request, extra_context)
+    
+    def handle_csv_import(self, request):
+        """Handle CSV file upload and import."""
+        from django.contrib import messages
+        from django.shortcuts import redirect
+        import tempfile
+        import os
+        
+        csv_file = request.FILES['csv_file']
+        update_existing = request.POST.get('update_existing') == 'on'
+        
+        if not csv_file.name.endswith('.csv'):
+            messages.error(request, 'Please upload a CSV file.')
+            return redirect('admin:booking_userprofile_changelist')
+        
+        try:
+            # Save uploaded file temporarily
+            with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as tmp_file:
+                for chunk in csv_file.chunks():
+                    tmp_file.write(chunk)
+                tmp_file_path = tmp_file.name
+            
+            # Import using management command logic
+            from booking.management.commands.import_users_csv import Command
+            command = Command()
+            
+            # Capture output
+            from io import StringIO
+            output = StringIO()
+            command.stdout = output
+            
+            # Run import
+            command.handle(
+                csv_file=tmp_file_path,
+                dry_run=False,
+                update_existing=update_existing,
+                default_password='ChangeMe123!'
+            )
+            
+            # Clean up
+            os.unlink(tmp_file_path)
+            
+            # Show results
+            output_text = output.getvalue()
+            if 'Error' in output_text:
+                messages.warning(request, f'Import completed with some issues:\n{output_text}')
+            else:
+                messages.success(request, f'Import successful:\n{output_text}')
+                
+        except Exception as e:
+            messages.error(request, f'Import failed: {str(e)}')
+        
+        return redirect('admin:booking_userprofile_changelist')
 
 
 @admin.register(Resource)
@@ -497,37 +639,6 @@ class WaitingListEntryAdmin(admin.ModelAdmin):
         self.message_user(request, f'Processed waiting lists for {len(resources)} resources. {total_notifications} notifications sent.')
     process_waiting_list.short_description = 'Process waiting list for selected resources'
 
-
-@admin.register(WaitingListNotification)
-class WaitingListNotificationAdmin(admin.ModelAdmin):
-    list_display = ('waiting_list_entry', 'available_start_time', 'user_response', 'sent_at', 'response_deadline')
-    list_filter = ('user_response', 'sent_at', 'waiting_list_entry__resource')
-    search_fields = ('waiting_list_entry__user__username', 'waiting_list_entry__resource__name')
-    readonly_fields = ('sent_at', 'responded_at')
-    date_hierarchy = 'sent_at'
-    
-    fieldsets = (
-        ('Notification Details', {
-            'fields': ('waiting_list_entry', 'available_start_time', 'available_end_time')
-        }),
-        ('Response Tracking', {
-            'fields': ('user_response', 'response_deadline', 'responded_at')
-        }),
-        ('Booking Result', {
-            'fields': ('booking_created',)
-        }),
-        ('Timestamps', {
-            'fields': ('sent_at', 'expires_at'),
-            'classes': ('collapse',)
-        })
-    )
-    
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related(
-            'waiting_list_entry__user', 
-            'waiting_list_entry__resource',
-            'booking_created'
-        )
 
 
 @admin.register(CheckInOutEvent)
@@ -954,3 +1065,4 @@ class PDFExportSettingsAdmin(admin.ModelAdmin):
         
         self.message_user(request, f'Duplicated {duplicated} configurations.')
     duplicate_config.short_description = 'Duplicate selected configurations'
+

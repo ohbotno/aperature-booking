@@ -23,17 +23,19 @@ from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
 from datetime import timedelta
-from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, WaitingListNotification, Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest
+from django.core.paginator import Paginator
+from django.contrib.auth.models import User
+from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest
 from .forms import UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, SaveAsTemplateForm
 from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
 from .serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
-    ApprovalRuleSerializer, MaintenanceSerializer
+    ApprovalRuleSerializer, MaintenanceSerializer, WaitingListEntrySerializer
 )
-from .notifications import notification_service
-from .waiting_list import waiting_list_service
-from .checkin_service import checkin_service
+# from .notifications import notification_service  # TODO: Implement notification service
+# from .waiting_list import waiting_list_service  # TODO: Implement waiting list service  
+# from .checkin_service import checkin_service  # TODO: Implement checkin service
 
 
 class IsOwnerOrManagerPermission(permissions.BasePermission):
@@ -361,6 +363,180 @@ class BookingViewSet(viewsets.ModelViewSet):
         )
         
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    @action(detail=True, methods=['post'])
+    def add_prerequisite(self, request, pk=None):
+        """Add a prerequisite booking dependency."""
+        booking = self.get_object()
+        user_profile = request.user.userprofile
+        
+        # Check permissions - only owner or managers can add dependencies
+        if booking.user != request.user and user_profile.role not in ['technician', 'sysadmin']:
+            return Response(
+                {"error": "Permission denied"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        prerequisite_id = request.data.get('prerequisite_id')
+        dependency_type = request.data.get('dependency_type', 'sequential')
+        conditions = request.data.get('conditions', {})
+        
+        if not prerequisite_id:
+            return Response(
+                {"error": "prerequisite_id is required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            prerequisite_booking = Booking.objects.get(id=prerequisite_id)
+            
+            # Validate that user has access to prerequisite booking
+            if (prerequisite_booking.user != request.user and 
+                user_profile.role not in ['technician', 'sysadmin']):
+                return Response(
+                    {"error": "You don't have access to the specified prerequisite booking"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            booking.add_prerequisite(prerequisite_booking, dependency_type, conditions)
+            
+            serializer = self.get_serializer(booking)
+            return Response(serializer.data)
+            
+        except Booking.DoesNotExist:
+            return Response(
+                {"error": "Prerequisite booking not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=True, methods=['post'])
+    def remove_prerequisite(self, request, pk=None):
+        """Remove a prerequisite booking dependency."""
+        booking = self.get_object()
+        user_profile = request.user.userprofile
+        
+        # Check permissions
+        if booking.user != request.user and user_profile.role not in ['technician', 'sysadmin']:
+            return Response(
+                {"error": "Permission denied"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        prerequisite_id = request.data.get('prerequisite_id')
+        
+        if not prerequisite_id:
+            return Response(
+                {"error": "prerequisite_id is required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            prerequisite_booking = Booking.objects.get(id=prerequisite_id)
+            booking.prerequisite_bookings.remove(prerequisite_booking)
+            
+            serializer = self.get_serializer(booking)
+            return Response(serializer.data)
+            
+        except Booking.DoesNotExist:
+            return Response(
+                {"error": "Prerequisite booking not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=True, methods=['get'])
+    def dependencies(self, request, pk=None):
+        """Get booking dependency information."""
+        booking = self.get_object()
+        
+        prerequisites = []
+        for prereq in booking.prerequisite_bookings.all():
+            prerequisites.append({
+                'id': prereq.id,
+                'title': prereq.title,
+                'resource': prereq.resource.name,
+                'start_time': prereq.start_time,
+                'end_time': prereq.end_time,
+                'status': prereq.status,
+                'user': prereq.user.get_full_name()
+            })
+        
+        dependents = []
+        for dependent in booking.dependent_bookings.all():
+            dependents.append({
+                'id': dependent.id,
+                'title': dependent.title,
+                'resource': dependent.resource.name,
+                'start_time': dependent.start_time,
+                'end_time': dependent.end_time,
+                'status': dependent.status,
+                'user': dependent.user.get_full_name(),
+                'dependency_type': dependent.dependency_type
+            })
+        
+        return Response({
+            'can_start': booking.can_start,
+            'dependency_status': booking.dependency_status,
+            'dependency_type': booking.dependency_type,
+            'dependency_conditions': booking.dependency_conditions,
+            'prerequisites': prerequisites,
+            'dependents': dependents,
+            'blocking_dependencies': [
+                {
+                    'id': dep.id,
+                    'title': dep.title,
+                    'status': dep.status,
+                    'resource': dep.resource.name
+                }
+                for dep in booking.get_blocking_dependencies()
+            ]
+        })
+    
+    @action(detail=False, methods=['post'])
+    def join_waiting_list(self, request):
+        """Join waiting list when booking conflicts exist."""
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            # Check if validation failed due to conflicts
+            errors = serializer.errors
+            if any('conflict' in str(error).lower() for error in errors.values()):
+                # Offer to join waiting list
+                resource_id = request.data.get('resource_id')
+                start_time = request.data.get('start_time')
+                end_time = request.data.get('end_time')
+                title = request.data.get('title', 'Booking Request')
+                description = request.data.get('description', '')
+                
+                if resource_id and start_time and end_time:
+                    waiting_entry = WaitingListEntry.objects.create(
+                        user=request.user,
+                        resource_id=resource_id,
+                        desired_start_time=start_time,
+                        desired_end_time=end_time,
+                        title=title,
+                        description=description,
+                        flexible_start=request.data.get('flexible_start', False),
+                        flexible_duration=request.data.get('flexible_duration', False),
+                        auto_book=request.data.get('auto_book', False)
+                    )
+                    
+                    return Response({
+                        'booking_failed': True,
+                        'reason': 'time_conflict',
+                        'waiting_list_entry': WaitingListEntrySerializer(waiting_entry).data,
+                        'message': 'Booking conflicts detected. You have been added to the waiting list.'
+                    }, status=status.HTTP_201_CREATED)
+            
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        # If no conflicts, create booking normally
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class ApprovalRuleViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1174,67 +1350,63 @@ def respond_to_availability(request, notification_id):
 # API Views for Waiting List
 class WaitingListEntryViewSet(viewsets.ModelViewSet):
     """API viewset for waiting list entries."""
+    serializer_class = WaitingListEntrySerializer
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        if self.request.user.userprofile.role in ['technician', 'sysadmin']:
-            return WaitingListEntry.objects.all().select_related('user', 'resource')
+        """Get waiting list entries based on user permissions."""
+        if hasattr(self.request.user, 'userprofile') and self.request.user.userprofile.role in ['technician', 'sysadmin']:
+            return WaitingListEntry.objects.all().select_related('user', 'resource', 'resulting_booking')
         else:
-            return WaitingListEntry.objects.filter(user=self.request.user).select_related('resource')
-    
-    def get_serializer_class(self):
-        from rest_framework import serializers
-        
-        class WaitingListEntrySerializer(serializers.ModelSerializer):
-            resource_name = serializers.CharField(source='resource.name', read_only=True)
-            duration_display = serializers.SerializerMethodField()
-            
-            class Meta:
-                model = WaitingListEntry
-                fields = [
-                    'id', 'resource', 'resource_name', 'preferred_start_time', 
-                    'preferred_end_time', 'min_duration_minutes', 'max_duration_minutes',
-                    'flexible_start_time', 'flexible_duration', 'auto_book',
-                    'status', 'priority', 'notes', 'created_at', 'duration_display'
-                ]
-                read_only_fields = ['id', 'created_at', 'resource_name', 'duration_display']
-            
-            def get_duration_display(self, obj):
-                return str(obj.preferred_duration)
-        
-        return WaitingListEntrySerializer
+            return WaitingListEntry.objects.filter(user=self.request.user).select_related('resource', 'resulting_booking')
     
     def perform_create(self, serializer):
-        # Use the waiting list service to create entries
-        data = serializer.validated_data
-        resource = data.pop('resource')
-        preferred_start = data.pop('preferred_start_time')
-        preferred_end = data.pop('preferred_end_time')
-        
-        entry = waiting_list_service.add_to_waiting_list(
-            user=self.request.user,
-            resource=resource,
-            preferred_start=preferred_start,
-            preferred_end=preferred_end,
-            **data
-        )
-        
-        # Return the created entry data
-        serializer.instance = entry
+        """Create waiting list entry for current user."""
+        serializer.save(user=self.request.user)
     
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         """Cancel waiting list entry."""
-        success, message = waiting_list_service.cancel_waiting_list_entry(pk, request.user)
+        entry = self.get_object()
         
-        if success:
-            return Response({'status': 'success', 'message': message})
-        else:
-            return Response({'status': 'error', 'message': message}, status=400)
+        if entry.user != request.user and request.user.userprofile.role not in ['technician', 'sysadmin']:
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        if entry.status not in ['waiting', 'notified']:
+            return Response({'error': 'Cannot cancel entry in current status'}, status=400)
+        
+        entry.cancel_waiting()
+        return Response({'status': 'success', 'message': 'Waiting list entry cancelled'})
+    
+    @action(detail=True, methods=['post'])
+    def book_slot(self, request, pk=None):
+        """Book an available slot from waiting list entry."""
+        entry = self.get_object()
+        
+        if entry.user != request.user:
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        if entry.status != 'notified':
+            return Response({'error': 'No available slot to book'}, status=400)
+        
+        # Get slot details from request
+        slot_data = request.data.get('slot')
+        if not slot_data:
+            return Response({'error': 'Slot data required'}, status=400)
+        
+        try:
+            booking = entry.create_booking_from_slot(slot_data)
+            return Response({
+                'status': 'success',
+                'message': 'Booking created successfully',
+                'booking_id': booking.id
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
     
     @action(detail=False, methods=['get'])
-    def statistics(self, request):
-        """Get waiting list statistics."""
+    def find_opportunities(self, request):
+        """Find available booking opportunities for waiting list entries."""
         if request.user.userprofile.role not in ['technician', 'sysadmin']:
             return Response({'error': 'Permission denied'}, status=403)
         
@@ -1247,61 +1419,56 @@ class WaitingListEntryViewSet(viewsets.ModelViewSet):
             except Resource.DoesNotExist:
                 return Response({'error': 'Resource not found'}, status=404)
         
-        stats = waiting_list_service.get_waiting_list_statistics(resource)
+        opportunities = WaitingListEntry.find_opportunities(resource)
+        
+        # Format the response
+        formatted_opportunities = []
+        for opportunity in opportunities:
+            entry_data = WaitingListEntrySerializer(opportunity['entry']).data
+            formatted_opportunities.append({
+                'entry': entry_data,
+                'available_slots': opportunity['slots']
+            })
+        
+        return Response(formatted_opportunities)
+    
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """Get waiting list statistics."""
+        if request.user.userprofile.role not in ['technician', 'sysadmin']:
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        resource_id = request.query_params.get('resource')
+        queryset = self.get_queryset()
+        
+        if resource_id:
+            try:
+                resource = Resource.objects.get(id=resource_id)
+                queryset = queryset.filter(resource=resource)
+            except Resource.DoesNotExist:
+                return Response({'error': 'Resource not found'}, status=404)
+        
+        # Calculate statistics
+        stats = {
+            'total_entries': queryset.count(),
+            'waiting': queryset.filter(status='waiting').count(),
+            'notified': queryset.filter(status='notified').count(),
+            'booked': queryset.filter(status='booked').count(),
+            'expired': queryset.filter(status='expired').count(),
+            'cancelled': queryset.filter(status='cancelled').count(),
+            'by_priority': {
+                'urgent': queryset.filter(priority='urgent').count(),
+                'high': queryset.filter(priority='high').count(),
+                'normal': queryset.filter(priority='normal').count(),
+                'low': queryset.filter(priority='low').count(),
+            },
+            'auto_book_enabled': queryset.filter(auto_book=True).count()
+        }
+        
         return Response(stats)
 
 
-class WaitingListNotificationViewSet(viewsets.ReadOnlyModelViewSet):
-    """API viewset for waiting list notifications."""
-    permission_classes = [permissions.IsAuthenticated]
-    
-    def get_queryset(self):
-        return WaitingListNotification.objects.filter(
-            waiting_list_entry__user=self.request.user
-        ).select_related('waiting_list_entry__resource', 'booking_created').order_by('-sent_at')
-    
-    def get_serializer_class(self):
-        from rest_framework import serializers
-        
-        class WaitingListNotificationSerializer(serializers.ModelSerializer):
-            resource_name = serializers.CharField(source='waiting_list_entry.resource.name', read_only=True)
-            response_time_remaining = serializers.SerializerMethodField()
-            
-            class Meta:
-                model = WaitingListNotification
-                fields = [
-                    'id', 'resource_name', 'available_start_time', 'available_end_time',
-                    'user_response', 'response_deadline', 'sent_at', 'responded_at',
-                    'booking_created', 'response_time_remaining'
-                ]
-                read_only_fields = fields
-            
-            def get_response_time_remaining(self, obj):
-                remaining = obj.response_time_remaining
-                if remaining.total_seconds() > 0:
-                    hours = int(remaining.total_seconds() // 3600)
-                    minutes = int((remaining.total_seconds() % 3600) // 60)
-                    return f"{hours}h {minutes}m"
-                return "0h 0m"
-        
-        return WaitingListNotificationSerializer
-    
-    @action(detail=True, methods=['post'])
-    def respond(self, request, pk=None):
-        """Respond to availability notification."""
-        action = request.data.get('action')
-        
-        if action == 'accept':
-            success, message = waiting_list_service.accept_availability_offer(pk, request.user)
-        elif action == 'decline':
-            success, message = waiting_list_service.decline_availability_offer(pk, request.user)
-        else:
-            return Response({'error': 'Invalid action'}, status=400)
-        
-        if success:
-            return Response({'status': 'success', 'message': message})
-        else:
-            return Response({'status': 'error', 'message': message}, status=400)
+# WaitingListNotificationViewSet removed - using Notification model instead
 
 
 @login_required
@@ -2432,3 +2599,304 @@ def ajax_load_departments(request):
     departments = Department.objects.filter(college_id=college_id, is_active=True).order_by('name')
     data = [{'id': department.id, 'name': department.name} for department in departments]
     return JsonResponse({'departments': data})
+
+
+@login_required
+def group_management_view(request):
+    """Group management interface for managers."""
+    try:
+        user_profile = request.user.userprofile
+        if user_profile.role not in ['technician', 'sysadmin']:
+            messages.error(request, 'You do not have permission to manage groups.')
+            return redirect('booking:dashboard')
+    except UserProfile.DoesNotExist:
+        messages.error(request, 'You do not have permission to manage groups.')
+        return redirect('booking:dashboard')
+
+    # Handle POST requests for group operations
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'create_group':
+            return handle_create_group(request)
+        elif action == 'rename_group':
+            return handle_rename_group(request)
+        elif action == 'merge_groups':
+            return handle_merge_groups(request)
+        elif action == 'delete_group':
+            return handle_delete_group(request)
+        elif action == 'bulk_assign':
+            return handle_bulk_assign_users(request)
+
+    # Get groups with member counts
+    groups_data = UserProfile.objects.exclude(group='').values('group').annotate(
+        member_count=Count('id'),
+        students=Count('id', filter=Q(role='student')),
+        researchers=Count('id', filter=Q(role='researcher')),
+        academics=Count('id', filter=Q(role='academic')),
+        technicians=Count('id', filter=Q(role='technician')),
+        recent_activity=Count('user__booking', filter=Q(user__booking__created_at__gte=timezone.now() - timedelta(days=30)))
+    ).order_by('-member_count')
+
+    # Get users without groups
+    ungrouped_users = UserProfile.objects.filter(group='').select_related('user')
+    
+    # Get recent group activities (bookings by group members)
+    recent_bookings = Booking.objects.filter(
+        user__userprofile__group__isnull=False,
+        created_at__gte=timezone.now() - timedelta(days=7)
+    ).select_related('user__userprofile', 'resource').order_by('-created_at')[:20]
+
+    # Search functionality
+    search_query = request.GET.get('search', '')
+    if search_query:
+        groups_data = groups_data.filter(group__icontains=search_query)
+
+    # Pagination
+    paginator = Paginator(groups_data, 20)
+    page_number = request.GET.get('page')
+    groups_page = paginator.get_page(page_number)
+
+    context = {
+        'groups_data': groups_page,
+        'ungrouped_users': ungrouped_users,
+        'recent_bookings': recent_bookings,
+        'search_query': search_query,
+        'total_groups': groups_data.count(),
+        'total_ungrouped': ungrouped_users.count(),
+    }
+
+    return render(request, 'booking/group_management.html', context)
+
+
+@login_required  
+def group_detail_view(request, group_name):
+    """Detailed view of a specific group."""
+    try:
+        user_profile = request.user.userprofile
+        if user_profile.role not in ['technician', 'sysadmin']:
+            messages.error(request, 'You do not have permission to view group details.')
+            return redirect('booking:dashboard')
+    except UserProfile.DoesNotExist:
+        messages.error(request, 'You do not have permission to view group details.')
+        return redirect('booking:dashboard')
+
+    # Get group members
+    group_members = UserProfile.objects.filter(group=group_name).select_related(
+        'user', 'faculty', 'college', 'department'
+    ).order_by('user__last_name', 'user__first_name')
+
+    if not group_members.exists():
+        messages.error(request, f'Group "{group_name}" not found.')
+        return redirect('booking:group_management')
+
+    # Handle POST requests for member management
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'remove_member':
+            user_id = request.POST.get('user_id')
+            try:
+                member = UserProfile.objects.get(id=user_id, group=group_name)
+                member.group = ''
+                member.save()
+                messages.success(request, f'Removed {member.user.get_full_name()} from group {group_name}.')
+            except UserProfile.DoesNotExist:
+                messages.error(request, 'User not found in this group.')
+        
+        elif action == 'change_role':
+            user_id = request.POST.get('user_id')
+            new_role = request.POST.get('new_role')
+            try:
+                member = UserProfile.objects.get(id=user_id, group=group_name)
+                member.role = new_role
+                member.save()
+                messages.success(request, f'Changed {member.user.get_full_name()}\'s role to {new_role}.')
+            except UserProfile.DoesNotExist:
+                messages.error(request, 'User not found in this group.')
+        
+        return redirect('booking:group_detail', group_name=group_name)
+
+    # Get group statistics
+    group_stats = {
+        'total_members': group_members.count(),
+        'roles': group_members.values('role').annotate(count=Count('id')),
+        'recent_bookings': Booking.objects.filter(
+            user__userprofile__group=group_name,
+            created_at__gte=timezone.now() - timedelta(days=30)
+        ).count(),
+        'active_bookings': Booking.objects.filter(
+            user__userprofile__group=group_name,
+            status__in=['pending', 'approved'],
+            start_time__gte=timezone.now()
+        ).count(),
+    }
+
+    # Get group's recent bookings
+    recent_bookings = Booking.objects.filter(
+        user__userprofile__group=group_name
+    ).select_related('user', 'resource').order_by('-created_at')[:10]
+
+    # Available users to add to group
+    available_users = UserProfile.objects.filter(group='').select_related('user')
+
+    context = {
+        'group_name': group_name,
+        'group_members': group_members,
+        'group_stats': group_stats,
+        'recent_bookings': recent_bookings,
+        'available_users': available_users,
+        'role_choices': UserProfile.ROLE_CHOICES,
+    }
+
+    return render(request, 'booking/group_detail.html', context)
+
+
+def handle_create_group(request):
+    """Handle group creation."""
+    group_name = request.POST.get('group_name', '').strip()
+    description = request.POST.get('description', '').strip()
+    
+    if not group_name:
+        messages.error(request, 'Group name is required.')
+        return redirect('booking:group_management')
+    
+    # Check if group already exists
+    if UserProfile.objects.filter(group=group_name).exists():
+        messages.error(request, f'Group "{group_name}" already exists.')
+        return redirect('booking:group_management')
+    
+    # For now, we'll just create the group when first user is assigned
+    # In a more advanced implementation, we might have a separate Group model
+    messages.success(request, f'Group "{group_name}" will be created when first user is assigned.')
+    return redirect('booking:group_management')
+
+
+def handle_rename_group(request):
+    """Handle group renaming."""
+    old_name = request.POST.get('old_group_name', '').strip()
+    new_name = request.POST.get('new_group_name', '').strip()
+    
+    if not old_name or not new_name:
+        messages.error(request, 'Both old and new group names are required.')
+        return redirect('booking:group_management')
+    
+    if old_name == new_name:
+        messages.error(request, 'New group name must be different from old name.')
+        return redirect('booking:group_management')
+    
+    # Check if new name already exists
+    if UserProfile.objects.filter(group=new_name).exists():
+        messages.error(request, f'Group "{new_name}" already exists.')
+        return redirect('booking:group_management')
+    
+    # Rename the group
+    updated = UserProfile.objects.filter(group=old_name).update(group=new_name)
+    
+    if updated > 0:
+        messages.success(request, f'Renamed group "{old_name}" to "{new_name}" for {updated} users.')
+    else:
+        messages.error(request, f'Group "{old_name}" not found.')
+    
+    return redirect('booking:group_management')
+
+
+def handle_merge_groups(request):
+    """Handle merging groups."""
+    source_group = request.POST.get('source_group', '').strip()
+    target_group = request.POST.get('target_group', '').strip()
+    
+    if not source_group or not target_group:
+        messages.error(request, 'Both source and target group names are required.')
+        return redirect('booking:group_management')
+    
+    if source_group == target_group:
+        messages.error(request, 'Source and target groups must be different.')
+        return redirect('booking:group_management')
+    
+    # Check if both groups exist
+    source_count = UserProfile.objects.filter(group=source_group).count()
+    target_count = UserProfile.objects.filter(group=target_group).count()
+    
+    if source_count == 0:
+        messages.error(request, f'Source group "{source_group}" not found.')
+        return redirect('booking:group_management')
+    
+    if target_count == 0:
+        messages.error(request, f'Target group "{target_group}" not found.')
+        return redirect('booking:group_management')
+    
+    # Merge the groups
+    updated = UserProfile.objects.filter(group=source_group).update(group=target_group)
+    
+    messages.success(request, f'Merged {updated} users from "{source_group}" into "{target_group}".')
+    return redirect('booking:group_management')
+
+
+def handle_delete_group(request):
+    """Handle group deletion (removes group assignment from users)."""
+    group_name = request.POST.get('group_name', '').strip()
+    
+    if not group_name:
+        messages.error(request, 'Group name is required.')
+        return redirect('booking:group_management')
+    
+    # Remove group assignment from all users
+    updated = UserProfile.objects.filter(group=group_name).update(group='')
+    
+    if updated > 0:
+        messages.success(request, f'Removed group assignment from {updated} users in "{group_name}".')
+    else:
+        messages.error(request, f'Group "{group_name}" not found.')
+    
+    return redirect('booking:group_management')
+
+
+def handle_bulk_assign_users(request):
+    """Handle bulk assignment of users to a group."""
+    group_name = request.POST.get('target_group', '').strip()
+    user_ids = request.POST.getlist('user_ids')
+    
+    if not group_name:
+        messages.error(request, 'Target group name is required.')
+        return redirect('booking:group_management')
+    
+    if not user_ids:
+        messages.error(request, 'No users selected.')
+        return redirect('booking:group_management')
+    
+    # Update selected users
+    updated = UserProfile.objects.filter(id__in=user_ids).update(group=group_name)
+    
+    messages.success(request, f'Assigned {updated} users to group "{group_name}".')
+    return redirect('booking:group_management')
+
+
+@login_required
+def add_user_to_group(request, group_name):
+    """Add a user to a specific group via AJAX."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST method required'}, status=405)
+    
+    try:
+        user_profile = request.user.userprofile
+        if user_profile.role not in ['technician', 'sysadmin']:
+            return JsonResponse({'error': 'Permission denied'}, status=403)
+    except UserProfile.DoesNotExist:
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    user_id = request.POST.get('user_id')
+    
+    try:
+        user_profile = UserProfile.objects.get(id=user_id)
+        user_profile.group = group_name
+        user_profile.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Added {user_profile.user.get_full_name()} to group {group_name}.'
+        })
+    except UserProfile.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)

@@ -13,7 +13,7 @@ the Free Software Foundation, either version 3 of the License, or
 
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import UserProfile, Resource, Booking, BookingAttendee, ApprovalRule, Maintenance
+from .models import UserProfile, Resource, Booking, BookingAttendee, ApprovalRule, Maintenance, WaitingListEntry
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -79,6 +79,9 @@ class BookingSerializer(serializers.ModelSerializer):
     duration_hours = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
     has_conflicts = serializers.SerializerMethodField()
+    can_start = serializers.SerializerMethodField()
+    dependency_status = serializers.SerializerMethodField()
+    prerequisite_bookings = serializers.PrimaryKeyRelatedField(queryset=Booking.objects.all(), many=True, required=False)
     
     class Meta:
         model = Booking
@@ -86,12 +89,14 @@ class BookingSerializer(serializers.ModelSerializer):
             'id', 'resource', 'resource_id', 'user', 'title', 'description',
             'start_time', 'end_time', 'status', 'is_recurring', 'recurring_pattern',
             'shared_with_group', 'attendees', 'notes', 'duration_hours',
-            'can_cancel', 'has_conflicts', 'created_at', 'updated_at',
-            'approved_by', 'approved_at'
+            'can_cancel', 'has_conflicts', 'can_start', 'dependency_status',
+            'prerequisite_bookings', 'dependency_type', 'dependency_conditions',
+            'created_at', 'updated_at', 'approved_by', 'approved_at'
         ]
         read_only_fields = [
             'id', 'user', 'created_at', 'updated_at', 'duration_hours',
-            'can_cancel', 'has_conflicts', 'approved_by', 'approved_at'
+            'can_cancel', 'has_conflicts', 'can_start', 'dependency_status',
+            'approved_by', 'approved_at'
         ]
     
     def get_duration_hours(self, obj):
@@ -105,6 +110,14 @@ class BookingSerializer(serializers.ModelSerializer):
     def get_has_conflicts(self, obj):
         """Check if booking has conflicts."""
         return obj.has_conflicts()
+    
+    def get_can_start(self, obj):
+        """Check if booking can start based on dependencies."""
+        return obj.can_start
+    
+    def get_dependency_status(self, obj):
+        """Get human-readable dependency status."""
+        return obj.dependency_status
     
     def validate_resource_id(self, value):
         """Validate that resource exists and is active."""
@@ -219,3 +232,83 @@ class MaintenanceSerializer(serializers.ModelSerializer):
             'blocks_booking', 'created_by', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+
+class WaitingListEntrySerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    resource = ResourceSerializer(read_only=True)
+    resource_id = serializers.IntegerField(write_only=True)
+    resulting_booking = BookingSerializer(read_only=True)
+    time_remaining = serializers.SerializerMethodField()
+    is_expired = serializers.SerializerMethodField()
+    can_auto_book = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = WaitingListEntry
+        fields = [
+            'id', 'user', 'resource', 'resource_id', 'desired_start_time', 'desired_end_time',
+            'title', 'description', 'flexible_start', 'flexible_duration',
+            'min_duration_minutes', 'max_wait_days', 'priority', 'auto_book',
+            'notification_hours_ahead', 'status', 'position', 'times_notified',
+            'last_notification_sent', 'resulting_booking', 'availability_window_start',
+            'availability_window_end', 'response_deadline', 'time_remaining',
+            'is_expired', 'can_auto_book', 'created_at', 'updated_at', 'expires_at'
+        ]
+        read_only_fields = [
+            'id', 'user', 'status', 'position', 'times_notified',
+            'last_notification_sent', 'resulting_booking', 'availability_window_start',
+            'availability_window_end', 'response_deadline', 'time_remaining',
+            'is_expired', 'can_auto_book', 'created_at', 'updated_at', 'expires_at'
+        ]
+    
+    def get_time_remaining(self, obj):
+        """Get time remaining until expiration."""
+        remaining = obj.time_remaining
+        if remaining:
+            return remaining.total_seconds()
+        return None
+    
+    def get_is_expired(self, obj):
+        """Check if waiting list entry has expired."""
+        return obj.is_expired
+    
+    def get_can_auto_book(self, obj):
+        """Check if this entry can be auto-booked."""
+        return obj.can_auto_book
+    
+    def validate_resource_id(self, value):
+        """Validate that resource exists and is active."""
+        try:
+            resource = Resource.objects.get(id=value)
+            if not resource.is_active:
+                raise serializers.ValidationError("Selected resource is not active.")
+            return value
+        except Resource.DoesNotExist:
+            raise serializers.ValidationError("Selected resource does not exist.")
+    
+    def validate(self, data):
+        """Validate waiting list entry data."""
+        desired_start_time = data.get('desired_start_time')
+        desired_end_time = data.get('desired_end_time')
+        min_duration_minutes = data.get('min_duration_minutes', 60)
+        
+        if desired_start_time and desired_end_time:
+            # Check time order
+            if desired_start_time >= desired_end_time:
+                raise serializers.ValidationError("End time must be after start time.")
+            
+            # Check minimum duration
+            duration_minutes = (desired_end_time - desired_start_time).total_seconds() / 60
+            if min_duration_minutes > duration_minutes:
+                raise serializers.ValidationError(
+                    "Minimum duration cannot be longer than desired duration."
+                )
+        
+        return data
+    
+    def create(self, validated_data):
+        """Create a new waiting list entry."""
+        validated_data['user'] = self.context['request'].user
+        resource_id = validated_data.pop('resource_id')
+        validated_data['resource'] = Resource.objects.get(id=resource_id)
+        return super().create(validated_data)

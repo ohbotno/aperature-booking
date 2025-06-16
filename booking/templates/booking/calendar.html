@@ -379,6 +379,10 @@
 <script src="{% static 'js/calendar-pdf-export.js' %}"></script>
 <script src="{% static 'js/calendar-print-fallback.js' %}"></script>
 <script src="{% static 'js/calendar-view-persistence.js' %}"></script>
+<script src="{% static 'js/calendar-copy-paste.js' %}"></script>
+<script src="{% static 'js/calendar-timezone.js' %}"></script>
+<script src="{% static 'js/calendar-mini-widget.js' %}"></script>
+<script src="{% static 'js/calendar-sharing.js' %}"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -552,6 +556,21 @@ document.addEventListener('DOMContentLoaded', function() {
     const pdfExport = new CalendarPDFExport(calendar);
     const printFallback = new CalendarPrintFallback(calendar);
     const viewPersistence = new CalendarViewPersistence(calendar);
+    const copyPaste = new CalendarCopyPaste(calendar);
+    
+    // Initialize timezone support with user preferences
+    const userSettings = {
+        timezone: '{{ user.userprofile.timezone|default:"UTC" }}',
+        dateFormat: '{{ user.userprofile.date_format|default:"DD/MM/YYYY" }}',
+        timeFormat: '{{ user.userprofile.time_format|default:"24h" }}'
+    };
+    calendarTimezone = new CalendarTimezone(calendar, userSettings);
+    
+    // Initialize mini calendar widget
+    const miniCalendarWidget = new MiniCalendarWidget(calendar);
+    
+    // Initialize calendar sharing
+    calendarSharing = new CalendarSharing(calendar);
     
     // Toolbar buttons
     document.getElementById('today-btn').addEventListener('click', function() {

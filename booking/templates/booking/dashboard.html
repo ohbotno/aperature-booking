@@ -140,9 +140,12 @@
                     <a href="{% url 'booking:create_from_template' %}" class="btn btn-outline-success">
                         <i class="bi bi-file-earmark-text"></i> Use Template
                     </a>
-                    {% if user.userprofile.role in 'lab_manager,sysadmin' %}
+                    {% if user.userprofile.role in 'technician,sysadmin' %}
                         <a href="{% url 'booking:manage_bookings' %}" class="btn btn-outline-warning">
                             <i class="bi bi-gear"></i> Manage Bookings
+                        </a>
+                        <a href="{% url 'booking:group_management' %}" class="btn btn-outline-info">
+                            <i class="bi bi-people"></i> Manage Groups
                         </a>
                     {% endif %}
                     <button class="btn btn-outline-secondary" id="export-calendar-btn">

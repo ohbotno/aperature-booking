@@ -81,4 +81,13 @@ urlpatterns = [
     path('resource/<int:resource_id>/checkin-status/', views.resource_checkin_status_view, name='resource_checkin_status'),
     path('usage-analytics/', views.usage_analytics_view, name='usage_analytics'),
     
+    # Group Management URLs (Manager only)
+    path('groups/', views.group_management_view, name='group_management'),
+    path('groups/<str:group_name>/', views.group_detail_view, name='group_detail'),
+    path('groups/<str:group_name>/add-user/', views.add_user_to_group, name='add_user_to_group'),
+    
+    # AJAX helper URLs
+    path('ajax/load-colleges/', views.ajax_load_colleges, name='ajax_load_colleges'),
+    path('ajax/load-departments/', views.ajax_load_departments, name='ajax_load_departments'),
+    
 ]

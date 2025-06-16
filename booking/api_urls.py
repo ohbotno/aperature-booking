@@ -24,7 +24,7 @@ router.register(r'maintenance', views.MaintenanceViewSet)
 router.register(r'notifications', views.NotificationViewSet, basename='notification')
 router.register(r'notification-preferences', views.NotificationPreferenceViewSet, basename='notification-preference')
 router.register(r'waiting-list', views.WaitingListEntryViewSet, basename='waiting-list-entry')
-router.register(r'waiting-list-notifications', views.WaitingListNotificationViewSet, basename='waiting-list-notification')
+# router.register(r'waiting-list-notifications', views.WaitingListNotificationViewSet, basename='waiting-list-notification')  # Removed - using Notification model
 
 app_name = 'api'
 

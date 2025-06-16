@@ -364,6 +364,35 @@ class UserProfile(models.Model):
     training_level = models.PositiveIntegerField(default=1)
     is_inducted = models.BooleanField(default=False)
     email_verified = models.BooleanField(default=False)
+    
+    # Timezone and localization
+    timezone = models.CharField(
+        max_length=50, 
+        default='UTC',
+        help_text="User's preferred timezone"
+    )
+    date_format = models.CharField(
+        max_length=20,
+        choices=[
+            ('DD/MM/YYYY', 'DD/MM/YYYY (European)'),
+            ('MM/DD/YYYY', 'MM/DD/YYYY (US)'),
+            ('YYYY-MM-DD', 'YYYY-MM-DD (ISO)'),
+            ('DD-MM-YYYY', 'DD-MM-YYYY'),
+            ('DD.MM.YYYY', 'DD.MM.YYYY (German)'),
+        ],
+        default='DD/MM/YYYY',
+        help_text="Preferred date format"
+    )
+    time_format = models.CharField(
+        max_length=10,
+        choices=[
+            ('24h', '24-hour (13:30)'),
+            ('12h', '12-hour (1:30 PM)'),
+        ],
+        default='24h',
+        help_text="Preferred time format"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -427,6 +456,137 @@ class UserProfile(models.Model):
         if self.department:
             parts.append(self.department.name)
         return " > ".join(parts) if parts else "Not specified"
+    
+    def get_timezone(self):
+        """Get user's timezone as a pytz timezone object."""
+        import pytz
+        try:
+            return pytz.timezone(self.timezone)
+        except pytz.exceptions.UnknownTimeZoneError:
+            return pytz.UTC
+    
+    def to_user_timezone(self, dt):
+        """Convert a datetime to user's timezone."""
+        if not dt:
+            return dt
+        
+        user_tz = self.get_timezone()
+        
+        # If datetime is naive, assume it's in UTC
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, pytz.UTC)
+        
+        return dt.astimezone(user_tz)
+    
+    def from_user_timezone(self, dt):
+        """Convert a datetime from user's timezone to UTC."""
+        if not dt:
+            return dt
+        
+        user_tz = self.get_timezone()
+        
+        # If datetime is naive, assume it's in user's timezone
+        if timezone.is_naive(dt):
+            dt = user_tz.localize(dt)
+        
+        return dt.astimezone(pytz.UTC)
+    
+    def format_datetime(self, dt):
+        """Format datetime according to user preferences."""
+        if not dt:
+            return ""
+        
+        # Convert to user timezone
+        user_dt = self.to_user_timezone(dt)
+        
+        # Format date
+        date_formats = {
+            'DD/MM/YYYY': '%d/%m/%Y',
+            'MM/DD/YYYY': '%m/%d/%Y',
+            'YYYY-MM-DD': '%Y-%m-%d',
+            'DD-MM-YYYY': '%d-%m-%Y',
+            'DD.MM.YYYY': '%d.%m.%Y',
+        }
+        date_format = date_formats.get(self.date_format, '%d/%m/%Y')
+        
+        # Format time
+        time_format = '%H:%M' if self.time_format == '24h' else '%I:%M %p'
+        
+        return user_dt.strftime(f"{date_format} {time_format}")
+    
+    def format_date(self, dt):
+        """Format date according to user preferences."""
+        if not dt:
+            return ""
+        
+        user_dt = self.to_user_timezone(dt)
+        
+        date_formats = {
+            'DD/MM/YYYY': '%d/%m/%Y',
+            'MM/DD/YYYY': '%m/%d/%Y',
+            'YYYY-MM-DD': '%Y-%m-%d',
+            'DD-MM-YYYY': '%d-%m-%Y',
+            'DD.MM.YYYY': '%d.%m.%Y',
+        }
+        date_format = date_formats.get(self.date_format, '%d/%m/%Y')
+        
+        return user_dt.strftime(date_format)
+    
+    def format_time(self, dt):
+        """Format time according to user preferences."""
+        if not dt:
+            return ""
+        
+        user_dt = self.to_user_timezone(dt)
+        time_format = '%H:%M' if self.time_format == '24h' else '%I:%M %p'
+        
+        return user_dt.strftime(time_format)
+    
+    @classmethod
+    def get_available_timezones(cls):
+        """Get list of common timezones for selection."""
+        import pytz
+        
+        # Common timezones that institutions might use
+        common_timezones = [
+            'UTC',
+            'Europe/London',
+            'Europe/Paris',
+            'Europe/Berlin',
+            'Europe/Rome',
+            'Europe/Madrid',
+            'Europe/Amsterdam',
+            'Europe/Brussels',
+            'Europe/Vienna',
+            'Europe/Prague',
+            'Europe/Warsaw',
+            'Europe/Stockholm',
+            'Europe/Helsinki',
+            'Europe/Athens',
+            'US/Eastern',
+            'US/Central',
+            'US/Mountain',
+            'US/Pacific',
+            'America/New_York',
+            'America/Chicago',
+            'America/Denver',
+            'America/Los_Angeles',
+            'America/Toronto',
+            'America/Vancouver',
+            'Australia/Sydney',
+            'Australia/Melbourne',
+            'Australia/Perth',
+            'Asia/Tokyo',
+            'Asia/Shanghai',
+            'Asia/Singapore',
+            'Asia/Hong_Kong',
+            'Asia/Seoul',
+            'Asia/Mumbai',
+            'Asia/Dubai',
+        ]
+        
+        # Return as choices for forms
+        return [(tz, tz.replace('_', ' ')) for tz in common_timezones]
 
 
 class Resource(models.Model):
@@ -826,6 +986,16 @@ class Booking(models.Model):
     attendees = models.ManyToManyField(User, through='BookingAttendee', related_name='attending_bookings')
     notes = models.TextField(blank=True)
     template_used = models.ForeignKey(BookingTemplate, on_delete=models.SET_NULL, null=True, blank=True, related_name='bookings_created')
+    
+    # Booking dependencies
+    prerequisite_bookings = models.ManyToManyField('self', symmetrical=False, blank=True, related_name='dependent_bookings', help_text="Bookings that must be completed before this one")
+    dependency_type = models.CharField(max_length=20, choices=[
+        ('sequential', 'Sequential (must complete in order)'),
+        ('parallel', 'Parallel (can run concurrently after prerequisites)'),
+        ('conditional', 'Conditional (depends on outcome of prerequisites)')
+    ], default='sequential', help_text="How this booking depends on prerequisites")
+    dependency_conditions = models.JSONField(default=dict, blank=True, help_text="Additional dependency conditions")
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_bookings')
@@ -1065,6 +1235,130 @@ class Booking(models.Model):
         
         return conflicts.exists()
     
+    @property
+    def can_start(self):
+        """Check if booking can start based on dependencies."""
+        if not self.prerequisite_bookings.exists():
+            return True
+        
+        # Check dependency fulfillment based on type
+        if self.dependency_type == 'sequential':
+            # All prerequisites must be completed in order
+            prerequisites = self.prerequisite_bookings.all().order_by('start_time')
+            for prerequisite in prerequisites:
+                if prerequisite.status != 'completed':
+                    return False
+        
+        elif self.dependency_type == 'parallel':
+            # All prerequisites must be at least approved and started
+            for prerequisite in self.prerequisite_bookings.all():
+                if prerequisite.status not in ['approved', 'completed'] or not prerequisite.checked_in_at:
+                    return False
+        
+        elif self.dependency_type == 'conditional':
+            # Check conditional requirements from dependency_conditions
+            conditions = self.dependency_conditions.get('required_outcomes', [])
+            for condition in conditions:
+                prerequisite_id = condition.get('booking_id')
+                required_status = condition.get('status', 'completed')
+                try:
+                    prerequisite = self.prerequisite_bookings.get(id=prerequisite_id)
+                    if prerequisite.status != required_status:
+                        return False
+                except Booking.DoesNotExist:
+                    return False
+        
+        return True
+    
+    @property
+    def dependency_status(self):
+        """Get human-readable dependency status."""
+        if not self.prerequisite_bookings.exists():
+            return "No dependencies"
+        
+        if self.can_start:
+            return "Dependencies satisfied"
+        
+        # Count dependency statuses
+        prerequisites = self.prerequisite_bookings.all()
+        total = prerequisites.count()
+        completed = prerequisites.filter(status='completed').count()
+        in_progress = prerequisites.filter(
+            status='approved',
+            checked_in_at__isnull=False,
+            checked_out_at__isnull=True
+        ).count()
+        
+        if completed == total:
+            return "All dependencies completed"
+        elif completed + in_progress == total:
+            return f"Dependencies in progress ({completed}/{total} completed)"
+        else:
+            pending = total - completed - in_progress
+            return f"Waiting for dependencies ({completed} completed, {in_progress} in progress, {pending} pending)"
+    
+    def get_blocking_dependencies(self):
+        """Get list of prerequisite bookings that are blocking this one."""
+        if self.can_start:
+            return []
+        
+        blocking = []
+        for prerequisite in self.prerequisite_bookings.all():
+            if self.dependency_type == 'sequential' and prerequisite.status != 'completed':
+                blocking.append(prerequisite)
+            elif self.dependency_type == 'parallel' and (
+                prerequisite.status not in ['approved', 'completed'] or not prerequisite.checked_in_at
+            ):
+                blocking.append(prerequisite)
+            elif self.dependency_type == 'conditional':
+                conditions = self.dependency_conditions.get('required_outcomes', [])
+                for condition in conditions:
+                    if (condition.get('booking_id') == prerequisite.id and 
+                        prerequisite.status != condition.get('status', 'completed')):
+                        blocking.append(prerequisite)
+        
+        return blocking
+    
+    def add_prerequisite(self, prerequisite_booking, dependency_type='sequential', conditions=None):
+        """Add a prerequisite booking dependency."""
+        if prerequisite_booking == self:
+            raise ValidationError("A booking cannot depend on itself")
+        
+        # Check for circular dependencies
+        if self.would_create_circular_dependency(prerequisite_booking):
+            raise ValidationError("Adding this prerequisite would create a circular dependency")
+        
+        # Validate timing for sequential dependencies
+        if dependency_type == 'sequential' and self.start_time <= prerequisite_booking.end_time:
+            raise ValidationError("Sequential dependencies must start after the prerequisite ends")
+        
+        self.prerequisite_bookings.add(prerequisite_booking)
+        self.dependency_type = dependency_type
+        if conditions:
+            self.dependency_conditions.update(conditions)
+        self.save(update_fields=['dependency_type', 'dependency_conditions'])
+    
+    def would_create_circular_dependency(self, new_prerequisite):
+        """Check if adding a prerequisite would create a circular dependency."""
+        def has_dependency_path(booking, target, visited=None):
+            if visited is None:
+                visited = set()
+            
+            if booking.id in visited:
+                return False  # Already checked this path
+            
+            visited.add(booking.id)
+            
+            for dependent in booking.dependent_bookings.all():
+                if dependent == target:
+                    return True
+                if has_dependency_path(dependent, target, visited.copy()):
+                    return True
+            
+            return False
+        
+        return has_dependency_path(new_prerequisite, self)
+    
     def save_as_template(self, template_name, template_description="", is_public=False):
         """Save this booking as a template for future use."""
         template = BookingTemplate.objects.create(
@@ -1170,6 +1464,277 @@ class BookingAttendee(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name()} attending {self.booking.title}"
+
+
+class WaitingListEntry(models.Model):
+    """Waiting list entries for when resources are unavailable."""
+    STATUS_CHOICES = [
+        ('waiting', 'Waiting'),
+        ('notified', 'Notified of Availability'),
+        ('booked', 'Successfully Booked'),
+        ('expired', 'Expired'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    PRIORITY_LEVELS = [
+        ('low', 'Low'),
+        ('normal', 'Normal'),
+        ('high', 'High'),
+        ('urgent', 'Urgent'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='waiting_list_entries')
+    resource = models.ForeignKey('Resource', on_delete=models.CASCADE, related_name='waiting_list_entries')
+    
+    # Desired booking details
+    desired_start_time = models.DateTimeField(help_text="Preferred start time")
+    desired_end_time = models.DateTimeField(help_text="Preferred end time")
+    title = models.CharField(max_length=200, help_text="Proposed booking title")
+    description = models.TextField(blank=True, help_text="Proposed booking description")
+    
+    # Flexibility options
+    flexible_start = models.BooleanField(default=False, help_text="Can start at different time")
+    flexible_duration = models.BooleanField(default=False, help_text="Can use shorter duration")
+    min_duration_minutes = models.PositiveIntegerField(default=60, help_text="Minimum acceptable duration in minutes")
+    max_wait_days = models.PositiveIntegerField(default=7, help_text="Maximum days willing to wait")
+    
+    # Priority and ordering
+    priority = models.CharField(max_length=10, choices=PRIORITY_LEVELS, default='normal')
+    auto_book = models.BooleanField(default=False, help_text="Automatically book when slot becomes available")
+    notification_hours_ahead = models.PositiveIntegerField(default=24, help_text="Hours ahead to notify of availability")
+    
+    # Status tracking
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='waiting')
+    position = models.PositiveIntegerField(default=1, help_text="Position in waiting list")
+    times_notified = models.PositiveIntegerField(default=0)
+    last_notification_sent = models.DateTimeField(null=True, blank=True)
+    
+    # Booking outcomes
+    resulting_booking = models.ForeignKey(Booking, on_delete=models.SET_NULL, null=True, blank=True, related_name='waiting_list_entry')
+    availability_window_start = models.DateTimeField(null=True, blank=True, help_text="When slot became available")
+    availability_window_end = models.DateTimeField(null=True, blank=True, help_text="Until when slot is available")
+    response_deadline = models.DateTimeField(null=True, blank=True, help_text="Deadline to respond to availability")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(null=True, blank=True, help_text="When this entry expires")
+    
+    class Meta:
+        db_table = 'booking_waitinglistentry'
+        ordering = ['priority', 'position', 'created_at']
+        indexes = [
+            models.Index(fields=['resource', 'status']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['priority', 'position']),
+            models.Index(fields=['desired_start_time']),
+            models.Index(fields=['expires_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.get_full_name()} waiting for {self.resource.name} at {self.desired_start_time}"
+    
+    def clean(self):
+        """Validate waiting list entry."""
+        if self.desired_start_time >= self.desired_end_time:
+            raise ValidationError("End time must be after start time.")
+        
+        if self.min_duration_minutes > (self.desired_end_time - self.desired_start_time).total_seconds() / 60:
+            raise ValidationError("Minimum duration cannot be longer than desired duration.")
+        
+        if self.desired_start_time < timezone.now():
+            raise ValidationError("Cannot add to waiting list for past time slots.")
+    
+    def save(self, *args, **kwargs):
+        # Set expiration if not already set
+        if not self.expires_at:
+            self.expires_at = self.desired_start_time + timedelta(days=self.max_wait_days)
+        
+        # Set position if new entry
+        if not self.pk:
+            last_position = WaitingListEntry.objects.filter(
+                resource=self.resource,
+                status='waiting'
+            ).aggregate(max_pos=models.Max('position'))['max_pos'] or 0
+            self.position = last_position + 1
+        
+        self.full_clean()
+        super().save(*args, **kwargs)
+    
+    @property
+    def is_expired(self):
+        """Check if waiting list entry has expired."""
+        return self.expires_at and timezone.now() > self.expires_at
+    
+    @property
+    def time_remaining(self):
+        """Get time remaining until expiration."""
+        if not self.expires_at:
+            return None
+        remaining = self.expires_at - timezone.now()
+        return remaining if remaining.total_seconds() > 0 else timedelta(0)
+    
+    @property
+    def can_auto_book(self):
+        """Check if this entry can be auto-booked."""
+        return (
+            self.auto_book and 
+            self.status == 'waiting' and 
+            not self.is_expired
+        )
+    
+    def find_available_slots(self, days_ahead=7):
+        """Find available time slots that match this waiting list entry."""
+        from datetime import datetime, timedelta
+        
+        search_start = max(self.desired_start_time, timezone.now())
+        search_end = search_start + timedelta(days=days_ahead)
+        
+        slots = []
+        current_time = search_start
+        desired_duration = self.desired_end_time - self.desired_start_time
+        min_duration = timedelta(minutes=self.min_duration_minutes)
+        
+        while current_time < search_end:
+            # Check for conflicts in this time slot
+            slot_end = current_time + desired_duration
+            
+            conflicts = Booking.objects.filter(
+                resource=self.resource,
+                status__in=['approved', 'pending'],
+                start_time__lt=slot_end,
+                end_time__gt=current_time
+            )
+            
+            maintenance_conflicts = Maintenance.objects.filter(
+                resource=self.resource,
+                start_time__lt=slot_end,
+                end_time__gt=current_time
+            )
+            
+            if not conflicts.exists() and not maintenance_conflicts.exists():
+                # Found available slot
+                slots.append({
+                    'start_time': current_time,
+                    'end_time': slot_end,
+                    'duration': desired_duration,
+                    'matches_preference': current_time == self.desired_start_time
+                })
+                
+                # If flexible duration, also check for shorter slots
+                if self.flexible_duration and desired_duration > min_duration:
+                    shorter_end = current_time + min_duration
+                    slots.append({
+                        'start_time': current_time,
+                        'end_time': shorter_end,
+                        'duration': min_duration,
+                        'matches_preference': False
+                    })
+            
+            # Move to next time slot (increment by 30 minutes)
+            current_time += timedelta(minutes=30)
+        
+        return slots
+    
+    def notify_of_availability(self, available_slots):
+        """Send notification about available slots."""
+        self.status = 'notified'
+        self.times_notified += 1
+        self.last_notification_sent = timezone.now()
+        self.response_deadline = timezone.now() + timedelta(hours=self.notification_hours_ahead)
+        
+        # Store available slots in a temporary field or send in notification
+        self.save(update_fields=['status', 'times_notified', 'last_notification_sent', 'response_deadline'])
+        
+        # Send notification (this would integrate with the notification system)
+        from booking.notifications import notification_service
+        notification_service.create_notification(
+            user=self.user,
+            notification_type='waitlist_availability',
+            title=f'Resource Available: {self.resource.name}',
+            message=f'Your requested resource {self.resource.name} is now available. You have {self.notification_hours_ahead} hours to book.',
+            priority='high',
+            metadata={
+                'waiting_list_entry_id': self.id,
+                'available_slots': available_slots,
+                'response_deadline': self.response_deadline.isoformat()
+            }
+        )
+    
+    def create_booking_from_slot(self, slot):
+        """Create a booking from an available slot."""
+        if self.status != 'waiting':
+            raise ValidationError("Can only create booking from waiting entry")
+        
+        booking = Booking.objects.create(
+            resource=self.resource,
+            user=self.user,
+            title=self.title,
+            description=self.description,
+            start_time=slot['start_time'],
+            end_time=slot['end_time'],
+            status='approved'  # Auto-approve from waiting list
+        )
+        
+        self.resulting_booking = booking
+        self.status = 'booked'
+        self.save(update_fields=['resulting_booking', 'status'])
+        
+        # Remove user from waiting list for this resource at this time
+        self._reorder_waiting_list()
+        
+        return booking
+    
+    def cancel_waiting(self):
+        """Cancel this waiting list entry."""
+        self.status = 'cancelled'
+        self.save(update_fields=['status'])
+        self._reorder_waiting_list()
+    
+    def _reorder_waiting_list(self):
+        """Reorder waiting list positions after removal."""
+        entries = WaitingListEntry.objects.filter(
+            resource=self.resource,
+            status='waiting',
+            position__gt=self.position
+        ).order_by('position')
+        
+        for i, entry in enumerate(entries):
+            entry.position = self.position + i
+            entry.save(update_fields=['position'])
+    
+    @classmethod
+    def check_expired_entries(cls):
+        """Mark expired waiting list entries and reorder lists."""
+        expired_entries = cls.objects.filter(
+            status='waiting',
+            expires_at__lt=timezone.now()
+        )
+        
+        for entry in expired_entries:
+            entry.status = 'expired'
+            entry.save(update_fields=['status'])
+            entry._reorder_waiting_list()
+    
+    @classmethod
+    def find_opportunities(cls, resource=None):
+        """Find booking opportunities for waiting list entries."""
+        filters = {'status': 'waiting'}
+        if resource:
+            filters['resource'] = resource
+        
+        waiting_entries = cls.objects.filter(**filters).order_by('priority', 'position')
+        opportunities = []
+        
+        for entry in waiting_entries:
+            if not entry.is_expired:
+                slots = entry.find_available_slots()
+                if slots:
+                    opportunities.append({
+                        'entry': entry,
+                        'slots': slots
+                    })
+        
+        return opportunities
 
 
 class ApprovalRule(models.Model):
