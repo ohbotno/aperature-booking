@@ -572,38 +572,42 @@ class PushSubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(WaitingListEntry)
 class WaitingListEntryAdmin(admin.ModelAdmin):
-    list_display = ('user', 'resource', 'preferred_start_time', 'status', 'priority', 'created_at')
-    list_filter = ('status', 'priority', 'resource__resource_type', 'flexible_start_time', 'auto_book')
-    search_fields = ('user__username', 'user__email', 'resource__name', 'notes')
-    readonly_fields = ('created_at', 'updated_at', 'notified_at', 'fulfilled_at')
-    date_hierarchy = 'preferred_start_time'
+    list_display = ('user', 'resource', 'desired_start_time', 'status', 'priority', 'created_at')
+    list_filter = ('status', 'priority', 'resource__resource_type', 'flexible_start', 'auto_book')
+    search_fields = ('user__username', 'user__email', 'resource__name', 'title', 'description')
+    readonly_fields = ('created_at', 'updated_at', 'position', 'times_notified', 'last_notification_sent')
+    date_hierarchy = 'desired_start_time'
     
     fieldsets = (
         ('User and Resource', {
             'fields': ('user', 'resource', 'status', 'priority')
         }),
-        ('Time Preferences', {
+        ('Booking Details', {
             'fields': (
-                'preferred_start_time', 'preferred_end_time',
-                'min_duration_minutes', 'max_duration_minutes'
+                'desired_start_time', 'desired_end_time',
+                'title', 'description'
             )
         }),
         ('Flexibility Options', {
             'fields': (
-                'flexible_start_time', 'flexible_duration', 
-                'max_days_advance', 'auto_book'
+                'flexible_start', 'flexible_duration', 
+                'min_duration_minutes', 'max_wait_days', 'auto_book'
             )
         }),
         ('Notifications', {
             'fields': (
-                'notify_immediately', 'notification_advance_hours'
+                'notification_hours_ahead',
             )
         }),
-        ('Metadata', {
-            'fields': ('notes', 'expires_at')
+        ('Status Tracking', {
+            'fields': ('position', 'times_notified', 'last_notification_sent')
+        }),
+        ('Booking Outcomes', {
+            'fields': ('resulting_booking', 'availability_window_start', 'availability_window_end', 'response_deadline'),
+            'classes': ('collapse',)
         }),
         ('Timestamps', {
-            'fields': ('created_at', 'updated_at', 'notified_at', 'fulfilled_at'),
+            'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
         })
     )
