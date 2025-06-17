@@ -86,6 +86,57 @@ urlpatterns = [
     path('groups/<str:group_name>/', views.group_detail_view, name='group_detail'),
     path('groups/<str:group_name>/add-user/', views.add_user_to_group, name='add_user_to_group'),
     
+    # Approval Workflow URLs
+    path('approval/', views.approval_dashboard_view, name='approval_dashboard'),
+    path('approval/access-requests/', views.access_requests_view, name='access_requests'),
+    path('approval/access-requests/<int:request_id>/', views.access_request_detail_view, name='access_request_detail'),
+    path('approval/access-requests/<int:request_id>/approve/', views.approve_access_request_view, name='approve_access_request'),
+    path('approval/access-requests/<int:request_id>/reject/', views.reject_access_request_view, name='reject_access_request'),
+    
+    # Risk Assessment URLs
+    path('risk-assessments/', views.risk_assessments_view, name='risk_assessments'),
+    path('risk-assessments/<int:assessment_id>/', views.risk_assessment_detail_view, name='risk_assessment_detail'),
+    path('risk-assessments/<int:assessment_id>/start/', views.start_risk_assessment_view, name='start_risk_assessment'),
+    path('risk-assessments/<int:assessment_id>/submit/', views.submit_risk_assessment_view, name='submit_risk_assessment'),
+    path('risk-assessments/create/', views.create_risk_assessment_view, name='create_risk_assessment'),
+    
+    # Training URLs
+    path('training/', views.training_dashboard_view, name='training_dashboard'),
+    path('training/courses/', views.training_courses_view, name='training_courses'),
+    path('training/courses/<int:course_id>/', views.training_course_detail_view, name='training_course_detail'),
+    path('training/courses/<int:course_id>/enroll/', views.enroll_training_view, name='enroll_training'),
+    path('training/my-training/', views.my_training_view, name='my_training'),
+    path('training/manage/', views.manage_training_view, name='manage_training'),
+    
+    # Resource Management URLs
+    path('resources/<int:resource_id>/manage/', views.manage_resource_view, name='manage_resource'),
+    path('resources/<int:resource_id>/assign-responsible/', views.assign_resource_responsible_view, name='assign_resource_responsible'),
+    path('resources/<int:resource_id>/training-requirements/', views.resource_training_requirements_view, name='resource_training_requirements'),
+    
+    # Approval Statistics URLs
+    path('statistics/', views.approval_statistics_view, name='approval_statistics'),
+    
+    # Approval Rules URLs
+    path('approval-rules/', views.approval_rules_view, name='approval_rules'),
+    path('approval-rules/<int:rule_id>/toggle/', views.approval_rule_toggle_view, name='approval_rule_toggle'),
+    
+    # Lab Admin URLs
+    path('lab-admin/', views.lab_admin_dashboard_view, name='lab_admin_dashboard'),
+    path('lab-admin/access-requests/', views.lab_admin_access_requests_view, name='lab_admin_access_requests'),
+    path('lab-admin/training/', views.lab_admin_training_view, name='lab_admin_training'),
+    path('lab-admin/users/', views.lab_admin_users_view, name='lab_admin_users'),
+    path('lab-admin/resources/', views.lab_admin_resources_view, name='lab_admin_resources'),
+    path('lab-admin/resources/add/', views.lab_admin_add_resource_view, name='lab_admin_add_resource'),
+    path('lab-admin/resources/<int:resource_id>/edit/', views.lab_admin_edit_resource_view, name='lab_admin_edit_resource'),
+    path('lab-admin/resources/<int:resource_id>/delete/', views.lab_admin_delete_resource_view, name='lab_admin_delete_resource'),
+    
+    # Calendar Sync URLs
+    path('calendar/export/', views.export_my_calendar_view, name='export_my_calendar'),
+    path('calendar/feed/<str:token>/', views.my_calendar_feed_view, name='my_calendar_feed'),
+    path('calendar/public/<str:token>/', views.public_calendar_feed_view, name='public_calendar_feed'),
+    path('calendar/resource/<int:resource_id>/export/', views.export_resource_calendar_view, name='export_resource_calendar'),
+    path('calendar/sync-settings/', views.calendar_sync_settings_view, name='calendar_sync_settings'),
+    
     # AJAX helper URLs
     path('ajax/load-colleges/', views.ajax_load_colleges, name='ajax_load_colleges'),
     path('ajax/load-departments/', views.ajax_load_departments, name='ajax_load_departments'),

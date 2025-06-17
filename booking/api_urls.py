@@ -24,6 +24,15 @@ router.register(r'maintenance', views.MaintenanceViewSet)
 router.register(r'notifications', views.NotificationViewSet, basename='notification')
 router.register(r'notification-preferences', views.NotificationPreferenceViewSet, basename='notification-preference')
 router.register(r'waiting-list', views.WaitingListEntryViewSet, basename='waiting-list-entry')
+
+# Approval Workflow API endpoints
+router.register(r'resource-responsible', views.ResourceResponsibleViewSet)
+router.register(r'risk-assessments', views.RiskAssessmentViewSet)
+router.register(r'user-risk-assessments', views.UserRiskAssessmentViewSet)
+router.register(r'training-courses', views.TrainingCourseViewSet)
+router.register(r'resource-training-requirements', views.ResourceTrainingRequirementViewSet)
+router.register(r'user-training', views.UserTrainingViewSet)
+router.register(r'access-requests', views.AccessRequestViewSet)
 # router.register(r'waiting-list-notifications', views.WaitingListNotificationViewSet, basename='waiting-list-notification')  # Removed - using Notification model
 
 app_name = 'api'

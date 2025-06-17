@@ -631,10 +631,15 @@ class Resource(models.Model):
     
     def user_has_access(self, user):
         """Check if user has explicit access to this resource."""
+        from django.db.models import Q
+        from django.utils import timezone
+        
         return ResourceAccess.objects.filter(
             resource=self,
             user=user,
             is_active=True
+        ).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
         ).exists()
     
     def can_user_view_calendar(self, user):
@@ -891,6 +896,162 @@ class AccessRequest(models.Model):
         
         self.status = 'cancelled'
         self.save(update_fields=['status', 'updated_at'])
+    
+    def get_approval_requirements(self):
+        """Get all requirements that must be met before approval."""
+        requirements = {
+            'training': [],
+            'risk_assessments': [],
+            'responsible_persons': []
+        }
+        
+        # Get required training courses
+        training_requirements = self.resource.training_requirements.filter(
+            is_mandatory=True
+        ).select_related('training_course')
+        
+        for req in training_requirements:
+            # Check if access type requires this training
+            if not req.required_for_access_types or self.access_type in req.required_for_access_types:
+                requirements['training'].append(req.training_course)
+        
+        # Get required risk assessments
+        risk_assessments = self.resource.risk_assessments.filter(
+            is_mandatory=True,
+            is_active=True
+        )
+        requirements['risk_assessments'] = list(risk_assessments)
+        
+        # Get responsible persons who can approve
+        responsible_persons = self.resource.responsible_persons.filter(
+            is_active=True,
+            can_approve_access=True
+        ).select_related('user')
+        requirements['responsible_persons'] = list(responsible_persons)
+        
+        return requirements
+    
+    def check_user_compliance(self):
+        """Check if user meets all requirements for access."""
+        compliance = {
+            'training_complete': True,
+            'risk_assessments_complete': True,
+            'missing_training': [],
+            'missing_assessments': [],
+            'can_approve': False
+        }
+        
+        requirements = self.get_approval_requirements()
+        
+        # Check training requirements
+        for training_course in requirements['training']:
+            user_training = UserTraining.objects.filter(
+                user=self.user,
+                training_course=training_course,
+                status='completed',
+                passed=True
+            ).first()
+            
+            if not user_training or not user_training.is_valid:
+                compliance['training_complete'] = False
+                compliance['missing_training'].append(training_course)
+        
+        # Check risk assessment requirements
+        for risk_assessment in requirements['risk_assessments']:
+            user_assessment = UserRiskAssessment.objects.filter(
+                user=self.user,
+                risk_assessment=risk_assessment,
+                status='approved'
+            ).first()
+            
+            if not user_assessment or not user_assessment.is_valid:
+                compliance['risk_assessments_complete'] = False
+                compliance['missing_assessments'].append(risk_assessment)
+        
+        # Check if there are responsible persons who can approve
+        compliance['can_approve'] = len(requirements['responsible_persons']) > 0
+        
+        return compliance
+    
+    def get_required_actions(self):
+        """Get list of actions user must complete before approval."""
+        compliance = self.check_user_compliance()
+        actions = []
+        
+        # Training actions
+        for training in compliance['missing_training']:
+            actions.append({
+                'type': 'training',
+                'title': f"Complete {training.title}",
+                'description': f"You must complete the '{training.title}' training course before accessing this resource.",
+                'training_course': training,
+                'url': f"/training/{training.id}/enroll/"
+            })
+        
+        # Risk assessment actions
+        for assessment in compliance['missing_assessments']:
+            actions.append({
+                'type': 'risk_assessment',
+                'title': f"Complete {assessment.title}",
+                'description': f"You must complete the '{assessment.title}' risk assessment before accessing this resource.",
+                'risk_assessment': assessment,
+                'url': f"/assessments/{assessment.id}/start/"
+            })
+        
+        return actions
+    
+    def can_be_approved_by(self, user):
+        """Check if a specific user can approve this request."""
+        # Check if user is a responsible person for this resource
+        responsible = ResourceResponsible.objects.filter(
+            resource=self.resource,
+            user=user,
+            is_active=True,
+            can_approve_access=True
+        ).exists()
+        
+        if responsible:
+            return True
+        
+        # Check if user is a technician or sysadmin (global approval rights)
+        try:
+            user_profile = user.userprofile
+            return user_profile.role in ['technician', 'sysadmin']
+        except:
+            return False
+    
+    def get_potential_approvers(self):
+        """Get list of users who can approve this request."""
+        approvers = []
+        
+        # Get responsible persons
+        responsible_persons = ResourceResponsible.objects.filter(
+            resource=self.resource,
+            is_active=True,
+            can_approve_access=True
+        ).select_related('user', 'user__userprofile')
+        
+        for rp in responsible_persons:
+            approvers.append({
+                'user': rp.user,
+                'role': rp.get_role_type_display(),
+                'reason': f"{rp.get_role_type_display()} for {self.resource.name}"
+            })
+        
+        # Get technicians and sysadmins
+        global_approvers = UserProfile.objects.filter(
+            role__in=['technician', 'sysadmin'],
+            user__is_active=True
+        ).select_related('user')
+        
+        for profile in global_approvers:
+            approvers.append({
+                'user': profile.user,
+                'role': profile.get_role_display(),
+                'reason': f"Global {profile.get_role_display()} permissions"
+            })
+        
+        return approvers
 
 
 class BookingTemplate(models.Model):
@@ -1738,12 +1899,22 @@ class WaitingListEntry(models.Model):
 
 
 class ApprovalRule(models.Model):
-    """Rules for booking approval workflows."""
+    """Rules for booking approval workflows with advanced conditional logic."""
     APPROVAL_TYPES = [
         ('auto', 'Automatic Approval'),
         ('single', 'Single Level Approval'),
         ('tiered', 'Tiered Approval'),
         ('quota', 'Quota Based'),
+        ('conditional', 'Conditional Approval'),
+    ]
+    
+    CONDITION_TYPES = [
+        ('time_based', 'Time-Based Conditions'),
+        ('usage_based', 'Usage-Based Conditions'),
+        ('training_based', 'Training-Based Conditions'),
+        ('role_based', 'Role-Based Conditions'),
+        ('resource_based', 'Resource-Based Conditions'),
+        ('custom', 'Custom Logic'),
     ]
     
     name = models.CharField(max_length=200)
@@ -1752,8 +1923,16 @@ class ApprovalRule(models.Model):
     user_roles = models.JSONField(default=list)  # Roles that this rule applies to
     approvers = models.ManyToManyField(User, related_name='approval_rules', blank=True)
     conditions = models.JSONField(default=dict)  # Additional conditions
+    
+    # Advanced conditional logic
+    condition_type = models.CharField(max_length=20, choices=CONDITION_TYPES, default='role_based')
+    conditional_logic = models.JSONField(default=dict, help_text="Advanced conditional rules")
+    fallback_rule = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, help_text="Rule to apply if conditions not met")
+    
+    # Rule metadata
     is_active = models.BooleanField(default=True)
     priority = models.PositiveIntegerField(default=1)
+    description = models.TextField(blank=True, help_text="Detailed description of when this rule applies")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1771,6 +1950,897 @@ class ApprovalRule(models.Model):
         if not self.user_roles:
             return True
         return user_profile.role in self.user_roles
+    
+    def evaluate_conditions(self, booking_request, user_profile):
+        """Evaluate complex conditional logic for approval."""
+        from datetime import datetime, timedelta
+        from django.utils import timezone
+        
+        if self.condition_type == 'time_based':
+            return self._evaluate_time_conditions(booking_request, user_profile)
+        elif self.condition_type == 'usage_based':
+            return self._evaluate_usage_conditions(booking_request, user_profile)
+        elif self.condition_type == 'training_based':
+            return self._evaluate_training_conditions(booking_request, user_profile)
+        elif self.condition_type == 'role_based':
+            return self._evaluate_role_conditions(booking_request, user_profile)
+        elif self.condition_type == 'resource_based':
+            return self._evaluate_resource_conditions(booking_request, user_profile)
+        elif self.condition_type == 'custom':
+            return self._evaluate_custom_conditions(booking_request, user_profile)
+        
+        return {'approved': False, 'reason': 'Unknown condition type'}
+    
+    def _evaluate_time_conditions(self, booking_request, user_profile):
+        """Evaluate time-based conditions."""
+        logic = self.conditional_logic
+        
+        # Check booking advance time
+        if 'min_advance_hours' in logic:
+            advance_hours = (booking_request.get('start_time') - timezone.now()).total_seconds() / 3600
+            if advance_hours < logic['min_advance_hours']:
+                return {'approved': False, 'reason': f'Must book at least {logic["min_advance_hours"]} hours in advance'}
+        
+        # Check maximum advance booking
+        if 'max_advance_days' in logic:
+            advance_days = (booking_request.get('start_time') - timezone.now()).days
+            if advance_days > logic['max_advance_days']:
+                return {'approved': False, 'reason': f'Cannot book more than {logic["max_advance_days"]} days in advance'}
+        
+        # Check booking duration limits
+        if 'max_duration_hours' in logic:
+            duration = booking_request.get('duration_hours', 0)
+            if duration > logic['max_duration_hours']:
+                return {'approved': False, 'reason': f'Booking duration cannot exceed {logic["max_duration_hours"]} hours'}
+        
+        # Check time of day restrictions
+        if 'allowed_hours' in logic:
+            start_hour = booking_request.get('start_time').hour
+            end_hour = booking_request.get('end_time').hour
+            allowed_start, allowed_end = logic['allowed_hours']
+            if start_hour < allowed_start or end_hour > allowed_end:
+                return {'approved': False, 'reason': f'Bookings only allowed between {allowed_start}:00 and {allowed_end}:00'}
+        
+        return {'approved': True, 'reason': 'Time conditions met'}
+    
+    def _evaluate_usage_conditions(self, booking_request, user_profile):
+        """Evaluate usage-based conditions."""
+        logic = self.conditional_logic
+        
+        # Check monthly usage quota
+        if 'monthly_hour_limit' in logic:
+            from datetime import datetime
+            current_month = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            
+            # Get user's bookings this month for this resource
+            monthly_bookings = Booking.objects.filter(
+                user=user_profile.user,
+                resource=self.resource,
+                start_time__gte=current_month,
+                status__in=['approved', 'confirmed']
+            )
+            
+            total_hours = sum([
+                (b.end_time - b.start_time).total_seconds() / 3600 
+                for b in monthly_bookings
+            ])
+            
+            requested_hours = booking_request.get('duration_hours', 0)
+            if total_hours + requested_hours > logic['monthly_hour_limit']:
+                return {
+                    'approved': False, 
+                    'reason': f'Monthly usage limit of {logic["monthly_hour_limit"]} hours would be exceeded'
+                }
+        
+        # Check consecutive booking limits
+        if 'max_consecutive_days' in logic:
+            # Implementation for consecutive booking checking
+            pass
+        
+        return {'approved': True, 'reason': 'Usage conditions met'}
+    
+    def _evaluate_training_conditions(self, booking_request, user_profile):
+        """Evaluate training-based conditions."""
+        logic = self.conditional_logic
+        
+        # Check required certifications
+        if 'required_certifications' in logic:
+            for cert_code in logic['required_certifications']:
+                try:
+                    training = UserTraining.objects.get(
+                        user=user_profile.user,
+                        training_course__code=cert_code,
+                        status='completed',
+                        passed=True
+                    )
+                    if training.is_expired:
+                        return {
+                            'approved': False, 
+                            'reason': f'Required certification {cert_code} has expired'
+                        }
+                except UserTraining.DoesNotExist:
+                    return {
+                        'approved': False, 
+                        'reason': f'Required certification {cert_code} not found'
+                    }
+        
+        # Check minimum training level
+        if 'min_training_level' in logic:
+            if user_profile.training_level < logic['min_training_level']:
+                return {
+                    'approved': False, 
+                    'reason': f'Minimum training level {logic["min_training_level"]} required'
+                }
+        
+        return {'approved': True, 'reason': 'Training conditions met'}
+    
+    def _evaluate_role_conditions(self, booking_request, user_profile):
+        """Evaluate role-based conditions."""
+        logic = self.conditional_logic
+        
+        # Check role hierarchy
+        if 'role_hierarchy' in logic:
+            role_levels = logic['role_hierarchy']
+            user_level = role_levels.get(user_profile.role, 0)
+            required_level = logic.get('min_role_level', 0)
+            
+            if user_level < required_level:
+                return {
+                    'approved': False, 
+                    'reason': f'Insufficient role level for this resource'
+                }
+        
+        return {'approved': True, 'reason': 'Role conditions met'}
+    
+    def _evaluate_resource_conditions(self, booking_request, user_profile):
+        """Evaluate resource-based conditions."""
+        logic = self.conditional_logic
+        
+        # Check resource availability
+        if 'check_conflicts' in logic and logic['check_conflicts']:
+            # Enhanced conflict checking beyond basic validation
+            pass
+        
+        return {'approved': True, 'reason': 'Resource conditions met'}
+    
+    def _evaluate_custom_conditions(self, booking_request, user_profile):
+        """Evaluate custom conditional logic."""
+        logic = self.conditional_logic
+        
+        # Support for custom Python expressions (with safety limitations)
+        if 'expression' in logic:
+            # This would require careful implementation for security
+            # For now, return a basic evaluation
+            pass
+        
+        return {'approved': True, 'reason': 'Custom conditions met'}
+    
+    def get_applicable_rule(self, booking_request, user_profile):
+        """Get the most appropriate rule based on conditions."""
+        if not self.applies_to_user(user_profile):
+            return None
+        
+        if self.approval_type == 'conditional':
+            evaluation = self.evaluate_conditions(booking_request, user_profile)
+            if not evaluation['approved']:
+                # Try fallback rule
+                if self.fallback_rule:
+                    return self.fallback_rule.get_applicable_rule(booking_request, user_profile)
+                return None
+        
+        return self
+
+
+class ResourceResponsible(models.Model):
+    """Defines who is responsible for approving access to specific resources."""
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='responsible_persons')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='responsible_resources')
+    role_type = models.CharField(max_length=50, choices=[
+        ('primary', 'Primary Responsible'),
+        ('secondary', 'Secondary Responsible'),
+        ('trainer', 'Authorized Trainer'),
+        ('safety_officer', 'Safety Officer'),
+    ], default='primary')
+    can_approve_access = models.BooleanField(default=True)
+    can_approve_training = models.BooleanField(default=True)
+    can_conduct_assessments = models.BooleanField(default=True)
+    assigned_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='assigned_responsibilities')
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+    
+    class Meta:
+        db_table = 'booking_resourceresponsible'
+        unique_together = ['resource', 'user', 'role_type']
+        ordering = ['role_type', 'assigned_at']
+    
+    def __str__(self):
+        return f"{self.user.get_full_name()} - {self.resource.name} ({self.get_role_type_display()})"
+    
+    def can_approve_request(self, request_type='access'):
+        """Check if this person can approve a specific request type."""
+        from django.utils import timezone
+        
+        # Check if this person can directly approve
+        if request_type == 'access' and self.can_approve_access and self.is_active:
+            return True
+        elif request_type == 'training' and self.can_approve_training and self.is_active:
+            return True
+        elif request_type == 'assessment' and self.can_conduct_assessments and self.is_active:
+            return True
+        
+        return False
+    
+    def get_current_approvers(self, request_type='access'):
+        """Get list of users who can currently approve."""
+        from django.utils import timezone
+        approvers = []
+        
+        # Add this person if they can approve
+        if self.can_approve_request(request_type):
+            approvers.append({
+                'user': self.user,
+                'type': 'primary',
+                'responsible': self
+            })
+        
+        return approvers
+
+
+
+
+class ApprovalStatistics(models.Model):
+    """Track approval workflow statistics for analytics."""
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='approval_stats')
+    approver = models.ForeignKey(User, on_delete=models.CASCADE, related_name='approval_stats')
+    
+    # Statistics period
+    period_start = models.DateField()
+    period_end = models.DateField()
+    period_type = models.CharField(max_length=20, choices=[
+        ('daily', 'Daily'),
+        ('weekly', 'Weekly'),
+        ('monthly', 'Monthly'),
+        ('quarterly', 'Quarterly'),
+        ('yearly', 'Yearly'),
+    ], default='monthly')
+    
+    # Approval counts
+    access_requests_received = models.IntegerField(default=0)
+    access_requests_approved = models.IntegerField(default=0)
+    access_requests_rejected = models.IntegerField(default=0)
+    access_requests_pending = models.IntegerField(default=0)
+    
+    # Training statistics
+    training_requests_received = models.IntegerField(default=0)
+    training_sessions_conducted = models.IntegerField(default=0)
+    training_completions = models.IntegerField(default=0)
+    training_failures = models.IntegerField(default=0)
+    
+    # Risk assessment statistics
+    assessments_created = models.IntegerField(default=0)
+    assessments_reviewed = models.IntegerField(default=0)
+    assessments_approved = models.IntegerField(default=0)
+    assessments_rejected = models.IntegerField(default=0)
+    
+    # Response time metrics (in hours)
+    avg_response_time_hours = models.FloatField(default=0.0)
+    min_response_time_hours = models.FloatField(default=0.0)
+    max_response_time_hours = models.FloatField(default=0.0)
+    
+    # Additional metrics
+    overdue_items = models.IntegerField(default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_approvalstatistics'
+        unique_together = ['resource', 'approver', 'period_start', 'period_type']
+        ordering = ['-period_start', 'resource', 'approver']
+    
+    def __str__(self):
+        return f"{self.resource.name} - {self.approver.get_full_name()} ({self.period_start})"
+    
+    @property
+    def approval_rate(self):
+        """Calculate approval rate percentage."""
+        total = self.access_requests_approved + self.access_requests_rejected
+        if total == 0:
+            return 0
+        return (self.access_requests_approved / total) * 100
+    
+    @property
+    def training_success_rate(self):
+        """Calculate training success rate percentage."""
+        total = self.training_completions + self.training_failures
+        if total == 0:
+            return 0
+        return (self.training_completions / total) * 100
+    
+    @property
+    def assessment_approval_rate(self):
+        """Calculate assessment approval rate percentage."""
+        total = self.assessments_approved + self.assessments_rejected
+        if total == 0:
+            return 0
+        return (self.assessments_approved / total) * 100
+    
+    @classmethod
+    def generate_statistics(cls, resource=None, approver=None, period_type='monthly', period_start=None):
+        """Generate statistics for a given period."""
+        from django.utils import timezone
+        from datetime import timedelta, date
+        from django.db.models import Avg, Min, Max
+        
+        if period_start is None:
+            period_start = timezone.now().date().replace(day=1)  # Start of current month
+        
+        # Calculate period end based on type
+        if period_type == 'daily':
+            period_end = period_start
+        elif period_type == 'weekly':
+            period_end = period_start + timedelta(days=6)
+        elif period_type == 'monthly':
+            if period_start.month == 12:
+                period_end = period_start.replace(year=period_start.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                period_end = period_start.replace(month=period_start.month + 1, day=1) - timedelta(days=1)
+        elif period_type == 'quarterly':
+            quarter_start_month = ((period_start.month - 1) // 3) * 3 + 1
+            period_start = period_start.replace(month=quarter_start_month, day=1)
+            period_end = period_start.replace(month=quarter_start_month + 2, day=1)
+            if period_end.month == 12:
+                period_end = period_end.replace(year=period_end.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                period_end = period_end.replace(month=period_end.month + 1, day=1) - timedelta(days=1)
+        elif period_type == 'yearly':
+            period_start = period_start.replace(month=1, day=1)
+            period_end = period_start.replace(year=period_start.year + 1, month=1, day=1) - timedelta(days=1)
+        
+        # Filter queryset
+        queryset_filters = {
+            'created_at__date__range': [period_start, period_end]
+        }
+        
+        if resource:
+            queryset_filters['resource'] = resource
+        if approver:
+            queryset_filters['reviewed_by'] = approver
+        
+        # Access request statistics
+        access_requests = AccessRequest.objects.filter(**queryset_filters)
+        access_requests_received = access_requests.count()
+        access_requests_approved = access_requests.filter(status='approved').count()
+        access_requests_rejected = access_requests.filter(status='rejected').count()
+        access_requests_pending = access_requests.filter(status='pending').count()
+        
+        # Training statistics
+        training_filters = queryset_filters.copy()
+        if 'reviewed_by' in training_filters:
+            training_filters['instructor'] = training_filters.pop('reviewed_by')
+        
+        training_records = UserTraining.objects.filter(**training_filters)
+        training_requests_received = training_records.count()
+        training_completions = training_records.filter(status='completed', passed=True).count()
+        training_failures = training_records.filter(status='completed', passed=False).count()
+        training_sessions_conducted = training_records.filter(session_date__isnull=False).count()
+        
+        # Risk assessment statistics
+        assessment_filters = queryset_filters.copy()
+        if 'reviewed_by' in assessment_filters:
+            assessment_filters['reviewed_by'] = assessment_filters.pop('reviewed_by')
+        
+        risk_assessments = UserRiskAssessment.objects.filter(**assessment_filters)
+        assessments_reviewed = risk_assessments.filter(status__in=['approved', 'rejected']).count()
+        assessments_approved = risk_assessments.filter(status='approved').count()
+        assessments_rejected = risk_assessments.filter(status='rejected').count()
+        
+        # Created assessments (different filter)
+        created_filters = queryset_filters.copy()
+        if 'reviewed_by' in created_filters:
+            created_filters['created_by'] = created_filters.pop('reviewed_by')
+        assessments_created = RiskAssessment.objects.filter(**created_filters).count()
+        
+        # Response time calculations
+        response_times = access_requests.filter(
+            reviewed_at__isnull=False
+        ).extra(
+            select={
+                'response_hours': '(JULIANDAY(reviewed_at) - JULIANDAY(created_at)) * 24'
+            }
+        ).values_list('response_hours', flat=True)
+        
+        if response_times:
+            avg_response_time = sum(response_times) / len(response_times)
+            min_response_time = min(response_times)
+            max_response_time = max(response_times)
+        else:
+            avg_response_time = min_response_time = max_response_time = 0.0
+        
+        # Overdue items
+        overdue_items = access_requests.filter(
+            status='pending',
+            created_at__lt=timezone.now() - timedelta(days=3)
+        ).count()
+        
+        return {
+            'period_start': period_start,
+            'period_end': period_end,
+            'period_type': period_type,
+            'access_requests_received': access_requests_received,
+            'access_requests_approved': access_requests_approved,
+            'access_requests_rejected': access_requests_rejected,
+            'access_requests_pending': access_requests_pending,
+            'training_requests_received': training_requests_received,
+            'training_sessions_conducted': training_sessions_conducted,
+            'training_completions': training_completions,
+            'training_failures': training_failures,
+            'assessments_created': assessments_created,
+            'assessments_reviewed': assessments_reviewed,
+            'assessments_approved': assessments_approved,
+            'assessments_rejected': assessments_rejected,
+            'avg_response_time_hours': avg_response_time,
+            'min_response_time_hours': min_response_time,
+            'max_response_time_hours': max_response_time,
+            'overdue_items': overdue_items,
+        }
+    
+    @classmethod
+    def get_dashboard_data(cls, user=None, resource=None, days=30):
+        """Get comprehensive dashboard data for approval workflows."""
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db.models import Count, Avg, Q
+        
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        # Base filters
+        base_filters = {
+            'created_at__date__range': [start_date, end_date]
+        }
+        
+        # Access request summary
+        access_requests = AccessRequest.objects.filter(**base_filters)
+        if user:
+            access_requests = access_requests.filter(
+                Q(user=user) | Q(reviewed_by=user)
+            )
+        if resource:
+            access_requests = access_requests.filter(resource=resource)
+        
+        access_summary = {
+            'total': access_requests.count(),
+            'pending': access_requests.filter(status='pending').count(),
+            'approved': access_requests.filter(status='approved').count(),
+            'rejected': access_requests.filter(status='rejected').count(),
+        }
+        
+        # Training summary
+        training_records = UserTraining.objects.filter(**base_filters)
+        if user:
+            training_records = training_records.filter(
+                Q(user=user) | Q(instructor=user)
+            )
+        
+        training_summary = {
+            'total': training_records.count(),
+            'completed': training_records.filter(status='completed', passed=True).count(),
+            'failed': training_records.filter(status='completed', passed=False).count(),
+            'in_progress': training_records.filter(status='in_progress').count(),
+        }
+        
+        # Risk assessment summary
+        risk_assessments = UserRiskAssessment.objects.filter(**base_filters)
+        if user:
+            risk_assessments = risk_assessments.filter(
+                Q(user=user) | Q(reviewed_by=user)
+            )
+        
+        assessment_summary = {
+            'total': risk_assessments.count(),
+            'approved': risk_assessments.filter(status='approved').count(),
+            'rejected': risk_assessments.filter(status='rejected').count(),
+            'pending': risk_assessments.filter(status='submitted').count(),
+        }
+        
+        # Recent activity
+        recent_access_requests = access_requests.order_by('-created_at')[:10]
+        recent_training = training_records.order_by('-updated_at')[:10]
+        recent_assessments = risk_assessments.order_by('-updated_at')[:10]
+        
+        # Performance metrics
+        if user:
+            response_times = access_requests.filter(
+                reviewed_by=user,
+                reviewed_at__isnull=False
+            ).extra(
+                select={
+                    'response_hours': '(JULIANDAY(reviewed_at) - JULIANDAY(created_at)) * 24'
+                }
+            ).values_list('response_hours', flat=True)
+            
+            avg_response_time = sum(response_times) / len(response_times) if response_times else 0
+        else:
+            avg_response_time = 0
+        
+        return {
+            'summary': {
+                'access_requests': access_summary,
+                'training': training_summary,
+                'assessments': assessment_summary,
+            },
+            'recent_activity': {
+                'access_requests': recent_access_requests,
+                'training': recent_training,
+                'assessments': recent_assessments,
+            },
+            'performance': {
+                'avg_response_time_hours': avg_response_time,
+                'total_items_processed': (
+                    access_summary['approved'] + access_summary['rejected'] +
+                    training_summary['completed'] + training_summary['failed'] +
+                    assessment_summary['approved'] + assessment_summary['rejected']
+                ),
+            },
+            'period': {
+                'start_date': start_date,
+                'end_date': end_date,
+                'days': days,
+            }
+        }
+
+
+class RiskAssessment(models.Model):
+    """Risk assessments for resource access."""
+    ASSESSMENT_TYPES = [
+        ('general', 'General Risk Assessment'),
+        ('chemical', 'Chemical Hazard Assessment'),
+        ('biological', 'Biological Safety Assessment'),
+        ('radiation', 'Radiation Safety Assessment'),
+        ('mechanical', 'Mechanical Safety Assessment'),
+        ('electrical', 'Electrical Safety Assessment'),
+        ('fire', 'Fire Safety Assessment'),
+        ('environmental', 'Environmental Impact Assessment'),
+    ]
+    
+    RISK_LEVELS = [
+        ('low', 'Low Risk'),
+        ('medium', 'Medium Risk'),
+        ('high', 'High Risk'),
+        ('critical', 'Critical Risk'),
+    ]
+    
+    title = models.CharField(max_length=200)
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='risk_assessments')
+    assessment_type = models.CharField(max_length=20, choices=ASSESSMENT_TYPES, default='general')
+    description = models.TextField(help_text="Detailed description of the assessment")
+    risk_level = models.CharField(max_length=10, choices=RISK_LEVELS, default='medium')
+    
+    # Assessment content
+    hazards_identified = models.JSONField(default=list, help_text="List of identified hazards")
+    control_measures = models.JSONField(default=list, help_text="Control measures and mitigation steps")
+    emergency_procedures = models.TextField(blank=True, help_text="Emergency response procedures")
+    ppe_requirements = models.JSONField(default=list, help_text="Personal protective equipment requirements")
+    
+    # Assessment lifecycle
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_assessments')
+    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_assessments')
+    approved_at = models.DateTimeField(null=True, blank=True)
+    valid_until = models.DateField(help_text="Assessment expiry date")
+    review_frequency_months = models.PositiveIntegerField(default=12, help_text="Review frequency in months")
+    
+    # Status tracking
+    is_active = models.BooleanField(default=True)
+    is_mandatory = models.BooleanField(default=True, help_text="Must be completed before access")
+    requires_renewal = models.BooleanField(default=True, help_text="Requires periodic renewal")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_riskassessment'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.title} - {self.resource.name}"
+    
+    @property
+    def is_expired(self):
+        """Check if the assessment has expired."""
+        return timezone.now().date() > self.valid_until
+    
+    @property
+    def is_due_for_review(self):
+        """Check if assessment is due for review."""
+        if not self.approved_at:
+            return True
+        review_due = self.approved_at + timedelta(days=self.review_frequency_months * 30)
+        return timezone.now() > review_due
+
+
+class UserRiskAssessment(models.Model):
+    """Tracks user completion of risk assessments."""
+    STATUS_CHOICES = [
+        ('not_started', 'Not Started'),
+        ('in_progress', 'In Progress'),
+        ('submitted', 'Submitted for Review'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('expired', 'Expired'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='risk_assessments')
+    risk_assessment = models.ForeignKey(RiskAssessment, on_delete=models.CASCADE, related_name='user_completions')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
+    
+    # Completion tracking
+    started_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    
+    # Assessment responses
+    responses = models.JSONField(default=dict, help_text="User responses to assessment questions")
+    assessor_notes = models.TextField(blank=True, help_text="Notes from the person reviewing the assessment")
+    user_declaration = models.TextField(blank=True, help_text="User declaration and acknowledgment")
+    
+    # Review information
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_assessments')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_notes = models.TextField(blank=True)
+    
+    # Score and outcome
+    score_percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    pass_threshold = models.DecimalField(max_digits=5, decimal_places=2, default=80.00)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_userriskassessment'
+        unique_together = ['user', 'risk_assessment', 'status']  # Prevent duplicate active assessments
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.risk_assessment.title} ({self.get_status_display()})"
+    
+    @property
+    def is_expired(self):
+        """Check if the user's assessment completion has expired."""
+        if not self.expires_at:
+            return False
+        return timezone.now() > self.expires_at
+    
+    @property
+    def is_valid(self):
+        """Check if the assessment completion is currently valid."""
+        return self.status == 'approved' and not self.is_expired
+    
+    def start_assessment(self):
+        """Start the assessment process."""
+        self.status = 'in_progress'
+        self.started_at = timezone.now()
+        self.save(update_fields=['status', 'started_at', 'updated_at'])
+    
+    def submit_for_review(self, responses, declaration=""):
+        """Submit assessment for review."""
+        self.status = 'submitted'
+        self.submitted_at = timezone.now()
+        self.responses = responses
+        self.user_declaration = declaration
+        self.save(update_fields=['status', 'submitted_at', 'responses', 'user_declaration', 'updated_at'])
+    
+    def approve(self, reviewed_by, score=None, notes=""):
+        """Approve the assessment."""
+        self.status = 'approved'
+        self.completed_at = timezone.now()
+        self.reviewed_by = reviewed_by
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        
+        if score is not None:
+            self.score_percentage = score
+        
+        # Set expiry based on risk assessment renewal requirements
+        if self.risk_assessment.requires_renewal:
+            self.expires_at = timezone.now() + timedelta(days=self.risk_assessment.review_frequency_months * 30)
+        
+        self.save()
+    
+    def reject(self, reviewed_by, notes=""):
+        """Reject the assessment."""
+        self.status = 'rejected'
+        self.reviewed_by = reviewed_by
+        self.reviewed_at = timezone.now()
+        self.review_notes = notes
+        self.save()
+
+
+class TrainingCourse(models.Model):
+    """Training courses required for resource access."""
+    COURSE_TYPES = [
+        ('induction', 'General Induction'),
+        ('safety', 'Safety Training'),
+        ('equipment', 'Equipment Specific Training'),
+        ('software', 'Software Training'),
+        ('advanced', 'Advanced Certification'),
+        ('refresher', 'Refresher Course'),
+    ]
+    
+    DELIVERY_METHODS = [
+        ('in_person', 'In-Person Training'),
+        ('online', 'Online Training'),
+        ('hybrid', 'Hybrid Training'),
+        ('self_study', 'Self-Study'),
+        ('assessment_only', 'Assessment Only'),
+    ]
+    
+    title = models.CharField(max_length=200)
+    code = models.CharField(max_length=50, unique=True, help_text="Unique course code")
+    description = models.TextField()
+    course_type = models.CharField(max_length=20, choices=COURSE_TYPES, default='equipment')
+    delivery_method = models.CharField(max_length=20, choices=DELIVERY_METHODS, default='in_person')
+    
+    # Course requirements
+    prerequisite_courses = models.ManyToManyField('self', blank=True, symmetrical=False, related_name='dependent_courses')
+    duration_hours = models.DecimalField(max_digits=5, decimal_places=1, help_text="Course duration in hours")
+    max_participants = models.PositiveIntegerField(default=10, help_text="Maximum participants per session")
+    
+    # Content and materials
+    learning_objectives = models.JSONField(default=list, help_text="List of learning objectives")
+    course_materials = models.JSONField(default=list, help_text="Required materials and resources")
+    assessment_criteria = models.JSONField(default=list, help_text="Assessment criteria and methods")
+    
+    # Validity and renewal
+    valid_for_months = models.PositiveIntegerField(default=24, help_text="Certificate validity in months")
+    requires_practical_assessment = models.BooleanField(default=False)
+    pass_mark_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=80.00)
+    
+    # Management
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_courses')
+    instructors = models.ManyToManyField(User, related_name='instructor_courses', blank=True)
+    is_active = models.BooleanField(default=True)
+    is_mandatory = models.BooleanField(default=False, help_text="Required for all users")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_trainingcourse'
+        ordering = ['title']
+    
+    def __str__(self):
+        return f"{self.code} - {self.title}"
+    
+    def get_available_instructors(self):
+        """Get list of users who can instruct this course."""
+        return self.instructors.filter(is_active=True)
+
+
+class ResourceTrainingRequirement(models.Model):
+    """Defines training requirements for specific resources."""
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='training_requirements')
+    training_course = models.ForeignKey(TrainingCourse, on_delete=models.CASCADE, related_name='resource_requirements')
+    is_mandatory = models.BooleanField(default=True, help_text="Must be completed before access")
+    required_for_access_types = models.JSONField(default=list, help_text="Access types that require this training")
+    order = models.PositiveIntegerField(default=1, help_text="Order in which training should be completed")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'booking_resourcetrainingrequirement'
+        unique_together = ['resource', 'training_course']
+        ordering = ['order', 'training_course__title']
+    
+    def __str__(self):
+        return f"{self.resource.name} requires {self.training_course.title}"
+
+
+class UserTraining(models.Model):
+    """Tracks user completion of training courses."""
+    STATUS_CHOICES = [
+        ('enrolled', 'Enrolled'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('expired', 'Expired'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='training_records')
+    training_course = models.ForeignKey(TrainingCourse, on_delete=models.CASCADE, related_name='user_completions')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='enrolled')
+    
+    # Enrollment and completion
+    enrolled_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    
+    # Training session details
+    instructor = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='taught_training')
+    session_date = models.DateTimeField(null=True, blank=True)
+    session_location = models.CharField(max_length=200, blank=True)
+    
+    # Assessment results
+    theory_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    practical_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    overall_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    passed = models.BooleanField(default=False)
+    
+    # Feedback and notes
+    instructor_notes = models.TextField(blank=True)
+    user_feedback = models.TextField(blank=True)
+    
+    # Certificate details
+    certificate_number = models.CharField(max_length=100, blank=True, unique=True)
+    certificate_issued_at = models.DateTimeField(null=True, blank=True)
+    
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_usertraining'
+        unique_together = ['user', 'training_course', 'status']  # Prevent duplicate active records
+        ordering = ['-completed_at', '-enrolled_at']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.training_course.title} ({self.get_status_display()})"
+    
+    @property
+    def is_expired(self):
+        """Check if the training has expired."""
+        if not self.expires_at:
+            return False
+        return timezone.now() > self.expires_at
+    
+    @property
+    def is_valid(self):
+        """Check if the training completion is currently valid."""
+        return self.status == 'completed' and self.passed and not self.is_expired
+    
+    def start_training(self):
+        """Start the training."""
+        self.status = 'in_progress'
+        self.started_at = timezone.now()
+        self.save(update_fields=['status', 'started_at', 'updated_at'])
+    
+    def complete_training(self, theory_score=None, practical_score=None, instructor=None, notes=""):
+        """Complete the training with scores."""
+        self.theory_score = theory_score
+        self.practical_score = practical_score
+        self.instructor = instructor
+        self.instructor_notes = notes
+        
+        # Calculate overall score
+        if theory_score is not None and practical_score is not None:
+            self.overall_score = (theory_score + practical_score) / 2
+        elif theory_score is not None:
+            self.overall_score = theory_score
+        elif practical_score is not None:
+            self.overall_score = practical_score
+        
+        # Check if passed
+        if self.overall_score is not None:
+            self.passed = self.overall_score >= self.training_course.pass_mark_percentage
+        
+        if self.passed:
+            self.status = 'completed'
+            self.completed_at = timezone.now()
+            
+            # Set expiry date
+            if self.training_course.valid_for_months:
+                self.expires_at = timezone.now() + timedelta(days=self.training_course.valid_for_months * 30)
+            
+            # Generate certificate number
+            if not self.certificate_number:
+                self.certificate_number = f"{self.training_course.code}-{self.user.id}-{timezone.now().strftime('%Y%m%d')}"
+                self.certificate_issued_at = timezone.now()
+        else:
+            self.status = 'failed'
+        
+        self.save()
 
 
 class Maintenance(models.Model):

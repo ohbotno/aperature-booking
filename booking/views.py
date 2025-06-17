@@ -15,23 +15,38 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import JsonResponse
 from django.contrib.auth import login
 from django.contrib.auth.views import PasswordResetView, PasswordResetConfirmView
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
-from datetime import timedelta
+from datetime import datetime, timedelta
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
-from .models import UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest
-from .forms import UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, SaveAsTemplateForm
+from .models import (
+    UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, 
+    PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, 
+    Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest,
+    ResourceResponsible, RiskAssessment, UserRiskAssessment, TrainingCourse, 
+    ResourceTrainingRequirement, UserTraining
+)
+from .forms import (
+    UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, 
+    BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, 
+    SaveAsTemplateForm, AccessRequestForm, AccessRequestReviewForm, RiskAssessmentForm, 
+    UserRiskAssessmentForm, TrainingCourseForm, UserTrainingEnrollForm, ResourceResponsibleForm,
+    ResourceForm
+)
 from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
 from .serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
-    ApprovalRuleSerializer, MaintenanceSerializer, WaitingListEntrySerializer
+    ApprovalRuleSerializer, MaintenanceSerializer, WaitingListEntrySerializer,
+    ResourceResponsibleSerializer, RiskAssessmentSerializer, UserRiskAssessmentSerializer,
+    TrainingCourseSerializer, ResourceTrainingRequirementSerializer, UserTrainingSerializer,
+    AccessRequestDetailSerializer
 )
 # from .notifications import notification_service  # TODO: Implement notification service
 # from .waiting_list import waiting_list_service  # TODO: Implement waiting list service  
@@ -180,10 +195,21 @@ class BookingViewSet(viewsets.ModelViewSet):
         start_date = self.request.query_params.get('start_date')
         end_date = self.request.query_params.get('end_date')
         if start_date and end_date:
-            queryset = queryset.filter(
-                start_time__gte=start_date,
-                end_time__lte=end_date
-            )
+            try:
+                # Parse date strings and make them timezone-aware
+                start_datetime = timezone.make_aware(
+                    datetime.strptime(start_date, '%Y-%m-%d')
+                )
+                end_datetime = timezone.make_aware(
+                    datetime.strptime(end_date, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+                )
+                queryset = queryset.filter(
+                    start_time__gte=start_datetime,
+                    end_time__lte=end_datetime
+                )
+            except ValueError:
+                # If date parsing fails, skip filtering
+                pass
         
         status_filter = self.request.query_params.get('status')
         if status_filter:
@@ -560,10 +586,21 @@ class MaintenanceViewSet(viewsets.ReadOnlyModelViewSet):
         end_date = self.request.query_params.get('end_date')
         
         if start_date and end_date:
-            queryset = queryset.filter(
-                start_time__gte=start_date,
-                end_time__lte=end_date
-            )
+            try:
+                # Parse date strings and make them timezone-aware
+                start_datetime = timezone.make_aware(
+                    datetime.strptime(start_date, '%Y-%m-%d')
+                )
+                end_datetime = timezone.make_aware(
+                    datetime.strptime(end_date, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+                )
+                queryset = queryset.filter(
+                    start_time__gte=start_datetime,
+                    end_time__lte=end_datetime
+                )
+            except ValueError:
+                # If date parsing fails, skip filtering
+                pass
         
         return queryset.order_by('start_time')
 
@@ -575,15 +612,44 @@ def register_view(request):
         form = UserRegistrationForm(request.POST)
         if form.is_valid():
             user = form.save()
-            messages.success(
-                request, 
-                'Registration successful! Please check your email to verify your account before logging in.'
-            )
+            
+            # Get the verification token for development mode
+            from .models import EmailVerificationToken
+            from django.conf import settings
+            token = EmailVerificationToken.objects.filter(user=user, is_used=False).first()
+            
+            if settings.DEBUG and token:
+                # In development mode, show the verification URL
+                verification_url = request.build_absolute_uri(f'/verify-email/{token.token}/')
+                messages.success(
+                    request, 
+                    f'<strong>Registration Successful!</strong><br><br>'
+                    f'<i class="bi bi-info-circle"></i> <strong>Important:</strong> Your account has been created but is currently <strong>inactive</strong>.<br><br>'
+                    f'<i class="bi bi-envelope"></i> <strong>Next Steps:</strong><br>'
+                    f'1. Check your email ({user.email}) for a verification link<br>'
+                    f'2. Click the verification link to activate your account<br>'
+                    f'3. Return here to log in<br><br>'
+                    f'<i class="bi bi-gear"></i> <strong>Development Mode:</strong> You can verify directly using this link: <a href="{verification_url}" target="_blank" class="btn btn-sm btn-outline-primary">Verify Account Now</a><br><br>'
+                    f'<small class="text-muted"><i class="bi bi-clock"></i> You cannot log in until your email is verified.</small>'
+                )
+            else:
+                messages.success(
+                    request, 
+                    f'<strong>Registration Successful!</strong><br><br>'
+                    f'<i class="bi bi-info-circle"></i> <strong>Important:</strong> Your account has been created but is currently <strong>inactive</strong>.<br><br>'
+                    f'<i class="bi bi-envelope"></i> <strong>Next Steps:</strong><br>'
+                    f'1. Check your email ({user.email}) for a verification link<br>'
+                    f'2. Click the verification link to activate your account<br>'
+                    f'3. Return here to log in<br><br>'
+                    f'<small class="text-muted"><i class="bi bi-clock"></i> You cannot log in until your email is verified. If you don\'t see the email, check your spam folder or <a href="/resend-verification/">request a new verification email</a>.</small>'
+                )
             return redirect('login')
         else:
             messages.error(request, 'Please correct the errors below.')
     else:
         form = UserRegistrationForm()
+        # Clear any existing messages when showing the registration form
+        list(messages.get_messages(request))
     
     return render(request, 'registration/register.html', {'form': form})
 
@@ -2054,14 +2120,14 @@ def booking_management_view(request):
     
     if date_from:
         try:
-            from_date = timezone.datetime.strptime(date_from, '%Y-%m-%d').date()
+            from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
             bookings = bookings.filter(start_time__date__gte=from_date)
         except ValueError:
             pass
     
     if date_to:
         try:
-            to_date = timezone.datetime.strptime(date_to, '%Y-%m-%d').date()
+            to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
             bookings = bookings.filter(start_time__date__lte=to_date)
         except ValueError:
             pass
@@ -2110,14 +2176,14 @@ def my_bookings_view(request):
     
     if date_from:
         try:
-            from_date = timezone.datetime.strptime(date_from, '%Y-%m-%d').date()
+            from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
             bookings = bookings.filter(start_time__date__gte=from_date)
         except ValueError:
             pass
     
     if date_to:
         try:
-            to_date = timezone.datetime.strptime(date_to, '%Y-%m-%d').date()
+            to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
             bookings = bookings.filter(start_time__date__lte=to_date)
         except ValueError:
             pass
@@ -2900,3 +2966,1874 @@ def add_user_to_group(request, group_name):
         return JsonResponse({'error': 'User not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+# Approval Workflow API Views
+
+from rest_framework import viewsets, status, permissions
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.db.models import Q
+from .serializers import (
+    ResourceResponsibleSerializer, RiskAssessmentSerializer, UserRiskAssessmentSerializer,
+    TrainingCourseSerializer, ResourceTrainingRequirementSerializer, UserTrainingSerializer,
+    AccessRequestDetailSerializer
+)
+from .models import (
+    ResourceResponsible, RiskAssessment, UserRiskAssessment, TrainingCourse,
+    ResourceTrainingRequirement, UserTraining, AccessRequest
+)
+
+
+class IsManagerOrReadOnly(permissions.BasePermission):
+    """Permission that allows managers to edit, others to read only."""
+    
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return request.user.is_authenticated
+        
+        # Write permissions for managers only
+        try:
+            user_profile = request.user.userprofile
+            return user_profile.role in ['technician', 'sysadmin']
+        except:
+            return False
+
+
+class ResourceResponsibleViewSet(viewsets.ModelViewSet):
+    queryset = ResourceResponsible.objects.all()
+    serializer_class = ResourceResponsibleSerializer
+    permission_classes = [IsManagerOrReadOnly]
+    
+    def get_queryset(self):
+        queryset = ResourceResponsible.objects.select_related('user', 'resource', 'assigned_by')
+        
+        # Filter by resource
+        resource_id = self.request.query_params.get('resource', None)
+        if resource_id:
+            queryset = queryset.filter(resource_id=resource_id)
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user', None)
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        # Filter by role type
+        role_type = self.request.query_params.get('role_type', None)
+        if role_type:
+            queryset = queryset.filter(role_type=role_type)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        return queryset
+    
+    @action(detail=False, methods=['get'])
+    def by_resource(self, request):
+        """Get responsible persons for a specific resource."""
+        resource_id = request.query_params.get('resource_id')
+        if not resource_id:
+            return Response({'error': 'resource_id parameter required'}, status=400)
+        
+        responsible_persons = self.get_queryset().filter(resource_id=resource_id, is_active=True)
+        serializer = self.get_serializer(responsible_persons, many=True)
+        return Response(serializer.data)
+
+
+class RiskAssessmentViewSet(viewsets.ModelViewSet):
+    queryset = RiskAssessment.objects.all()
+    serializer_class = RiskAssessmentSerializer
+    permission_classes = [IsManagerOrReadOnly]
+    
+    def get_queryset(self):
+        queryset = RiskAssessment.objects.select_related('resource', 'created_by', 'approved_by')
+        
+        # Filter by resource
+        resource_id = self.request.query_params.get('resource', None)
+        if resource_id:
+            queryset = queryset.filter(resource_id=resource_id)
+        
+        # Filter by assessment type
+        assessment_type = self.request.query_params.get('assessment_type', None)
+        if assessment_type:
+            queryset = queryset.filter(assessment_type=assessment_type)
+        
+        # Filter by risk level
+        risk_level = self.request.query_params.get('risk_level', None)
+        if risk_level:
+            queryset = queryset.filter(risk_level=risk_level)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        # Filter by mandatory status
+        is_mandatory = self.request.query_params.get('is_mandatory', None)
+        if is_mandatory is not None:
+            queryset = queryset.filter(is_mandatory=is_mandatory.lower() == 'true')
+        
+        return queryset
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsManagerOrReadOnly])
+    def approve(self, request, pk=None):
+        """Approve a risk assessment."""
+        assessment = self.get_object()
+        assessment.approved_by = request.user
+        assessment.approved_at = timezone.now()
+        assessment.save()
+        
+        serializer = self.get_serializer(assessment)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def by_resource(self, request):
+        """Get risk assessments for a specific resource."""
+        resource_id = request.query_params.get('resource_id')
+        if not resource_id:
+            return Response({'error': 'resource_id parameter required'}, status=400)
+        
+        assessments = self.get_queryset().filter(resource_id=resource_id, is_active=True)
+        serializer = self.get_serializer(assessments, many=True)
+        return Response(serializer.data)
+
+
+class UserRiskAssessmentViewSet(viewsets.ModelViewSet):
+    queryset = UserRiskAssessment.objects.all()
+    serializer_class = UserRiskAssessmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = UserRiskAssessment.objects.select_related('user', 'risk_assessment', 'reviewed_by')
+        
+        # Users can only see their own assessments unless they're managers
+        try:
+            user_profile = self.request.user.userprofile
+            if user_profile.role not in ['technician', 'sysadmin']:
+                queryset = queryset.filter(user=self.request.user)
+        except:
+            queryset = queryset.filter(user=self.request.user)
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status', None)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user', None)
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        # Filter by risk assessment
+        assessment_id = self.request.query_params.get('risk_assessment', None)
+        if assessment_id:
+            queryset = queryset.filter(risk_assessment_id=assessment_id)
+        
+        return queryset
+    
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        """Start a risk assessment."""
+        assessment = self.get_object()
+        if assessment.user != request.user:
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        assessment.start_assessment()
+        serializer = self.get_serializer(assessment)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def submit(self, request, pk=None):
+        """Submit assessment for review."""
+        assessment = self.get_object()
+        if assessment.user != request.user:
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        responses = request.data.get('responses', {})
+        declaration = request.data.get('declaration', '')
+        
+        assessment.submit_for_review(responses, declaration)
+        serializer = self.get_serializer(assessment)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsManagerOrReadOnly])
+    def approve(self, request, pk=None):
+        """Approve an assessment."""
+        assessment = self.get_object()
+        score = request.data.get('score')
+        notes = request.data.get('notes', '')
+        
+        assessment.approve(request.user, score, notes)
+        serializer = self.get_serializer(assessment)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsManagerOrReadOnly])
+    def reject(self, request, pk=None):
+        """Reject an assessment."""
+        assessment = self.get_object()
+        notes = request.data.get('notes', '')
+        
+        assessment.reject(request.user, notes)
+        serializer = self.get_serializer(assessment)
+        return Response(serializer.data)
+
+
+class TrainingCourseViewSet(viewsets.ModelViewSet):
+    queryset = TrainingCourse.objects.all()
+    serializer_class = TrainingCourseSerializer
+    permission_classes = [IsManagerOrReadOnly]
+    
+    def get_queryset(self):
+        queryset = TrainingCourse.objects.select_related('created_by').prefetch_related('instructors', 'prerequisite_courses')
+        
+        # Filter by course type
+        course_type = self.request.query_params.get('course_type', None)
+        if course_type:
+            queryset = queryset.filter(course_type=course_type)
+        
+        # Filter by delivery method
+        delivery_method = self.request.query_params.get('delivery_method', None)
+        if delivery_method:
+            queryset = queryset.filter(delivery_method=delivery_method)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        # Filter by mandatory status
+        is_mandatory = self.request.query_params.get('is_mandatory', None)
+        if is_mandatory is not None:
+            queryset = queryset.filter(is_mandatory=is_mandatory.lower() == 'true')
+        
+        return queryset
+    
+    @action(detail=False, methods=['get'])
+    def available_for_resource(self, request):
+        """Get training courses required for a specific resource."""
+        resource_id = request.query_params.get('resource_id')
+        if not resource_id:
+            return Response({'error': 'resource_id parameter required'}, status=400)
+        
+        # Get training requirements for the resource
+        requirements = ResourceTrainingRequirement.objects.filter(
+            resource_id=resource_id
+        ).select_related('training_course')
+        
+        courses = [req.training_course for req in requirements]
+        serializer = self.get_serializer(courses, many=True)
+        return Response(serializer.data)
+
+
+class ResourceTrainingRequirementViewSet(viewsets.ModelViewSet):
+    queryset = ResourceTrainingRequirement.objects.all()
+    serializer_class = ResourceTrainingRequirementSerializer
+    permission_classes = [IsManagerOrReadOnly]
+    
+    def get_queryset(self):
+        queryset = ResourceTrainingRequirement.objects.select_related('resource', 'training_course')
+        
+        # Filter by resource
+        resource_id = self.request.query_params.get('resource', None)
+        if resource_id:
+            queryset = queryset.filter(resource_id=resource_id)
+        
+        # Filter by training course
+        course_id = self.request.query_params.get('training_course', None)
+        if course_id:
+            queryset = queryset.filter(training_course_id=course_id)
+        
+        # Filter by mandatory status
+        is_mandatory = self.request.query_params.get('is_mandatory', None)
+        if is_mandatory is not None:
+            queryset = queryset.filter(is_mandatory=is_mandatory.lower() == 'true')
+        
+        return queryset
+
+
+class UserTrainingViewSet(viewsets.ModelViewSet):
+    queryset = UserTraining.objects.all()
+    serializer_class = UserTrainingSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = UserTraining.objects.select_related('user', 'training_course', 'instructor')
+        
+        # Users can only see their own training unless they're managers
+        try:
+            user_profile = self.request.user.userprofile
+            if user_profile.role not in ['technician', 'sysadmin']:
+                queryset = queryset.filter(user=self.request.user)
+        except:
+            queryset = queryset.filter(user=self.request.user)
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status', None)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user', None)
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        # Filter by training course
+        course_id = self.request.query_params.get('training_course', None)
+        if course_id:
+            queryset = queryset.filter(training_course_id=course_id)
+        
+        return queryset
+    
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        """Start training."""
+        training = self.get_object()
+        if training.user != request.user:
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        training.start_training()
+        serializer = self.get_serializer(training)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], permission_classes=[IsManagerOrReadOnly])
+    def complete(self, request, pk=None):
+        """Complete training with scores."""
+        training = self.get_object()
+        
+        theory_score = request.data.get('theory_score')
+        practical_score = request.data.get('practical_score')
+        instructor_notes = request.data.get('instructor_notes', '')
+        
+        training.complete_training(
+            theory_score=theory_score,
+            practical_score=practical_score,
+            instructor=request.user,
+            notes=instructor_notes
+        )
+        
+        serializer = self.get_serializer(training)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def enroll(self, request):
+        """Enroll user in a training course."""
+        course_id = request.data.get('training_course_id')
+        if not course_id:
+            return Response({'error': 'training_course_id required'}, status=400)
+        
+        try:
+            course = TrainingCourse.objects.get(id=course_id)
+            training, created = UserTraining.objects.get_or_create(
+                user=request.user,
+                training_course=course,
+                status='enrolled',
+                defaults={'status': 'enrolled'}
+            )
+            
+            if not created:
+                return Response({'error': 'Already enrolled in this course'}, status=400)
+            
+            serializer = self.get_serializer(training)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+        except TrainingCourse.DoesNotExist:
+            return Response({'error': 'Training course not found'}, status=404)
+
+
+class AccessRequestViewSet(viewsets.ModelViewSet):
+    """Enhanced AccessRequest viewset with approval workflow."""
+    queryset = AccessRequest.objects.all()
+    serializer_class = AccessRequestDetailSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        queryset = AccessRequest.objects.select_related('user', 'resource', 'reviewed_by')
+        
+        # Users can see their own requests, managers can see all
+        try:
+            user_profile = self.request.user.userprofile
+            if user_profile.role not in ['technician', 'sysadmin']:
+                # Check if user can approve requests for any resources
+                can_approve = ResourceResponsible.objects.filter(
+                    user=self.request.user,
+                    is_active=True,
+                    can_approve_access=True
+                ).exists()
+                
+                if not can_approve:
+                    queryset = queryset.filter(user=self.request.user)
+        except:
+            queryset = queryset.filter(user=self.request.user)
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status', None)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by resource
+        resource_id = self.request.query_params.get('resource', None)
+        if resource_id:
+            queryset = queryset.filter(resource_id=resource_id)
+        
+        # Filter requests that need approval by current user
+        needs_approval = self.request.query_params.get('needs_approval', None)
+        if needs_approval == 'true':
+            # Get resources where current user can approve
+            approvable_resources = ResourceResponsible.objects.filter(
+                user=self.request.user,
+                is_active=True,
+                can_approve_access=True
+            ).values_list('resource_id', flat=True)
+            
+            queryset = queryset.filter(
+                resource_id__in=approvable_resources,
+                status='pending'
+            )
+        
+        return queryset
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve an access request."""
+        access_request = self.get_object()
+        
+        # Check if user can approve this request
+        if not access_request.can_be_approved_by(request.user):
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        # Check if user meets all requirements
+        compliance = access_request.check_user_compliance()
+        if not (compliance['training_complete'] and compliance['risk_assessments_complete']):
+            return Response({
+                'error': 'User has not completed all required training and risk assessments',
+                'missing_requirements': {
+                    'training': [str(t) for t in compliance['missing_training']],
+                    'assessments': [str(a) for a in compliance['missing_assessments']]
+                }
+            }, status=400)
+        
+        review_notes = request.data.get('review_notes', '')
+        expires_in_days = request.data.get('expires_in_days')
+        
+        access_request.approve(request.user, review_notes, expires_in_days)
+        
+        serializer = self.get_serializer(access_request)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject an access request."""
+        access_request = self.get_object()
+        
+        # Check if user can approve this request
+        if not access_request.can_be_approved_by(request.user):
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        review_notes = request.data.get('review_notes', '')
+        access_request.reject(request.user, review_notes)
+        
+        serializer = self.get_serializer(access_request)
+        return Response(serializer.data)
+
+
+# Approval Workflow Template Views
+
+@login_required
+def approval_dashboard_view(request):
+    """Dashboard for approval workflow management."""
+    # Summary statistics
+    pending_access_requests = AccessRequest.objects.filter(status='pending').count()
+    incomplete_assessments = UserRiskAssessment.objects.filter(status='submitted').count()
+    pending_training = UserTraining.objects.filter(status='completed').count()
+    overdue_items = 0  # Placeholder for overdue calculations
+    
+    # Recent access requests
+    recent_access_requests = AccessRequest.objects.filter(
+        status='pending'
+    ).select_related('user', 'resource').order_by('-created_at')[:5]
+    
+    # Quick stats
+    approved_today = AccessRequest.objects.filter(
+        status='approved',
+        reviewed_at__date=timezone.now().date()
+    ).count()
+    total_this_week = AccessRequest.objects.filter(
+        created_at__week=timezone.now().isocalendar().week
+    ).count()
+    
+    context = {
+        'pending_access_requests': pending_access_requests,
+        'incomplete_assessments': incomplete_assessments,
+        'pending_training': pending_training,
+        'overdue_items': overdue_items,
+        'recent_access_requests': recent_access_requests,
+        'approved_today': approved_today,
+        'total_this_week': total_this_week,
+    }
+    
+    return render(request, 'booking/approval_dashboard.html', context)
+
+
+@login_required
+def access_requests_view(request):
+    """List view for access requests."""
+    from django.core.paginator import Paginator
+    
+    # Start with all access requests
+    access_requests = AccessRequest.objects.select_related('user', 'resource', 'reviewed_by')
+    
+    # Apply filters
+    status_filter = request.GET.get('status')
+    if status_filter:
+        access_requests = access_requests.filter(status=status_filter)
+    
+    resource_type_filter = request.GET.get('resource_type')
+    if resource_type_filter:
+        access_requests = access_requests.filter(resource__resource_type=resource_type_filter)
+    
+    access_type_filter = request.GET.get('access_type')
+    if access_type_filter:
+        access_requests = access_requests.filter(access_type=access_type_filter)
+    
+    # Order by priority and creation date
+    access_requests = access_requests.order_by('-created_at')
+    
+    # Pagination
+    paginator = Paginator(access_requests, 10)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Filter options for the template
+    resource_types = Resource.RESOURCE_TYPE_CHOICES
+    
+    context = {
+        'access_requests': page_obj,
+        'resource_types': resource_types,
+        'page_obj': page_obj,
+        'is_paginated': page_obj.has_other_pages(),
+    }
+    
+    return render(request, 'booking/access_requests.html', context)
+
+
+@login_required
+def access_request_detail_view(request, request_id):
+    """Detail view for a single access request."""
+    access_request = get_object_or_404(AccessRequest, id=request_id)
+    
+    # Check if current user can approve
+    can_approve = access_request.can_be_approved_by(request.user)
+    
+    context = {
+        'access_request': access_request,
+        'can_approve': can_approve,
+    }
+    
+    return render(request, 'booking/access_request_detail.html', context)
+
+
+@login_required
+def approve_access_request_view(request, request_id):
+    """Approve an access request."""
+    access_request = get_object_or_404(AccessRequest, id=request_id)
+    
+    # Check permissions
+    if not access_request.can_be_approved_by(request.user):
+        messages.error(request, "You don't have permission to approve this request.")
+        return redirect('booking:access_request_detail', request_id=request_id)
+    
+    if request.method == 'POST':
+        form = AccessRequestReviewForm(request.POST)
+        if form.is_valid():
+            review_notes = form.cleaned_data.get('review_notes', '')
+            granted_duration = form.cleaned_data.get('granted_duration_days')
+            
+            # Approve the request
+            access_request.approve(request.user, review_notes, granted_duration)
+            
+            messages.success(request, f"Access request for {access_request.resource.name} has been approved.")
+            return redirect('booking:access_request_detail', request_id=request_id)
+    else:
+        form = AccessRequestReviewForm(initial={'decision': 'approve'})
+    
+    context = {
+        'access_request': access_request,
+        'form': form,
+        'action': 'approve',
+    }
+    
+    return render(request, 'booking/access_request_review.html', context)
+
+
+@login_required
+def reject_access_request_view(request, request_id):
+    """Reject an access request."""
+    access_request = get_object_or_404(AccessRequest, id=request_id)
+    
+    # Check permissions
+    if not access_request.can_be_approved_by(request.user):
+        messages.error(request, "You don't have permission to reject this request.")
+        return redirect('booking:access_request_detail', request_id=request_id)
+    
+    if request.method == 'POST':
+        form = AccessRequestReviewForm(request.POST)
+        if form.is_valid():
+            review_notes = form.cleaned_data.get('review_notes', '')
+            
+            # Reject the request
+            access_request.reject(request.user, review_notes)
+            
+            messages.success(request, f"Access request for {access_request.resource.name} has been rejected.")
+            return redirect('booking:access_request_detail', request_id=request_id)
+    else:
+        form = AccessRequestReviewForm(initial={'decision': 'reject'})
+    
+    context = {
+        'access_request': access_request,
+        'form': form,
+        'action': 'reject',
+    }
+    
+    return render(request, 'booking/access_request_review.html', context)
+
+
+@login_required
+def risk_assessments_view(request):
+    """List view for risk assessments."""
+    from django.core.paginator import Paginator
+    
+    # Get all risk assessments
+    risk_assessments = RiskAssessment.objects.select_related('resource', 'created_by')
+    
+    # Apply filters
+    assessment_type_filter = request.GET.get('assessment_type')
+    if assessment_type_filter:
+        risk_assessments = risk_assessments.filter(assessment_type=assessment_type_filter)
+    
+    risk_level_filter = request.GET.get('risk_level')
+    if risk_level_filter:
+        risk_assessments = risk_assessments.filter(risk_level=risk_level_filter)
+    
+    resource_filter = request.GET.get('resource')
+    if resource_filter:
+        risk_assessments = risk_assessments.filter(resource_id=resource_filter)
+    
+    status_filter = request.GET.get('status')
+    if status_filter == 'active':
+        risk_assessments = risk_assessments.filter(is_active=True, valid_until__gte=timezone.now().date())
+    elif status_filter == 'expired':
+        risk_assessments = risk_assessments.filter(valid_until__lt=timezone.now().date())
+    
+    # Order by creation date
+    risk_assessments = risk_assessments.order_by('-created_at')
+    
+    # Pagination
+    paginator = Paginator(risk_assessments, 12)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Get user's assessment status
+    user_assessments = {}
+    if request.user.is_authenticated:
+        user_assessment_qs = UserRiskAssessment.objects.filter(
+            user=request.user,
+            risk_assessment__in=risk_assessments
+        ).select_related('risk_assessment')
+        
+        user_assessments = {
+            ua.risk_assessment.id: ua for ua in user_assessment_qs
+        }
+    
+    # Filter options
+    assessment_types = RiskAssessment.ASSESSMENT_TYPE_CHOICES
+    resources = Resource.objects.filter(is_active=True).order_by('name')
+    
+    context = {
+        'risk_assessments': page_obj,
+        'assessment_types': assessment_types,
+        'resources': resources,
+        'user_assessments': user_assessments,
+        'page_obj': page_obj,
+        'is_paginated': page_obj.has_other_pages(),
+    }
+    
+    return render(request, 'booking/risk_assessments.html', context)
+
+
+@login_required
+def risk_assessment_detail_view(request, assessment_id):
+    """Detail view for a risk assessment."""
+    assessment = get_object_or_404(RiskAssessment, id=assessment_id)
+    
+    # Get user's assessment if exists
+    user_assessment = None
+    if request.user.is_authenticated:
+        try:
+            user_assessment = UserRiskAssessment.objects.get(
+                user=request.user,
+                risk_assessment=assessment
+            )
+        except UserRiskAssessment.DoesNotExist:
+            pass
+    
+    context = {
+        'assessment': assessment,
+        'user_assessment': user_assessment,
+    }
+    
+    return render(request, 'booking/risk_assessment_detail.html', context)
+
+
+@login_required
+def start_risk_assessment_view(request, assessment_id):
+    """Start a risk assessment."""
+    assessment = get_object_or_404(RiskAssessment, id=assessment_id)
+    
+    # Check if user already has an assessment
+    user_assessment, created = UserRiskAssessment.objects.get_or_create(
+        user=request.user,
+        risk_assessment=assessment,
+        defaults={'status': 'not_started'}
+    )
+    
+    if request.method == 'POST':
+        form = UserRiskAssessmentForm(request.POST, instance=user_assessment, risk_assessment=assessment)
+        if form.is_valid():
+            user_assessment = form.save(commit=False)
+            user_assessment.status = 'submitted'
+            user_assessment.submitted_at = timezone.now()
+            user_assessment.save()
+            
+            messages.success(request, "Risk assessment submitted for review.")
+            return redirect('booking:risk_assessment_detail', assessment_id=assessment_id)
+    else:
+        # Mark as started
+        if user_assessment.status == 'not_started':
+            user_assessment.status = 'in_progress'
+            user_assessment.started_at = timezone.now()
+            user_assessment.save()
+        
+        form = UserRiskAssessmentForm(instance=user_assessment, risk_assessment=assessment)
+    
+    context = {
+        'assessment': assessment,
+        'user_assessment': user_assessment,
+        'form': form,
+    }
+    
+    return render(request, 'booking/start_risk_assessment.html', context)
+
+
+@login_required
+def submit_risk_assessment_view(request, assessment_id):
+    """Submit a completed risk assessment."""
+    assessment = get_object_or_404(RiskAssessment, id=assessment_id)
+    user_assessment = get_object_or_404(
+        UserRiskAssessment,
+        user=request.user,
+        risk_assessment=assessment
+    )
+    
+    if user_assessment.status != 'in_progress':
+        messages.error(request, "This assessment cannot be submitted.")
+        return redirect('booking:risk_assessment_detail', assessment_id=assessment_id)
+    
+    user_assessment.status = 'submitted'
+    user_assessment.submitted_at = timezone.now()
+    user_assessment.save()
+    
+    messages.success(request, "Risk assessment submitted for review.")
+    return redirect('booking:risk_assessment_detail', assessment_id=assessment_id)
+
+
+@login_required
+def create_risk_assessment_view(request):
+    """Create a new risk assessment."""
+    if not request.user.userprofile.role in ['technician', 'academic', 'sysadmin']:
+        messages.error(request, "You don't have permission to create risk assessments.")
+        return redirect('booking:risk_assessments')
+    
+    if request.method == 'POST':
+        form = RiskAssessmentForm(request.POST)
+        if form.is_valid():
+            assessment = form.save(commit=False)
+            assessment.created_by = request.user
+            assessment.save()
+            
+            messages.success(request, f"Risk assessment '{assessment.title}' created successfully.")
+            return redirect('booking:risk_assessment_detail', assessment_id=assessment.id)
+    else:
+        form = RiskAssessmentForm()
+    
+    context = {
+        'form': form,
+    }
+    
+    return render(request, 'booking/create_risk_assessment.html', context)
+
+
+@login_required
+def training_dashboard_view(request):
+    """Dashboard for training management."""
+    # User's training statistics
+    my_completed_training = UserTraining.objects.filter(
+        user=request.user, status='completed'
+    ).count()
+    
+    my_in_progress_training = UserTraining.objects.filter(
+        user=request.user, status='in_progress'
+    ).count()
+    
+    available_courses = TrainingCourse.objects.filter(is_active=True).count()
+    
+    expiring_soon = UserTraining.objects.filter(
+        user=request.user,
+        status='completed',
+        expires_at__lte=timezone.now() + timedelta(days=30)
+    ).count()
+    
+    # User's training progress
+    my_training = UserTraining.objects.filter(
+        user=request.user
+    ).select_related('training_course').order_by('-enrolled_at')[:6]
+    
+    # Recommended courses (placeholder logic)
+    recommended_courses = TrainingCourse.objects.filter(
+        is_active=True
+    ).exclude(
+        id__in=UserTraining.objects.filter(user=request.user).values_list('training_course_id', flat=True)
+    )[:5]
+    
+    # Upcoming sessions
+    upcoming_sessions = UserTraining.objects.filter(
+        user=request.user,
+        session_date__gte=timezone.now(),
+        status__in=['enrolled', 'in_progress']
+    ).order_by('session_date')[:5]
+    
+    context = {
+        'my_completed_training': my_completed_training,
+        'my_in_progress_training': my_in_progress_training,
+        'available_courses': available_courses,
+        'expiring_soon': expiring_soon,
+        'my_training': my_training,
+        'recommended_courses': recommended_courses,
+        'upcoming_sessions': upcoming_sessions,
+    }
+    
+    return render(request, 'booking/training_dashboard.html', context)
+
+
+@login_required
+def training_courses_view(request):
+    """List view for training courses."""
+    courses = TrainingCourse.objects.filter(is_active=True).order_by('title')
+    
+    context = {
+        'courses': courses,
+    }
+    
+    return render(request, 'booking/training_courses.html', context)
+
+
+@login_required
+def training_course_detail_view(request, course_id):
+    """Detail view for a training course."""
+    course = get_object_or_404(TrainingCourse, id=course_id)
+    
+    # Get user's training record if exists
+    user_training = None
+    if request.user.is_authenticated:
+        try:
+            user_training = UserTraining.objects.get(
+                user=request.user,
+                training_course=course
+            )
+        except UserTraining.DoesNotExist:
+            pass
+    
+    context = {
+        'course': course,
+        'user_training': user_training,
+    }
+    
+    return render(request, 'booking/training_course_detail.html', context)
+
+
+@login_required
+def enroll_training_view(request, course_id):
+    """Enroll in a training course."""
+    course = get_object_or_404(TrainingCourse, id=course_id)
+    
+    # Check if already enrolled
+    existing_training = UserTraining.objects.filter(
+        user=request.user,
+        training_course=course
+    ).first()
+    
+    if existing_training:
+        messages.warning(request, f"You are already enrolled in {course.title}.")
+        return redirect('booking:training_course_detail', course_id=course_id)
+    
+    if request.method == 'POST':
+        form = UserTrainingEnrollForm(request.POST, training_course=course)
+        if form.is_valid():
+            # Create training record
+            user_training = UserTraining.objects.create(
+                user=request.user,
+                training_course=course,
+                status='enrolled'
+            )
+            
+            messages.success(request, f"Successfully enrolled in {course.title}.")
+            return redirect('booking:training_course_detail', course_id=course_id)
+    else:
+        form = UserTrainingEnrollForm(training_course=course)
+    
+    context = {
+        'course': course,
+        'form': form,
+    }
+    
+    return render(request, 'booking/enroll_training.html', context)
+
+
+@login_required
+def my_training_view(request):
+    """View user's training records."""
+    training_records = UserTraining.objects.filter(
+        user=request.user
+    ).select_related('training_course').order_by('-enrolled_at')
+    
+    context = {
+        'training_records': training_records,
+    }
+    
+    return render(request, 'booking/my_training.html', context)
+
+
+@login_required
+def manage_training_view(request):
+    """Manage training (for instructors/managers)."""
+    if not request.user.userprofile.role in ['technician', 'academic', 'sysadmin']:
+        messages.error(request, "You don't have permission to manage training.")
+        return redirect('booking:training_dashboard')
+    
+    # Get training records to review
+    pending_training = UserTraining.objects.filter(
+        status='completed'
+    ).select_related('user', 'training_course').order_by('-completed_at')
+    
+    context = {
+        'pending_training': pending_training,
+    }
+    
+    return render(request, 'booking/manage_training.html', context)
+
+
+@login_required
+def manage_resource_view(request, resource_id):
+    """Manage a specific resource."""
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    if not request.user.userprofile.role in ['technician', 'sysadmin']:
+        messages.error(request, "You don't have permission to manage resources.")
+        return redirect('booking:resource_detail', resource_id=resource_id)
+    
+    context = {
+        'resource': resource,
+    }
+    
+    return render(request, 'booking/manage_resource.html', context)
+
+
+@login_required
+def assign_resource_responsible_view(request, resource_id):
+    """Assign responsibility for a resource."""
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    if not request.user.userprofile.role in ['technician', 'sysadmin']:
+        messages.error(request, "You don't have permission to assign resource responsibility.")
+        return redirect('booking:resource_detail', resource_id=resource_id)
+    
+    if request.method == 'POST':
+        form = ResourceResponsibleForm(request.POST, resource=resource)
+        if form.is_valid():
+            responsible = form.save(commit=False)
+            responsible.resource = resource
+            responsible.assigned_by = request.user
+            responsible.save()
+            
+            messages.success(request, f"Resource responsibility assigned to {responsible.user.get_full_name()}.")
+            return redirect('booking:manage_resource', resource_id=resource_id)
+    else:
+        form = ResourceResponsibleForm(resource=resource)
+    
+    context = {
+        'resource': resource,
+        'form': form,
+    }
+    
+    return render(request, 'booking/assign_resource_responsible.html', context)
+
+
+@login_required
+def resource_training_requirements_view(request, resource_id):
+    """Manage training requirements for a resource."""
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    if not request.user.userprofile.role in ['technician', 'sysadmin']:
+        messages.error(request, "You don't have permission to manage training requirements.")
+        return redirect('booking:resource_detail', resource_id=resource_id)
+    
+    training_requirements = ResourceTrainingRequirement.objects.filter(
+        resource=resource
+    ).select_related('training_course').order_by('order')
+    
+    context = {
+        'resource': resource,
+        'training_requirements': training_requirements,
+    }
+    
+    return render(request, 'booking/resource_training_requirements.html', context)
+
+
+
+def is_lab_admin(user):
+    """Check if user is in Lab Admin group."""
+    return user.groups.filter(name='Lab Admin').exists() or user.is_staff or user.userprofile.role in ['technician', 'sysadmin']
+
+@login_required
+@user_passes_test(is_lab_admin)
+def approval_statistics_view(request):
+    """User-friendly approval statistics dashboard."""
+    from .models import ApprovalStatistics, AccessRequest, TrainingRequest
+    from django.db.models import Avg, Sum, Count
+    from datetime import datetime, timedelta
+    import json
+    
+    # Get filter parameters
+    period_type = request.GET.get('period', 'monthly')
+    resource_filter = request.GET.get('resource')
+    start_date = request.GET.get('start_date')
+    end_date = request.GET.get('end_date')
+    
+    # Set default date range (last 30 days)
+    today = timezone.now().date()
+    if not start_date:
+        start_date = today - timedelta(days=30)
+    else:
+        start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+    
+    if not end_date:
+        end_date = today
+    else:
+        end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+    
+    # Base queryset for statistics
+    stats_qs = ApprovalStatistics.objects.filter(
+        period_start__gte=start_date,
+        period_end__lte=end_date,
+        period_type=period_type
+    )
+    
+    # Filter by resource if specified
+    if resource_filter:
+        stats_qs = stats_qs.filter(resource_id=resource_filter)
+    
+    # Only show statistics for resources the user has responsibility for (unless admin)
+    if not request.user.userprofile.role in ['technician', 'sysadmin']:
+        stats_qs = stats_qs.filter(resource__responsible_persons__user=request.user)
+    
+    # Calculate summary statistics
+    summary_data = stats_qs.aggregate(
+        total_requests=Sum('access_requests_received'),
+        total_approved=Sum('access_requests_approved'),
+        total_rejected=Sum('access_requests_rejected'),
+        total_pending=Sum('access_requests_pending'),
+        avg_response_time=Avg('avg_response_time_hours'),
+        total_overdue=Sum('overdue_items'),
+        total_training_requests=Sum('training_requests_received'),
+        total_training_completions=Sum('training_completions'),
+        total_assessments=Sum('assessments_created'),
+    )
+    
+    # Calculate approval rate
+    total_processed = (summary_data['total_approved'] or 0) + (summary_data['total_rejected'] or 0)
+    approval_rate = (summary_data['total_approved'] or 0) / total_processed * 100 if total_processed > 0 else 0
+    
+    # Calculate trends (comparing to previous period)
+    previous_start = start_date - (end_date - start_date)
+    previous_end = start_date - timedelta(days=1)
+    
+    previous_stats = ApprovalStatistics.objects.filter(
+        period_start__gte=previous_start,
+        period_end__lte=previous_end,
+        period_type=period_type
+    )
+    
+    if resource_filter:
+        previous_stats = previous_stats.filter(resource_id=resource_filter)
+    
+    if not request.user.userprofile.role in ['technician', 'sysadmin']:
+        previous_stats = previous_stats.filter(resource__responsible_persons__user=request.user)
+    
+    previous_data = previous_stats.aggregate(
+        prev_total_requests=Sum('access_requests_received'),
+        prev_total_approved=Sum('access_requests_approved'),
+        prev_total_rejected=Sum('access_requests_rejected'),
+        prev_avg_response_time=Avg('avg_response_time_hours'),
+        prev_total_overdue=Sum('overdue_items'),
+    )
+    
+    # Calculate trend indicators
+    prev_processed = (previous_data['prev_total_approved'] or 0) + (previous_data['prev_total_rejected'] or 0)
+    prev_approval_rate = (previous_data['prev_total_approved'] or 0) / prev_processed * 100 if prev_processed > 0 else 0
+    
+    summary = {
+        'total_requests': summary_data['total_requests'] or 0,
+        'approval_rate': approval_rate,
+        'avg_response_time': summary_data['avg_response_time'] or 0,
+        'overdue_items': summary_data['total_overdue'] or 0,
+        
+        # Trends
+        'approval_change': approval_rate - prev_approval_rate,
+        'approval_trend': 'up' if approval_rate > prev_approval_rate else 'down' if approval_rate < prev_approval_rate else 'stable',
+        'response_change': (summary_data['avg_response_time'] or 0) - (previous_data['prev_avg_response_time'] or 0),
+        'response_trend': 'down' if (summary_data['avg_response_time'] or 0) < (previous_data['prev_avg_response_time'] or 0) else 'up' if (summary_data['avg_response_time'] or 0) > (previous_data['prev_avg_response_time'] or 0) else 'stable',
+        'overdue_change': (summary_data['total_overdue'] or 0) - (previous_data['prev_total_overdue'] or 0),
+        'overdue_trend': 'up' if (summary_data['total_overdue'] or 0) > (previous_data['prev_total_overdue'] or 0) else 'down' if (summary_data['total_overdue'] or 0) < (previous_data['prev_total_overdue'] or 0) else 'stable',
+        'volume_change': (summary_data['total_requests'] or 0) - (previous_data['prev_total_requests'] or 0),
+        'volume_trend': 'up' if (summary_data['total_requests'] or 0) > (previous_data['prev_total_requests'] or 0) else 'down' if (summary_data['total_requests'] or 0) < (previous_data['prev_total_requests'] or 0) else 'stable',
+    }
+    
+    # Resource-level statistics
+    resource_stats = []
+    for stat in stats_qs.select_related('resource', 'approver'):
+        total_requests = stat.access_requests_received
+        approved = stat.access_requests_approved
+        rejected = stat.access_requests_rejected
+        processed = approved + rejected
+        
+        resource_stats.append({
+            'resource_name': stat.resource.name,
+            'approver_name': stat.approver.get_full_name() or stat.approver.username,
+            'total_requests': total_requests,
+            'approved': approved,
+            'rejected': rejected,
+            'approval_rate': (approved / processed * 100) if processed > 0 else 0,
+            'avg_response_time': stat.avg_response_time_hours,
+            'overdue': stat.overdue_items,
+        })
+    
+    # Sort by total requests descending
+    resource_stats.sort(key=lambda x: x['total_requests'], reverse=True)
+    
+    # Top performers (by approval rate and response time)
+    top_performers = sorted(resource_stats, key=lambda x: (x['approval_rate'], -x['avg_response_time']), reverse=True)[:5]
+    
+    # Chart data for distribution
+    distribution_labels = ['Approved', 'Rejected', 'Pending']
+    distribution_data = [
+        summary_data['total_approved'] or 0,
+        summary_data['total_rejected'] or 0,
+        summary_data['total_pending'] or 0
+    ]
+    
+    # Timeline data for response time trend
+    timeline_stats = stats_qs.order_by('period_start').values('period_start', 'avg_response_time_hours')
+    timeline_labels = [stat['period_start'].strftime('%m/%d') for stat in timeline_stats]
+    timeline_data = [stat['avg_response_time_hours'] for stat in timeline_stats]
+    
+    # Recent activity (mock data - in real implementation, this would come from audit logs)
+    recent_activity = [
+        {
+            'description': 'New access request approved for Lab Equipment A',
+            'timestamp': timezone.now() - timedelta(hours=2),
+            'icon': 'check',
+            'color': 'success'
+        },
+        {
+            'description': 'Training session completed for Safety Protocol',
+            'timestamp': timezone.now() - timedelta(hours=5),
+            'icon': 'graduation-cap',
+            'color': 'info'
+        },
+        {
+            'description': 'Risk assessment reviewed for Chemical Lab',
+            'timestamp': timezone.now() - timedelta(hours=8),
+            'icon': 'shield-alt',
+            'color': 'warning'
+        },
+    ]
+    
+    # Get all resources for filter dropdown
+    resources = Resource.objects.all().order_by('name')
+    
+    # Handle CSV export
+    if request.GET.get('export') == 'csv':
+        import csv
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="approval_statistics_{start_date}_to_{end_date}.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'Resource', 'Approver', 'Total Requests', 'Approved', 'Rejected', 
+            'Approval Rate (%)', 'Avg Response Time (hours)', 'Overdue Items'
+        ])
+        
+        for stat in resource_stats:
+            writer.writerow([
+                stat['resource_name'],
+                stat['approver_name'],
+                stat['total_requests'],
+                stat['approved'],
+                stat['rejected'],
+                f"{stat['approval_rate']:.1f}",
+                f"{stat['avg_response_time']:.1f}",
+                stat['overdue']
+            ])
+        
+        return response
+    
+    context = {
+        'summary': summary,
+        'resource_stats': resource_stats[:10],  # Limit to top 10 for display
+        'top_performers': top_performers,
+        'recent_activity': recent_activity,
+        'resources': resources,
+        
+        # Chart data (convert to JSON for template)
+        'distribution_labels': json.dumps(distribution_labels),
+        'distribution_data': json.dumps(distribution_data),
+        'timeline_labels': json.dumps(timeline_labels),
+        'timeline_data': json.dumps(timeline_data),
+    }
+    
+    return render(request, 'booking/approval_statistics.html', context)
+
+
+@login_required
+def approval_rules_view(request):
+    """User-friendly approval rules management interface."""
+    from .models import ApprovalRule
+    import json
+    
+    # Only allow technicians and sysadmins to manage rules
+    if not request.user.userprofile.role in ['technician', 'sysadmin']:
+        messages.error(request, "You don't have permission to manage approval rules.")
+        return redirect('booking:dashboard')
+    
+    # Get all rules with filters
+    rules_qs = ApprovalRule.objects.all().select_related('resource', 'fallback_rule')
+    
+    # Apply filters
+    type_filter = request.GET.get('type')
+    resource_filter = request.GET.get('resource')
+    search_filter = request.GET.get('search')
+    
+    if type_filter:
+        rules_qs = rules_qs.filter(approval_type=type_filter)
+    
+    if resource_filter:
+        rules_qs = rules_qs.filter(resource_id=resource_filter)
+    
+    if search_filter:
+        rules_qs = rules_qs.filter(
+            Q(name__icontains=search_filter) |
+            Q(description__icontains=search_filter)
+        )
+    
+    # Order by priority, then by created date
+    rules_qs = rules_qs.order_by('priority', '-created_at')
+    
+    # Pagination
+    paginator = Paginator(rules_qs, 10)
+    page_number = request.GET.get('page')
+    rules = paginator.get_page(page_number)
+    
+    # Calculate statistics
+    stats = {
+        'auto_rules': ApprovalRule.objects.filter(approval_type='auto').count(),
+        'manual_rules': ApprovalRule.objects.filter(approval_type__in=['single', 'tiered']).count(),
+        'conditional_rules': ApprovalRule.objects.filter(approval_type='conditional').count(),
+        'active_rules': ApprovalRule.objects.filter(is_active=True).count(),
+    }
+    
+    # Get resources for filters and creation
+    resources = Resource.objects.all().order_by('name')
+    
+    # Get all rules for fallback options
+    all_rules = ApprovalRule.objects.all().order_by('name')
+    
+    # Handle POST request for creating rule
+    if request.method == 'POST':
+        try:
+            # Get form data
+            name = request.POST.get('name')
+            approval_type = request.POST.get('approval_type')
+            description = request.POST.get('description', '')
+            resource_id = request.POST.get('resource')
+            user_role = request.POST.get('user_role')
+            priority = int(request.POST.get('priority', 100))
+            fallback_rule_id = request.POST.get('fallback_rule')
+            condition_type = request.POST.get('condition_type')
+            conditional_logic_json = request.POST.get('conditional_logic')
+            
+            # Validate required fields
+            if not all([name, approval_type]):
+                messages.error(request, "Please fill in all required fields.")
+                return redirect('booking:approval_rules')
+            
+            # Get related objects
+            resource = None
+            if resource_id:
+                resource = get_object_or_404(Resource, id=resource_id)
+            
+            fallback_rule = None
+            if fallback_rule_id:
+                fallback_rule = get_object_or_404(ApprovalRule, id=fallback_rule_id)
+            
+            # Parse conditional logic
+            conditional_logic = {}
+            if approval_type == 'conditional' and conditional_logic_json:
+                try:
+                    conditional_logic = json.loads(conditional_logic_json)
+                except json.JSONDecodeError:
+                    conditional_logic = {}
+            
+            # Create approval rule
+            rule = ApprovalRule.objects.create(
+                name=name,
+                approval_type=approval_type,
+                description=description,
+                resource=resource,
+                user_role=user_role if user_role else None,
+                priority=priority,
+                fallback_rule=fallback_rule,
+                condition_type=condition_type if approval_type == 'conditional' else 'role_based',
+                conditional_logic=conditional_logic,
+                is_active=True,
+                created_by=request.user
+            )
+            
+            messages.success(request, f"Approval rule '{name}' created successfully.")
+            return redirect('booking:approval_rules')
+            
+        except Exception as e:
+            messages.error(request, f"Error creating approval rule: {str(e)}")
+            return redirect('booking:approval_rules')
+    
+    context = {
+        'rules': rules,
+        'stats': stats,
+        'resources': resources,
+        'all_rules': all_rules,
+    }
+    
+    return render(request, 'booking/approval_rules.html', context)
+
+
+@login_required
+def approval_rule_toggle_view(request, rule_id):
+    """Toggle approval rule active/inactive status."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'POST required'})
+    
+    # Only allow technicians and sysadmins
+    if not request.user.userprofile.role in ['technician', 'sysadmin']:
+        return JsonResponse({'success': False, 'error': 'Permission denied'})
+    
+    try:
+        import json
+        
+        rule = get_object_or_404(ApprovalRule, id=rule_id)
+        
+        data = json.loads(request.body)
+        new_status = data.get('active', False)
+        
+        rule.is_active = new_status
+        rule.save()
+        
+        return JsonResponse({
+            'success': True, 
+            'message': f"Rule {'enabled' if new_status else 'disabled'} successfully"
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+# Lab Admin Views
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_dashboard_view(request):
+    """Lab Admin dashboard with overview of pending tasks."""
+    from .models import AccessRequest, TrainingRequest, UserTraining, UserProfile
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    # Get pending items
+    pending_access_requests = AccessRequest.objects.filter(status='pending').count()
+    pending_training_requests = TrainingRequest.objects.filter(status='pending').count()
+    
+    # Get upcoming training sessions
+    upcoming_training = UserTraining.objects.filter(
+        session_date__gte=timezone.now().date(),
+        status='scheduled'
+    ).count()
+    
+    # Get recent registrations (last 7 days)
+    week_ago = timezone.now() - timedelta(days=7)
+    recent_registrations = UserProfile.objects.filter(
+        user__date_joined__gte=week_ago
+    ).count()
+    
+    # Get overdue items
+    overdue_access_requests = AccessRequest.objects.filter(
+        status='pending',
+        created_at__lt=timezone.now() - timedelta(days=3)
+    ).count()
+    
+    context = {
+        'pending_access_requests': pending_access_requests,
+        'pending_training_requests': pending_training_requests,
+        'upcoming_training': upcoming_training,
+        'recent_registrations': recent_registrations,
+        'overdue_access_requests': overdue_access_requests,
+    }
+    
+    return render(request, 'booking/lab_admin_dashboard.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_access_requests_view(request):
+    """Manage access requests."""
+    from .models import AccessRequest
+    
+    # Handle status updates
+    if request.method == 'POST':
+        request_id = request.POST.get('request_id')
+        action = request.POST.get('action')
+        
+        if request_id and action:
+            access_request = get_object_or_404(AccessRequest, id=request_id)
+            
+            if action == 'approve':
+                try:
+                    access_request.approve(request.user, "Approved via Lab Admin dashboard")
+                    messages.success(request, f'Access request approved for {access_request.user.get_full_name()}')
+                except ValueError as e:
+                    messages.error(request, f'Error approving request: {str(e)}')
+                except Exception as e:
+                    messages.error(request, f'Unexpected error: {str(e)}')
+                
+            elif action == 'reject':
+                try:
+                    access_request.reject(request.user, "Rejected via Lab Admin dashboard")
+                    messages.success(request, f'Access request rejected for {access_request.user.get_full_name()}')
+                except ValueError as e:
+                    messages.error(request, f'Error rejecting request: {str(e)}')
+                except Exception as e:
+                    messages.error(request, f'Unexpected error: {str(e)}')
+        
+        return redirect('booking:lab_admin_access_requests')
+    
+    # Get access requests
+    access_requests = AccessRequest.objects.select_related(
+        'user', 'resource', 'reviewed_by'
+    ).order_by('-created_at')
+    
+    # Apply filters
+    status_filter = request.GET.get('status', 'pending')
+    if status_filter and status_filter != 'all':
+        access_requests = access_requests.filter(status=status_filter)
+    
+    # Pagination
+    paginator = Paginator(access_requests, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'access_requests': page_obj,
+        'status_filter': status_filter,
+    }
+    
+    return render(request, 'booking/lab_admin_access_requests.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_training_view(request):
+    """Manage training requests and sessions."""
+    from .models import TrainingRequest, UserTraining, TrainingCourse
+    
+    # Handle training request approval
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'approve_request':
+            request_id = request.POST.get('request_id')
+            training_request = get_object_or_404(TrainingRequest, id=request_id)
+            
+            training_request.status = 'approved'
+            training_request.reviewed_by = request.user
+            training_request.reviewed_at = timezone.now()
+            training_request.save()
+            
+            messages.success(request, f'Training request approved for {training_request.user.get_full_name()}')
+            
+        elif action == 'schedule_training':
+            user_training_id = request.POST.get('user_training_id')
+            session_date = request.POST.get('session_date')
+            
+            if user_training_id and session_date:
+                user_training = get_object_or_404(UserTraining, id=user_training_id)
+                user_training.session_date = session_date
+                user_training.instructor = request.user
+                user_training.status = 'scheduled'
+                user_training.save()
+                
+                messages.success(request, f'Training session scheduled for {user_training.user.get_full_name()}')
+        
+        return redirect('booking:lab_admin_training')
+    
+    # Get training data
+    pending_requests = TrainingRequest.objects.filter(status='pending').select_related('user', 'training_course')
+    upcoming_sessions = UserTraining.objects.filter(
+        session_date__gte=timezone.now().date(),
+        status='scheduled'
+    ).select_related('user', 'training_course', 'instructor')
+    
+    context = {
+        'pending_requests': pending_requests,
+        'upcoming_sessions': upcoming_sessions,
+    }
+    
+    return render(request, 'booking/lab_admin_training.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_users_view(request):
+    """Manage user profiles and access."""
+    from .models import UserProfile, ResourceAccess
+    
+    # Get users
+    users = User.objects.select_related('userprofile').order_by('username')
+    
+    # Apply filters
+    role_filter = request.GET.get('role')
+    search_query = request.GET.get('search')
+    
+    if role_filter:
+        users = users.filter(userprofile__role=role_filter)
+    
+    if search_query:
+        users = users.filter(
+            Q(username__icontains=search_query) |
+            Q(first_name__icontains=search_query) |
+            Q(last_name__icontains=search_query) |
+            Q(email__icontains=search_query)
+        )
+    
+    # Pagination
+    paginator = Paginator(users, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Get role choices for filter
+    role_choices = UserProfile.ROLE_CHOICES
+    
+    context = {
+        'users': page_obj,
+        'role_filter': role_filter,
+        'search_query': search_query,
+        'role_choices': role_choices,
+    }
+    
+    return render(request, 'booking/lab_admin_users.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_resources_view(request):
+    """Manage resources - list, add, edit, delete."""
+    from .models import Resource
+    
+    # Get resources
+    resources = Resource.objects.all().order_by('name')
+    
+    # Apply filters
+    resource_type_filter = request.GET.get('type')
+    search_query = request.GET.get('search')
+    status_filter = request.GET.get('status', 'all')
+    
+    if resource_type_filter:
+        resources = resources.filter(resource_type=resource_type_filter)
+    
+    if search_query:
+        resources = resources.filter(
+            Q(name__icontains=search_query) |
+            Q(description__icontains=search_query) |
+            Q(location__icontains=search_query)
+        )
+    
+    if status_filter == 'active':
+        resources = resources.filter(is_active=True)
+    elif status_filter == 'inactive':
+        resources = resources.filter(is_active=False)
+    
+    # Pagination
+    paginator = Paginator(resources, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Get resource type choices for filter
+    resource_types = Resource.RESOURCE_TYPES
+    
+    context = {
+        'resources': page_obj,
+        'resource_type_filter': resource_type_filter,
+        'search_query': search_query,
+        'status_filter': status_filter,
+        'resource_types': resource_types,
+    }
+    
+    return render(request, 'booking/lab_admin_resources.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_add_resource_view(request):
+    """Add a new resource."""
+    from .models import Resource
+    from .forms import ResourceForm
+    
+    if request.method == 'POST':
+        form = ResourceForm(request.POST, request.FILES)
+        if form.is_valid():
+            resource = form.save()
+            messages.success(request, f'Resource "{resource.name}" has been created successfully.')
+            return redirect('booking:lab_admin_resources')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = ResourceForm()
+    
+    context = {
+        'form': form,
+        'title': 'Add New Resource',
+        'action': 'Add',
+    }
+    
+    return render(request, 'booking/lab_admin_resource_form.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_edit_resource_view(request, resource_id):
+    """Edit an existing resource."""
+    from .models import Resource
+    from .forms import ResourceForm
+    
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    if request.method == 'POST':
+        form = ResourceForm(request.POST, request.FILES, instance=resource)
+        if form.is_valid():
+            resource = form.save()
+            messages.success(request, f'Resource "{resource.name}" has been updated successfully.')
+            return redirect('booking:lab_admin_resources')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = ResourceForm(instance=resource)
+    
+    context = {
+        'form': form,
+        'resource': resource,
+        'title': f'Edit Resource: {resource.name}',
+        'action': 'Update',
+    }
+    
+    return render(request, 'booking/lab_admin_resource_form.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_delete_resource_view(request, resource_id):
+    """Delete a resource with confirmation."""
+    from .models import Resource
+    
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    if request.method == 'POST':
+        # Check if resource has any bookings
+        if resource.bookings.exists():
+            messages.error(request, f'Cannot delete "{resource.name}" because it has existing bookings. Please deactivate it instead.')
+            return redirect('booking:lab_admin_resources')
+        
+        resource_name = resource.name
+        resource.delete()
+        messages.success(request, f'Resource "{resource_name}" has been deleted successfully.')
+        return redirect('booking:lab_admin_resources')
+    
+    # Check dependencies
+    booking_count = resource.bookings.count()
+    access_count = resource.access_permissions.count()
+    
+    context = {
+        'resource': resource,
+        'booking_count': booking_count,
+        'access_count': access_count,
+        'can_delete': booking_count == 0,
+    }
+    
+    return render(request, 'booking/lab_admin_resource_delete.html', context)
+
+
+@login_required
+def export_my_calendar_view(request):
+    """Export user's bookings as ICS file for download."""
+    from .calendar_sync import ICSCalendarGenerator, create_ics_response
+    
+    # Get parameters
+    include_past = request.GET.get('include_past', 'false').lower() == 'true'
+    days_ahead = int(request.GET.get('days_ahead', '90'))
+    
+    # Generate ICS
+    generator = ICSCalendarGenerator(request)
+    ics_content = generator.generate_user_calendar(
+        user=request.user,
+        include_past=include_past,
+        days_ahead=days_ahead
+    )
+    
+    # Create filename
+    user_name = request.user.get_full_name() or request.user.username
+    filename = f"my-bookings-{user_name.replace(' ', '-').lower()}.ics"
+    
+    return create_ics_response(ics_content, filename)
+
+
+@login_required
+def my_calendar_feed_view(request, token):
+    """Provide ICS calendar feed for subscription (with token authentication)."""
+    from .calendar_sync import ICSCalendarGenerator, CalendarTokenGenerator, create_ics_feed_response
+    
+    # Verify token
+    if not CalendarTokenGenerator.verify_user_token(request.user, token):
+        return HttpResponse("Invalid token", status=403)
+    
+    # Get parameters
+    include_past = request.GET.get('include_past', 'false').lower() == 'true'
+    days_ahead = int(request.GET.get('days_ahead', '90'))
+    
+    # Generate ICS
+    generator = ICSCalendarGenerator(request)
+    ics_content = generator.generate_user_calendar(
+        user=request.user,
+        include_past=include_past,
+        days_ahead=days_ahead
+    )
+    
+    return create_ics_feed_response(ics_content)
+
+
+def public_calendar_feed_view(request, token):
+    """Provide public ICS calendar feed for subscription (token-based, no login required)."""
+    from .calendar_sync import ICSCalendarGenerator, CalendarTokenGenerator, create_ics_feed_response
+    from django.contrib.auth.models import User
+    
+    # Find user by token
+    user = None
+    for u in User.objects.filter(is_active=True):
+        if CalendarTokenGenerator.verify_user_token(u, token):
+            user = u
+            break
+    
+    if not user:
+        return HttpResponse("Invalid token", status=403)
+    
+    # Get parameters
+    include_past = request.GET.get('include_past', 'false').lower() == 'true'
+    days_ahead = int(request.GET.get('days_ahead', '90'))
+    
+    # Generate ICS
+    generator = ICSCalendarGenerator(request)
+    ics_content = generator.generate_user_calendar(
+        user=user,
+        include_past=include_past,
+        days_ahead=days_ahead
+    )
+    
+    return create_ics_feed_response(ics_content)
+
+
+@login_required
+def export_resource_calendar_view(request, resource_id):
+    """Export resource bookings as ICS file for download."""
+    from .calendar_sync import ICSCalendarGenerator, create_ics_response
+    
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    # Check permissions - only allow if user has access to the resource or is admin
+    if not (request.user.userprofile.role in ['technician', 'sysadmin'] or 
+            resource.resourceaccess_set.filter(user=request.user, is_active=True).exists()):
+        messages.error(request, "You don't have permission to export this resource's calendar.")
+        return redirect('booking:resource_detail', resource_id=resource_id)
+    
+    # Get parameters
+    days_ahead = int(request.GET.get('days_ahead', '90'))
+    
+    # Generate ICS
+    generator = ICSCalendarGenerator(request)
+    ics_content = generator.generate_resource_calendar(
+        resource=resource,
+        days_ahead=days_ahead
+    )
+    
+    # Create filename
+    filename = f"{resource.name.replace(' ', '-').lower()}-calendar.ics"
+    
+    return create_ics_response(ics_content, filename)
+
+
+@login_required
+def calendar_sync_settings_view(request):
+    """Display calendar synchronization settings and subscription URLs."""
+    from .calendar_sync import CalendarTokenGenerator
+    
+    # Generate user's calendar token
+    user_token = CalendarTokenGenerator.generate_user_token(request.user)
+    
+    # Build subscription URLs
+    feed_url = request.build_absolute_uri(
+        reverse('booking:public_calendar_feed', kwargs={'token': user_token})
+    )
+    
+    export_url = request.build_absolute_uri(
+        reverse('booking:export_my_calendar')
+    )
+    
+    # Get user's resources for resource calendar export
+    user_resources = Resource.objects.filter(
+        Q(responsible_persons__user=request.user) |
+        Q(resourceaccess__user=request.user, resourceaccess__is_active=True)
+    ).distinct().order_by('name')
+    
+    context = {
+        'user_token': user_token,
+        'feed_url': feed_url,
+        'export_url': export_url,
+        'user_resources': user_resources,
+    }
+    
+    return render(request, 'booking/calendar_sync_settings.html', context)

@@ -20,7 +20,8 @@ from django.utils import timezone
 from django.db.models import Q
 from .models import (
     Notification, NotificationPreference, EmailTemplate, 
-    Booking, Resource, Maintenance, UserProfile, AccessRequest, TrainingRequest
+    Booking, Resource, Maintenance, UserProfile, AccessRequest, TrainingRequest,
+    RiskAssessment, UserRiskAssessment, TrainingCourse, UserTraining, ResourceResponsible
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,21 @@ class NotificationService:
             'safety_alert': {'email': True, 'in_app': True, 'push': True, 'sms': True},
             'evacuation_notice': {'email': True, 'in_app': True, 'push': True, 'sms': True},
             'emergency_maintenance': {'email': True, 'in_app': True, 'push': True, 'sms': True},
+            # Approval Workflow Notifications
+            'risk_assessment_assigned': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'risk_assessment_submitted': {'email': True, 'in_app': True, 'push': False, 'sms': False},
+            'risk_assessment_approved': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'risk_assessment_rejected': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'risk_assessment_expiring': {'email': True, 'in_app': False, 'push': False, 'sms': False},
+            'training_enrolled': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'training_session_scheduled': {'email': True, 'in_app': True, 'push': True, 'sms': True},
+            'training_session_reminder': {'email': True, 'in_app': False, 'push': True, 'sms': True},
+            'training_completed': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'training_failed': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'training_certificate_issued': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'training_expiring': {'email': True, 'in_app': False, 'push': False, 'sms': False},
+            'resource_responsibility_assigned': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'compliance_check_required': {'email': True, 'in_app': True, 'push': True, 'sms': False},
         }
     
     def create_notification(
@@ -774,9 +790,270 @@ class TrainingRequestNotifications:
         )
 
 
+class ApprovalWorkflowNotifications:
+    """Notifications for approval workflow events."""
+    
+    def __init__(self):
+        self.service = NotificationService()
+    
+    # Risk Assessment Notifications
+    def risk_assessment_assigned(self, user_assessment: UserRiskAssessment):
+        """Send notification when risk assessment is assigned to user."""
+        self.service.create_notification(
+            user=user_assessment.user,
+            notification_type='risk_assessment_assigned',
+            title=f'Risk Assessment Required: {user_assessment.risk_assessment.title}',
+            message=f'You have been assigned a {user_assessment.risk_assessment.get_assessment_type_display().lower()} risk assessment for {user_assessment.risk_assessment.resource.name}.',
+            priority='medium',
+            resource=user_assessment.risk_assessment.resource,
+            metadata={
+                'risk_assessment_id': user_assessment.risk_assessment.id,
+                'user_assessment_id': user_assessment.id,
+                'resource_name': user_assessment.risk_assessment.resource.name,
+                'assessment_type': user_assessment.risk_assessment.assessment_type,
+            }
+        )
+    
+    def risk_assessment_submitted(self, user_assessment: UserRiskAssessment):
+        """Send notification when risk assessment is submitted for review."""
+        # Notify responsible persons
+        responsible_persons = ResourceResponsible.objects.filter(
+            resource=user_assessment.risk_assessment.resource,
+            can_conduct_assessments=True,
+            is_active=True
+        )
+        
+        for responsible in responsible_persons:
+            self.service.create_notification(
+                user=responsible.user,
+                notification_type='risk_assessment_submitted',
+                title=f'Risk Assessment for Review: {user_assessment.user.get_full_name()}',
+                message=f'{user_assessment.user.get_full_name()} has submitted a {user_assessment.risk_assessment.get_assessment_type_display().lower()} risk assessment for {user_assessment.risk_assessment.resource.name}.',
+                priority='medium',
+                resource=user_assessment.risk_assessment.resource,
+                metadata={
+                    'risk_assessment_id': user_assessment.risk_assessment.id,
+                    'user_assessment_id': user_assessment.id,
+                    'submitter_name': user_assessment.user.get_full_name(),
+                }
+            )
+    
+    def risk_assessment_approved(self, user_assessment: UserRiskAssessment):
+        """Send notification when risk assessment is approved."""
+        self.service.create_notification(
+            user=user_assessment.user,
+            notification_type='risk_assessment_approved',
+            title=f'Risk Assessment Approved: {user_assessment.risk_assessment.title}',
+            message=f'Your {user_assessment.risk_assessment.get_assessment_type_display().lower()} risk assessment for {user_assessment.risk_assessment.resource.name} has been approved.',
+            priority='high',
+            resource=user_assessment.risk_assessment.resource,
+            metadata={
+                'risk_assessment_id': user_assessment.risk_assessment.id,
+                'user_assessment_id': user_assessment.id,
+                'approved_by': user_assessment.reviewed_by.get_full_name() if user_assessment.reviewed_by else 'System',
+            }
+        )
+    
+    def risk_assessment_rejected(self, user_assessment: UserRiskAssessment, reason=None):
+        """Send notification when risk assessment is rejected."""
+        message = f'Your {user_assessment.risk_assessment.get_assessment_type_display().lower()} risk assessment for {user_assessment.risk_assessment.resource.name} has been rejected.'
+        if reason:
+            message += f' Reason: {reason}'
+        
+        self.service.create_notification(
+            user=user_assessment.user,
+            notification_type='risk_assessment_rejected',
+            title=f'Risk Assessment Rejected: {user_assessment.risk_assessment.title}',
+            message=message,
+            priority='high',
+            resource=user_assessment.risk_assessment.resource,
+            metadata={
+                'risk_assessment_id': user_assessment.risk_assessment.id,
+                'user_assessment_id': user_assessment.id,
+                'rejected_by': user_assessment.reviewed_by.get_full_name() if user_assessment.reviewed_by else 'System',
+                'reason': reason or '',
+            }
+        )
+    
+    def risk_assessment_expiring(self, user_assessment: UserRiskAssessment, days_until_expiry: int):
+        """Send notification when risk assessment is expiring."""
+        self.service.create_notification(
+            user=user_assessment.user,
+            notification_type='risk_assessment_expiring',
+            title=f'Risk Assessment Expiring: {user_assessment.risk_assessment.title}',
+            message=f'Your {user_assessment.risk_assessment.get_assessment_type_display().lower()} risk assessment for {user_assessment.risk_assessment.resource.name} expires in {days_until_expiry} days.',
+            priority='low',
+            resource=user_assessment.risk_assessment.resource,
+            metadata={
+                'risk_assessment_id': user_assessment.risk_assessment.id,
+                'user_assessment_id': user_assessment.id,
+                'days_until_expiry': days_until_expiry,
+                'expires_at': user_assessment.expires_at.isoformat() if user_assessment.expires_at else None,
+            }
+        )
+    
+    # Training Notifications
+    def training_enrolled(self, user_training: UserTraining):
+        """Send notification when user enrolls in training."""
+        self.service.create_notification(
+            user=user_training.user,
+            notification_type='training_enrolled',
+            title=f'Training Enrolled: {user_training.training_course.title}',
+            message=f'You have successfully enrolled in {user_training.training_course.title} ({user_training.training_course.code}).',
+            priority='medium',
+            metadata={
+                'training_course_id': user_training.training_course.id,
+                'user_training_id': user_training.id,
+                'course_code': user_training.training_course.code,
+            }
+        )
+    
+    def training_session_scheduled(self, user_training: UserTraining):
+        """Send notification when training session is scheduled."""
+        self.service.create_notification(
+            user=user_training.user,
+            notification_type='training_session_scheduled',
+            title=f'Training Session Scheduled: {user_training.training_course.title}',
+            message=f'Your training session for {user_training.training_course.title} has been scheduled for {user_training.session_date.strftime("%B %d, %Y at %I:%M %p")}.',
+            priority='high',
+            metadata={
+                'training_course_id': user_training.training_course.id,
+                'user_training_id': user_training.id,
+                'session_date': user_training.session_date.isoformat() if user_training.session_date else None,
+                'session_location': user_training.session_location or '',
+                'instructor': user_training.instructor.get_full_name() if user_training.instructor else '',
+            }
+        )
+    
+    def training_session_reminder(self, user_training: UserTraining, hours_ahead: int = 24):
+        """Send training session reminder notification."""
+        self.service.create_notification(
+            user=user_training.user,
+            notification_type='training_session_reminder',
+            title=f'Training Reminder: {user_training.training_course.title}',
+            message=f'Reminder: Your training session for {user_training.training_course.title} starts in {hours_ahead} hours.',
+            priority='medium',
+            metadata={
+                'training_course_id': user_training.training_course.id,
+                'user_training_id': user_training.id,
+                'hours_ahead': hours_ahead,
+                'session_date': user_training.session_date.isoformat() if user_training.session_date else None,
+            }
+        )
+    
+    def training_completed(self, user_training: UserTraining):
+        """Send notification when training is completed."""
+        self.service.create_notification(
+            user=user_training.user,
+            notification_type='training_completed',
+            title=f'Training Completed: {user_training.training_course.title}',
+            message=f'Congratulations! You have successfully completed {user_training.training_course.title}.',
+            priority='high',
+            metadata={
+                'training_course_id': user_training.training_course.id,
+                'user_training_id': user_training.id,
+                'completion_date': user_training.completed_at.isoformat() if user_training.completed_at else None,
+                'overall_score': str(user_training.overall_score) if user_training.overall_score else '',
+                'passed': user_training.passed,
+            }
+        )
+    
+    def training_failed(self, user_training: UserTraining):
+        """Send notification when training is failed."""
+        self.service.create_notification(
+            user=user_training.user,
+            notification_type='training_failed',
+            title=f'Training Not Passed: {user_training.training_course.title}',
+            message=f'Unfortunately, you did not pass {user_training.training_course.title}. Please contact your instructor for next steps.',
+            priority='high',
+            metadata={
+                'training_course_id': user_training.training_course.id,
+                'user_training_id': user_training.id,
+                'overall_score': str(user_training.overall_score) if user_training.overall_score else '',
+                'pass_mark': str(user_training.training_course.pass_mark_percentage),
+            }
+        )
+    
+    def training_certificate_issued(self, user_training: UserTraining):
+        """Send notification when training certificate is issued."""
+        self.service.create_notification(
+            user=user_training.user,
+            notification_type='training_certificate_issued',
+            title=f'Certificate Issued: {user_training.training_course.title}',
+            message=f'Your certificate for {user_training.training_course.title} has been issued. Certificate number: {user_training.certificate_number}',
+            priority='medium',
+            metadata={
+                'training_course_id': user_training.training_course.id,
+                'user_training_id': user_training.id,
+                'certificate_number': user_training.certificate_number or '',
+                'issued_at': user_training.certificate_issued_at.isoformat() if user_training.certificate_issued_at else None,
+            }
+        )
+    
+    def training_expiring(self, user_training: UserTraining, days_until_expiry: int):
+        """Send notification when training is expiring."""
+        self.service.create_notification(
+            user=user_training.user,
+            notification_type='training_expiring',
+            title=f'Training Expiring: {user_training.training_course.title}',
+            message=f'Your certification for {user_training.training_course.title} expires in {days_until_expiry} days. Please schedule renewal training.',
+            priority='low',
+            metadata={
+                'training_course_id': user_training.training_course.id,
+                'user_training_id': user_training.id,
+                'days_until_expiry': days_until_expiry,
+                'expires_at': user_training.expires_at.isoformat() if user_training.expires_at else None,
+            }
+        )
+    
+    # Resource Responsibility Notifications
+    def resource_responsibility_assigned(self, responsible: ResourceResponsible):
+        """Send notification when resource responsibility is assigned."""
+        self.service.create_notification(
+            user=responsible.user,
+            notification_type='resource_responsibility_assigned',
+            title=f'Resource Responsibility Assigned: {responsible.resource.name}',
+            message=f'You have been assigned as {responsible.get_role_type_display().lower()} for {responsible.resource.name}.',
+            priority='high',
+            resource=responsible.resource,
+            metadata={
+                'resource_responsible_id': responsible.id,
+                'resource_name': responsible.resource.name,
+                'role_type': responsible.role_type,
+                'assigned_by': responsible.assigned_by.get_full_name(),
+            }
+        )
+    
+    def compliance_check_required(self, access_request: AccessRequest):
+        """Send notification when compliance check is required."""
+        compliance = access_request.check_user_compliance()
+        
+        if not compliance['training_complete'] or not compliance['risk_assessments_complete']:
+            required_actions = []
+            if not compliance['training_complete']:
+                required_actions.extend([f"Complete training: {t.title}" for t in compliance['missing_training']])
+            if not compliance['risk_assessments_complete']:
+                required_actions.extend([f"Complete assessment: {a.title}" for a in compliance['missing_assessments']])
+            
+            self.service.create_notification(
+                user=access_request.user,
+                notification_type='compliance_check_required',
+                title=f'Compliance Required: {access_request.resource.name}',
+                message=f'To access {access_request.resource.name}, you must complete: {", ".join(required_actions)}',
+                priority='high',
+                resource=access_request.resource,
+                metadata={
+                    'access_request_id': access_request.id,
+                    'missing_training': [t.id for t in compliance['missing_training']],
+                    'missing_assessments': [a.id for a in compliance['missing_assessments']],
+                }
+            )
+
+
 # Global service instances
 notification_service = NotificationService()
 booking_notifications = BookingNotifications()
 maintenance_notifications = MaintenanceNotifications()
 access_request_notifications = AccessRequestNotifications()
 training_request_notifications = TrainingRequestNotifications()
+approval_workflow_notifications = ApprovalWorkflowNotifications()

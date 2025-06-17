@@ -140,12 +140,20 @@
                     <a href="{% url 'booking:create_from_template' %}" class="btn btn-outline-success">
                         <i class="bi bi-file-earmark-text"></i> Use Template
                     </a>
+                    {% if user.groups.all|length > 0 and 'Lab Admin' in user.groups.all|join:',' or user.userprofile.role in 'technician,sysadmin' %}
+                    <a href="{% url 'booking:approval_statistics' %}" class="btn btn-outline-info">
+                        <i class="fas fa-chart-line"></i> View Statistics
+                    </a>
+                    {% endif %}
                     {% if user.userprofile.role in 'technician,sysadmin' %}
                         <a href="{% url 'booking:manage_bookings' %}" class="btn btn-outline-warning">
                             <i class="bi bi-gear"></i> Manage Bookings
                         </a>
                         <a href="{% url 'booking:group_management' %}" class="btn btn-outline-info">
                             <i class="bi bi-people"></i> Manage Groups
+                        </a>
+                        <a href="{% url 'booking:approval_rules' %}" class="btn btn-outline-primary">
+                            <i class="fas fa-cogs"></i> Approval Rules
                         </a>
                     {% endif %}
                     <button class="btn btn-outline-secondary" id="export-calendar-btn">

@@ -1,0 +1,255 @@
+{% extends 'booking/base.html' %}
+{% load static %}
+
+{% block title %}{{ title }} - Aperture Booking{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12 col-lg-8 mx-auto">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1><i class="fas fa-cog me-2"></i>{{ title }}</h1>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a href="{% url 'booking:dashboard' %}">Dashboard</a></li>
+                            <li class="breadcrumb-item"><a href="{% url 'booking:lab_admin_dashboard' %}">Lab Admin</a></li>
+                            <li class="breadcrumb-item"><a href="{% url 'booking:lab_admin_resources' %}">Resources</a></li>
+                            <li class="breadcrumb-item active">{{ action }}</li>
+                        </ol>
+                    </nav>
+                </div>
+                <div>
+                    <a href="{% url 'booking:lab_admin_resources' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i> Back to Resources
+                    </a>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">{{ title }}</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        
+                        <div class="row">
+                            <!-- Basic Information -->
+                            <div class="col-md-6">
+                                <h6 class="text-muted mb-3">Basic Information</h6>
+                                
+                                <div class="mb-3">
+                                    <label for="{{ form.name.id_for_label }}" class="form-label">
+                                        {{ form.name.label }} <span class="text-danger">*</span>
+                                    </label>
+                                    {{ form.name }}
+                                    {% if form.name.help_text %}
+                                    <small class="form-text text-muted">{{ form.name.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.name.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.name.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="{{ form.resource_type.id_for_label }}" class="form-label">
+                                        {{ form.resource_type.label }} <span class="text-danger">*</span>
+                                    </label>
+                                    {{ form.resource_type }}
+                                    {% if form.resource_type.help_text %}
+                                    <small class="form-text text-muted">{{ form.resource_type.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.resource_type.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.resource_type.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="{{ form.location.id_for_label }}" class="form-label">
+                                        {{ form.location.label }} <span class="text-danger">*</span>
+                                    </label>
+                                    {{ form.location }}
+                                    {% if form.location.help_text %}
+                                    <small class="form-text text-muted">{{ form.location.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.location.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.location.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="{{ form.description.id_for_label }}" class="form-label">
+                                        {{ form.description.label }}
+                                    </label>
+                                    {{ form.description }}
+                                    {% if form.description.help_text %}
+                                    <small class="form-text text-muted">{{ form.description.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.description.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.description.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="{{ form.image.id_for_label }}" class="form-label">
+                                        {{ form.image.label }}
+                                    </label>
+                                    {{ form.image }}
+                                    {% if form.image.help_text %}
+                                    <small class="form-text text-muted">{{ form.image.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.image.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.image.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                    {% if resource and resource.image %}
+                                    <div class="mt-2">
+                                        <small class="text-muted">Current image:</small><br>
+                                        <img src="{{ resource.image.url }}" alt="{{ resource.name }}" class="img-thumbnail" style="max-width: 150px; max-height: 150px;">
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Configuration -->
+                            <div class="col-md-6">
+                                <h6 class="text-muted mb-3">Configuration</h6>
+                                
+                                <div class="mb-3">
+                                    <label for="{{ form.capacity.id_for_label }}" class="form-label">
+                                        {{ form.capacity.label }} <span class="text-danger">*</span>
+                                    </label>
+                                    {{ form.capacity }}
+                                    {% if form.capacity.help_text %}
+                                    <small class="form-text text-muted">{{ form.capacity.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.capacity.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.capacity.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="{{ form.required_training_level.id_for_label }}" class="form-label">
+                                        {{ form.required_training_level.label }} <span class="text-danger">*</span>
+                                    </label>
+                                    {{ form.required_training_level }}
+                                    {% if form.required_training_level.help_text %}
+                                    <small class="form-text text-muted">{{ form.required_training_level.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.required_training_level.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.required_training_level.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="{{ form.max_booking_hours.id_for_label }}" class="form-label">
+                                        {{ form.max_booking_hours.label }}
+                                    </label>
+                                    {{ form.max_booking_hours }}
+                                    {% if form.max_booking_hours.help_text %}
+                                    <small class="form-text text-muted">{{ form.max_booking_hours.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.max_booking_hours.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.max_booking_hours.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        {{ form.requires_induction }}
+                                        <label class="form-check-label" for="{{ form.requires_induction.id_for_label }}">
+                                            {{ form.requires_induction.label }}
+                                        </label>
+                                    </div>
+                                    {% if form.requires_induction.help_text %}
+                                    <small class="form-text text-muted">{{ form.requires_induction.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.requires_induction.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.requires_induction.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        {{ form.is_active }}
+                                        <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
+                                            {{ form.is_active.label }}
+                                        </label>
+                                    </div>
+                                    {% if form.is_active.help_text %}
+                                    <small class="form-text text-muted">{{ form.is_active.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.is_active.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.is_active.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Form Actions -->
+                        <div class="row mt-4">
+                            <div class="col-12">
+                                <div class="border-top pt-3">
+                                    <div class="d-flex justify-content-between">
+                                        <div>
+                                            <small class="text-muted">
+                                                <span class="text-danger">*</span> Required fields
+                                            </small>
+                                        </div>
+                                        <div>
+                                            <a href="{% url 'booking:lab_admin_resources' %}" class="btn btn-outline-secondary me-2">Cancel</a>
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="fas fa-save me-1"></i> {{ action }} Resource
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

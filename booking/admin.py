@@ -22,7 +22,10 @@ from .models import (
     CheckInOutEvent, UsageAnalytics,
     Faculty, College, Department,
     ResourceAccess, AccessRequest, TrainingRequest,
-    SystemSetting, PDFExportSettings
+    SystemSetting, PDFExportSettings,
+    ResourceResponsible, RiskAssessment, UserRiskAssessment,
+    TrainingCourse, ResourceTrainingRequirement, UserTraining,
+    ApprovalStatistics
 )
 
 
@@ -1069,4 +1072,334 @@ class PDFExportSettingsAdmin(admin.ModelAdmin):
         
         self.message_user(request, f'Duplicated {duplicated} configurations.')
     duplicate_config.short_description = 'Duplicate selected configurations'
+
+
+# Approval Workflow Admin Classes
+
+@admin.register(ResourceResponsible)
+class ResourceResponsibleAdmin(admin.ModelAdmin):
+    list_display = ('user', 'resource', 'role_type', 'can_approve_access', 'can_approve_training', 'is_active', 'assigned_at')
+    list_filter = ('role_type', 'can_approve_access', 'can_approve_training', 'is_active', 'resource__resource_type')
+    search_fields = ('user__username', 'user__first_name', 'user__last_name', 'resource__name')
+    readonly_fields = ('assigned_at',)
+    autocomplete_fields = ['user', 'resource', 'assigned_by']
+    
+    fieldsets = (
+        ('Responsibility Assignment', {
+            'fields': ('user', 'resource', 'role_type', 'assigned_by')
+        }),
+        ('Permissions', {
+            'fields': ('can_approve_access', 'can_approve_training', 'can_conduct_assessments', 'is_active')
+        }),
+        ('Notes', {
+            'fields': ('notes',),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('assigned_at',),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'resource', 'assigned_by')
+
+
+@admin.register(RiskAssessment)
+class RiskAssessmentAdmin(admin.ModelAdmin):
+    list_display = ('title', 'resource', 'assessment_type', 'risk_level', 'is_mandatory', 'is_active', 'valid_until', 'created_at')
+    list_filter = ('assessment_type', 'risk_level', 'is_mandatory', 'is_active', 'requires_renewal', 'resource__resource_type')
+    search_fields = ('title', 'resource__name', 'description')
+    readonly_fields = ('created_at', 'updated_at', 'approved_at')
+    autocomplete_fields = ['resource', 'created_by', 'approved_by']
+    
+    fieldsets = (
+        ('Assessment Information', {
+            'fields': ('title', 'resource', 'assessment_type', 'description', 'risk_level')
+        }),
+        ('Content', {
+            'fields': ('hazards_identified', 'control_measures', 'emergency_procedures', 'ppe_requirements'),
+            'classes': ('collapse',)
+        }),
+        ('Lifecycle Management', {
+            'fields': ('valid_until', 'review_frequency_months', 'requires_renewal')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'is_mandatory')
+        }),
+        ('Approval', {
+            'fields': ('created_by', 'approved_by', 'approved_at'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('resource', 'created_by', 'approved_by')
+
+
+@admin.register(UserRiskAssessment)
+class UserRiskAssessmentAdmin(admin.ModelAdmin):
+    list_display = ('user', 'risk_assessment', 'status', 'score_percentage', 'started_at', 'completed_at', 'expires_at')
+    list_filter = ('status', 'risk_assessment__assessment_type', 'risk_assessment__risk_level')
+    search_fields = ('user__username', 'user__first_name', 'user__last_name', 'risk_assessment__title')
+    readonly_fields = ('created_at', 'updated_at', 'started_at', 'submitted_at', 'completed_at', 'reviewed_at')
+    autocomplete_fields = ['user', 'risk_assessment', 'reviewed_by']
+    
+    fieldsets = (
+        ('Assessment Assignment', {
+            'fields': ('user', 'risk_assessment', 'status')
+        }),
+        ('Progress Tracking', {
+            'fields': ('started_at', 'submitted_at', 'completed_at', 'expires_at')
+        }),
+        ('Assessment Results', {
+            'fields': ('score_percentage', 'pass_threshold'),
+            'classes': ('collapse',)
+        }),
+        ('Review Information', {
+            'fields': ('reviewed_by', 'reviewed_at', 'review_notes'),
+            'classes': ('collapse',)
+        }),
+        ('Assessment Data', {
+            'fields': ('responses', 'assessor_notes', 'user_declaration'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'risk_assessment', 'reviewed_by')
+
+
+@admin.register(TrainingCourse)
+class TrainingCourseAdmin(admin.ModelAdmin):
+    list_display = ('code', 'title', 'course_type', 'delivery_method', 'duration_hours', 'is_active', 'is_mandatory')
+    list_filter = ('course_type', 'delivery_method', 'is_active', 'is_mandatory', 'requires_practical_assessment')
+    search_fields = ('code', 'title', 'description')
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ['created_by', 'instructors', 'prerequisite_courses']
+    filter_horizontal = ('instructors', 'prerequisite_courses')
+    
+    fieldsets = (
+        ('Course Information', {
+            'fields': ('code', 'title', 'description', 'course_type', 'delivery_method')
+        }),
+        ('Requirements', {
+            'fields': ('prerequisite_courses', 'duration_hours', 'max_participants')
+        }),
+        ('Content', {
+            'fields': ('learning_objectives', 'course_materials', 'assessment_criteria'),
+            'classes': ('collapse',)
+        }),
+        ('Assessment', {
+            'fields': ('requires_practical_assessment', 'pass_mark_percentage')
+        }),
+        ('Validity', {
+            'fields': ('valid_for_months',)
+        }),
+        ('Management', {
+            'fields': ('created_by', 'instructors', 'is_active', 'is_mandatory')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('created_by').prefetch_related('instructors')
+
+
+@admin.register(ResourceTrainingRequirement)
+class ResourceTrainingRequirementAdmin(admin.ModelAdmin):
+    list_display = ('resource', 'training_course', 'is_mandatory', 'order', 'created_at')
+    list_filter = ('is_mandatory', 'resource__resource_type', 'training_course__course_type')
+    search_fields = ('resource__name', 'training_course__title', 'training_course__code')
+    autocomplete_fields = ['resource', 'training_course']
+    
+    fieldsets = (
+        ('Requirement Definition', {
+            'fields': ('resource', 'training_course', 'is_mandatory', 'order')
+        }),
+        ('Access Control', {
+            'fields': ('required_for_access_types',),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('resource', 'training_course')
+
+
+@admin.register(UserTraining)
+class UserTrainingAdmin(admin.ModelAdmin):
+    list_display = ('user', 'training_course', 'status', 'overall_score', 'passed', 'completed_at', 'expires_at')
+    list_filter = ('status', 'passed', 'training_course__course_type', 'training_course__delivery_method')
+    search_fields = ('user__username', 'user__first_name', 'user__last_name', 'training_course__title', 'certificate_number')
+    readonly_fields = ('enrolled_at', 'updated_at', 'certificate_issued_at')
+    autocomplete_fields = ['user', 'training_course', 'instructor']
+    
+    fieldsets = (
+        ('Training Assignment', {
+            'fields': ('user', 'training_course', 'status')
+        }),
+        ('Session Details', {
+            'fields': ('instructor', 'session_date', 'session_location')
+        }),
+        ('Progress Tracking', {
+            'fields': ('enrolled_at', 'started_at', 'completed_at', 'expires_at')
+        }),
+        ('Assessment Results', {
+            'fields': ('theory_score', 'practical_score', 'overall_score', 'passed'),
+            'classes': ('collapse',)
+        }),
+        ('Feedback', {
+            'fields': ('instructor_notes', 'user_feedback'),
+            'classes': ('collapse',)
+        }),
+        ('Certificate', {
+            'fields': ('certificate_number', 'certificate_issued_at'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('updated_at',),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'training_course', 'instructor')
+
+
+
+
+@admin.register(ApprovalStatistics)
+class ApprovalStatisticsAdmin(admin.ModelAdmin):
+    list_display = ('resource', 'approver', 'period_display', 'period_type', 'approval_rate', 'response_time_display', 'overdue_items')
+    list_filter = ('period_type', 'period_start', 'resource__resource_type', 'approver__userprofile__role')
+    search_fields = ('resource__name', 'approver__username', 'approver__email')
+    readonly_fields = ('created_at', 'updated_at')
+    date_hierarchy = 'period_start'
+    
+    fieldsets = (
+        ('Period Information', {
+            'fields': ('resource', 'approver', 'period_start', 'period_end', 'period_type')
+        }),
+        ('Access Request Statistics', {
+            'fields': (
+                'access_requests_received', 'access_requests_approved', 
+                'access_requests_rejected', 'access_requests_pending'
+            )
+        }),
+        ('Training Statistics', {
+            'fields': (
+                'training_requests_received', 'training_sessions_conducted',
+                'training_completions', 'training_failures'
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Assessment Statistics', {
+            'fields': (
+                'assessments_created', 'assessments_reviewed',
+                'assessments_approved', 'assessments_rejected'
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Response Time Metrics', {
+            'fields': (
+                'avg_response_time_hours', 'min_response_time_hours', 'max_response_time_hours'
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Delegation & Overdue', {
+            'fields': ('delegations_given', 'delegations_received', 'overdue_items'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def period_display(self, obj):
+        return f"{obj.period_start} to {obj.period_end}"
+    period_display.short_description = 'Period'
+    period_display.admin_order_field = 'period_start'
+    
+    def approval_rate(self, obj):
+        total = obj.access_requests_approved + obj.access_requests_rejected
+        if total == 0:
+            return "N/A"
+        rate = (obj.access_requests_approved / total) * 100
+        return f"{rate:.1f}%"
+    approval_rate.short_description = 'Approval Rate'
+    
+    def response_time_display(self, obj):
+        if obj.avg_response_time_hours == 0:
+            return "N/A"
+        return f"{obj.avg_response_time_hours:.1f}h (avg)"
+    response_time_display.short_description = 'Avg Response Time'
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('resource', 'approver', 'approver__userprofile')
+    
+    actions = ['regenerate_statistics', 'export_statistics_csv']
+    
+    def regenerate_statistics(self, request, queryset):
+        """Regenerate statistics for selected periods."""
+        count = 0
+        for stat in queryset:
+            # Call the model method to regenerate statistics
+            stat.calculate_statistics()
+            count += 1
+        
+        self.message_user(request, f'Regenerated statistics for {count} periods.')
+    regenerate_statistics.short_description = 'Regenerate selected statistics'
+    
+    def export_statistics_csv(self, request, queryset):
+        """Export statistics to CSV."""
+        import csv
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="approval_statistics.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'Resource', 'Approver', 'Period Start', 'Period End', 'Period Type',
+            'Access Requests Received', 'Access Requests Approved', 'Access Requests Rejected',
+            'Training Requests', 'Training Completions', 'Assessments Created',
+            'Avg Response Time (hours)', 'Overdue Items'
+        ])
+        
+        for stat in queryset:
+            writer.writerow([
+                stat.resource.name,
+                stat.approver.get_full_name() or stat.approver.username,
+                stat.period_start,
+                stat.period_end,
+                stat.get_period_type_display(),
+                stat.access_requests_received,
+                stat.access_requests_approved,
+                stat.access_requests_rejected,
+                stat.training_requests_received,
+                stat.training_completions,
+                stat.assessments_created,
+                stat.avg_response_time_hours,
+                stat.overdue_items
+            ])
+        
+        return response
+    export_statistics_csv.short_description = 'Export selected statistics to CSV'
 

@@ -1,15 +1,20 @@
 import base64
 import os
 from django import forms
-from django.contrib.auth.forms import UserCreationForm, PasswordResetForm, SetPasswordForm
+from django.contrib.auth.forms import UserCreationForm, PasswordResetForm, SetPasswordForm, AuthenticationForm
 from django.contrib.auth.models import User
+from django.contrib.auth import authenticate
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
-from .models import UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate, Faculty, College, Department
+from .models import (
+    UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate, 
+    Faculty, College, Department, AccessRequest, RiskAssessment, UserRiskAssessment, 
+    TrainingCourse, UserTraining, ResourceResponsible
+)
 from .recurring import RecurringBookingPattern
 
 
@@ -166,19 +171,34 @@ class UserRegistrationForm(UserCreationForm):
         
         if commit:
             user.save()
-            profile = UserProfile.objects.create(
+            profile, created = UserProfile.objects.get_or_create(
                 user=user,
-                role=self.cleaned_data['role'],
-                faculty=self.cleaned_data.get('faculty'),
-                college=self.cleaned_data.get('college'),
-                department=self.cleaned_data.get('department'),
-                group=self.cleaned_data.get('group', ''),
-                student_id=self.cleaned_data.get('student_id', '') if self.cleaned_data['role'] == 'student' else '',
-                student_level=self.cleaned_data.get('student_level', '') if self.cleaned_data['role'] == 'student' else '',
-                staff_number=self.cleaned_data.get('staff_number', '') if self.cleaned_data['role'] != 'student' else '',
-                phone=self.cleaned_data.get('phone', ''),
-                email_verified=False
+                defaults={
+                    'role': self.cleaned_data['role'],
+                    'faculty': self.cleaned_data.get('faculty'),
+                    'college': self.cleaned_data.get('college'),
+                    'department': self.cleaned_data.get('department'),
+                    'group': self.cleaned_data.get('group', ''),
+                    'student_id': self.cleaned_data.get('student_id', '') if self.cleaned_data['role'] == 'student' else '',
+                    'student_level': self.cleaned_data.get('student_level', '') if self.cleaned_data['role'] == 'student' else '',
+                    'staff_number': self.cleaned_data.get('staff_number', '') if self.cleaned_data['role'] != 'student' else '',
+                    'phone': self.cleaned_data.get('phone', ''),
+                    'email_verified': False
+                }
             )
+            # If profile was created by signal, update it with form data
+            if not created:
+                profile.role = self.cleaned_data['role']
+                profile.faculty = self.cleaned_data.get('faculty')
+                profile.college = self.cleaned_data.get('college')
+                profile.department = self.cleaned_data.get('department')
+                profile.group = self.cleaned_data.get('group', '')
+                profile.student_id = self.cleaned_data.get('student_id', '') if self.cleaned_data['role'] == 'student' else ''
+                profile.student_level = self.cleaned_data.get('student_level', '') if self.cleaned_data['role'] == 'student' else ''
+                profile.staff_number = self.cleaned_data.get('staff_number', '') if self.cleaned_data['role'] != 'student' else ''
+                profile.phone = self.cleaned_data.get('phone', '')
+                profile.email_verified = False
+                profile.save()
             
             # Create email verification token
             token = EmailVerificationToken.objects.create(user=user)
@@ -407,6 +427,48 @@ class CustomSetPasswordForm(SetPasswordForm):
         super().__init__(*args, **kwargs)
         self.fields['new_password1'].widget.attrs.update({'class': 'form-control'})
         self.fields['new_password2'].widget.attrs.update({'class': 'form-control'})
+
+
+class CustomAuthenticationForm(AuthenticationForm):
+    """Custom authentication form with better error messages for inactive users."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['username'].widget.attrs.update({'class': 'form-control'})
+        self.fields['password'].widget.attrs.update({'class': 'form-control'})
+        # Update labels to reflect that we use email as username
+        self.fields['username'].label = 'Email Address'
+    
+    def confirm_login_allowed(self, user):
+        """Override to provide better error messages for inactive users."""
+        if not user.is_active:
+            # Check if user has unverified email
+            try:
+                profile = user.userprofile
+                if not profile.email_verified:
+                    from django.urls import reverse
+                    resend_url = reverse('booking:resend_verification')
+                    raise forms.ValidationError(
+                        f'<strong><i class="bi bi-hourglass-split"></i> Account Awaiting Authorization</strong><br><br>'
+                        f'<i class="bi bi-info-circle"></i> Your account registration is currently waiting for administrator approval.<br><br>'
+                        f'<i class="bi bi-clock"></i> <strong>What happens next:</strong><br>'
+                        f'1. An administrator will review your registration<br>'
+                        f'2. You will receive an email once your account is approved<br>'
+                        f'3. You can then log in with your credentials<br><br>'
+                        f'<i class="bi bi-envelope"></i> <strong>First time?</strong> Make sure you have verified your email address first.<br>'
+                        f'<a href="{resend_url}" class="btn btn-sm btn-outline-warning">Resend Verification Email</a><br><br>'
+                        f'<small class="text-muted">Please be patient - this process may take 1-2 business days.</small>',
+                        code='inactive_unverified'
+                    )
+            except UserProfile.DoesNotExist:
+                pass
+            
+            # Default inactive message
+            raise forms.ValidationError(
+                '<strong><i class="bi bi-exclamation-triangle"></i> Account Inactive</strong><br><br>'
+                'Your account is inactive. Please contact the administrator for assistance.',
+                code='inactive'
+            )
 
 
 class BookingForm(forms.ModelForm):
@@ -723,3 +785,342 @@ class SaveAsTemplateForm(forms.Form):
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         help_text="Make this template available to other users"
     )
+
+
+# Approval Workflow Forms
+
+class AccessRequestForm(forms.ModelForm):
+    """Form for requesting access to a resource."""
+    
+    class Meta:
+        model = AccessRequest
+        fields = ['access_type', 'justification', 'requested_duration_days']
+        widgets = {
+            'access_type': forms.Select(attrs={'class': 'form-control'}),
+            'justification': forms.Textarea(attrs={
+                'class': 'form-control', 
+                'rows': 4, 
+                'placeholder': 'Please explain why you need access to this resource...'
+            }),
+            'requested_duration_days': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'min': 1,
+                'max': 365,
+                'value': 90
+            })
+        }
+        help_texts = {
+            'access_type': 'Type of access you are requesting',
+            'justification': 'Detailed explanation of why you need access',
+            'requested_duration_days': 'How many days you need access for (max 1 year)'
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.resource = kwargs.pop('resource', None)
+        super().__init__(*args, **kwargs)
+        
+        if self.resource:
+            # Customize access type choices based on resource
+            self.fields['justification'].help_text = f'Explain why you need access to {self.resource.name}'
+
+
+class AccessRequestReviewForm(forms.Form):
+    """Form for reviewing access requests."""
+    
+    DECISION_CHOICES = [
+        ('approve', 'Approve'),
+        ('reject', 'Reject'),
+    ]
+    
+    decision = forms.ChoiceField(
+        choices=DECISION_CHOICES,
+        widget=forms.RadioSelect(attrs={'class': 'form-check-input'}),
+        help_text="Decision for this access request"
+    )
+    
+    review_notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 3,
+            'placeholder': 'Optional notes about your decision...'
+        }),
+        help_text="Optional notes to explain your decision"
+    )
+    
+    granted_duration_days = forms.IntegerField(
+        required=False,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'min': 1,
+            'max': 365
+        }),
+        help_text="Days to grant access (leave blank to use requested duration)"
+    )
+
+
+class RiskAssessmentForm(forms.ModelForm):
+    """Form for creating risk assessments."""
+    
+    class Meta:
+        model = RiskAssessment
+        fields = [
+            'title', 'assessment_type', 'description', 'risk_level',
+            'hazards_identified', 'control_measures', 'emergency_procedures',
+            'ppe_requirements', 'valid_until', 'review_frequency_months',
+            'is_mandatory', 'requires_renewal'
+        ]
+        widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control'}),
+            'assessment_type': forms.Select(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 4}),
+            'risk_level': forms.Select(attrs={'class': 'form-control'}),
+            'emergency_procedures': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'valid_until': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'review_frequency_months': forms.NumberInput(attrs={'class': 'form-control', 'min': 1, 'max': 60}),
+            'is_mandatory': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'requires_renewal': forms.CheckboxInput(attrs={'class': 'form-check-input'})
+        }
+        help_texts = {
+            'title': 'Descriptive title for this risk assessment',
+            'assessment_type': 'Category of risk assessment',
+            'description': 'Detailed description of the assessment scope',
+            'risk_level': 'Overall risk level assessment',
+            'valid_until': 'When this assessment expires',
+            'review_frequency_months': 'How often to review this assessment',
+            'is_mandatory': 'Must be completed before resource access',
+            'requires_renewal': 'Requires periodic renewal'
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.resource = kwargs.pop('resource', None)
+        super().__init__(*args, **kwargs)
+        
+        # Set default values
+        if not self.instance.pk:
+            self.fields['valid_until'].initial = timezone.now().date() + timedelta(days=365)
+
+
+class UserRiskAssessmentForm(forms.ModelForm):
+    """Form for users to complete risk assessments."""
+    
+    class Meta:
+        model = UserRiskAssessment
+        fields = ['responses', 'user_declaration']
+        widgets = {
+            'user_declaration': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 3,
+                'placeholder': 'I declare that I have read and understood the risk assessment...'
+            })
+        }
+        help_texts = {
+            'user_declaration': 'Declaration of understanding and acceptance'
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.risk_assessment = kwargs.pop('risk_assessment', None)
+        super().__init__(*args, **kwargs)
+        
+        if self.risk_assessment:
+            # Add dynamic fields based on risk assessment questions
+            self.add_assessment_questions()
+    
+    def add_assessment_questions(self):
+        """Add dynamic fields for risk assessment questions."""
+        # This would be populated based on the risk assessment's question structure
+        # For now, we'll add a basic understanding confirmation
+        self.fields['understanding_confirmed'] = forms.BooleanField(
+            required=True,
+            widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            label='I confirm I have read and understood this risk assessment',
+            help_text='You must confirm understanding to proceed'
+        )
+
+
+class TrainingCourseForm(forms.ModelForm):
+    """Form for creating training courses."""
+    
+    class Meta:
+        model = TrainingCourse
+        fields = [
+            'title', 'code', 'description', 'course_type', 'delivery_method',
+            'prerequisite_courses', 'duration_hours', 'max_participants',
+            'learning_objectives', 'course_materials', 'assessment_criteria',
+            'valid_for_months', 'requires_practical_assessment', 'pass_mark_percentage',
+            'instructors', 'is_mandatory'
+        ]
+        widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control'}),
+            'code': forms.TextInput(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 4}),
+            'course_type': forms.Select(attrs={'class': 'form-control'}),
+            'delivery_method': forms.Select(attrs={'class': 'form-control'}),
+            'prerequisite_courses': forms.SelectMultiple(attrs={'class': 'form-control'}),
+            'duration_hours': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.5', 'min': '0.5'}),
+            'max_participants': forms.NumberInput(attrs={'class': 'form-control', 'min': '1'}),
+            'valid_for_months': forms.NumberInput(attrs={'class': 'form-control', 'min': '1', 'max': '60'}),
+            'requires_practical_assessment': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'pass_mark_percentage': forms.NumberInput(attrs={'class': 'form-control', 'min': '0', 'max': '100', 'step': '0.01'}),
+            'instructors': forms.SelectMultiple(attrs={'class': 'form-control'}),
+            'is_mandatory': forms.CheckboxInput(attrs={'class': 'form-check-input'})
+        }
+        help_texts = {
+            'code': 'Unique identifier for this course',
+            'duration_hours': 'Course duration in hours',
+            'max_participants': 'Maximum participants per session',
+            'valid_for_months': 'Certificate validity period',
+            'pass_mark_percentage': 'Minimum score required to pass',
+            'is_mandatory': 'Required for all users'
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Filter instructors to only show qualified users
+        self.fields['instructors'].queryset = User.objects.filter(
+            userprofile__role__in=['technician', 'academic', 'sysadmin']
+        ).order_by('first_name', 'last_name')
+        
+        # Filter prerequisite courses to exclude self
+        if self.instance.pk:
+            self.fields['prerequisite_courses'].queryset = TrainingCourse.objects.exclude(pk=self.instance.pk)
+
+
+class UserTrainingEnrollForm(forms.Form):
+    """Form for enrolling in training courses."""
+    
+    session_preference = forms.ChoiceField(
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-control'}),
+        help_text="Preferred session if multiple options available"
+    )
+    
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 2,
+            'placeholder': 'Any special requirements or notes...'
+        }),
+        help_text="Optional notes or special requirements"
+    )
+
+    def __init__(self, *args, **kwargs):
+        self.training_course = kwargs.pop('training_course', None)
+        super().__init__(*args, **kwargs)
+        
+        if self.training_course:
+            # Add available sessions if any are scheduled
+            self.add_session_choices()
+    
+    def add_session_choices(self):
+        """Add session choices if available."""
+        # This would be populated with actual scheduled sessions
+        # For now, we'll provide general options
+        session_choices = [
+            ('', 'No preference'),
+            ('morning', 'Morning sessions preferred'),
+            ('afternoon', 'Afternoon sessions preferred'),
+            ('weekend', 'Weekend sessions preferred')
+        ]
+        self.fields['session_preference'].choices = session_choices
+
+
+class ResourceResponsibleForm(forms.ModelForm):
+    """Form for assigning resource responsibility."""
+    
+    class Meta:
+        model = ResourceResponsible
+        fields = [
+            'user', 'role_type', 'can_approve_access', 'can_approve_training',
+            'can_conduct_assessments', 'notes'
+        ]
+        widgets = {
+            'user': forms.Select(attrs={'class': 'form-control'}),
+            'role_type': forms.Select(attrs={'class': 'form-control'}),
+            'can_approve_access': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'can_approve_training': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'can_conduct_assessments': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 2})
+        }
+        help_texts = {
+            'user': 'User to assign responsibility',
+            'role_type': 'Type of responsibility',
+            'can_approve_access': 'Can approve access requests',
+            'can_approve_training': 'Can approve training completions',
+            'can_conduct_assessments': 'Can conduct risk assessments',
+            'notes': 'Additional notes about this assignment'
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.resource = kwargs.pop('resource', None)
+        super().__init__(*args, **kwargs)
+        
+        # Filter users to qualified roles only
+        self.fields['user'].queryset = User.objects.filter(
+            userprofile__role__in=['technician', 'academic', 'sysadmin']
+        ).order_by('first_name', 'last_name')
+
+
+class ResourceForm(forms.ModelForm):
+    """Form for creating and editing resources."""
+    
+    class Meta:
+        model = Resource
+        fields = [
+            'name', 'resource_type', 'description', 'location', 'capacity',
+            'required_training_level', 'requires_induction', 'max_booking_hours',
+            'is_active', 'image'
+        ]
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'resource_type': forms.Select(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'location': forms.TextInput(attrs={'class': 'form-control'}),
+            'capacity': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
+            'required_training_level': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
+            'requires_induction': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'max_booking_hours': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'image': forms.FileInput(attrs={'class': 'form-control', 'accept': 'image/*'})
+        }
+        help_texts = {
+            'name': 'Enter a descriptive name for the resource',
+            'resource_type': 'Select the type of resource',
+            'description': 'Optional detailed description of the resource',
+            'location': 'Physical location where the resource is located',
+            'capacity': 'Maximum number of users who can use this resource simultaneously',
+            'required_training_level': 'Minimum training level required to use this resource',
+            'requires_induction': 'Check if users need induction before using this resource',
+            'max_booking_hours': 'Maximum duration (in hours) for a single booking. Leave blank for no limit',
+            'is_active': 'Uncheck to temporarily disable bookings for this resource',
+            'image': 'Upload an image to help users identify this resource'
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Set initial values for new resources
+        if not self.instance.pk:
+            self.fields['is_active'].initial = True
+            self.fields['capacity'].initial = 1
+            self.fields['required_training_level'].initial = 1
+    
+    def clean_max_booking_hours(self):
+        """Validate max booking hours."""
+        max_hours = self.cleaned_data.get('max_booking_hours')
+        if max_hours is not None and max_hours < 1:
+            raise forms.ValidationError('Maximum booking hours must be at least 1 hour.')
+        if max_hours is not None and max_hours > 168:  # 1 week
+            raise forms.ValidationError('Maximum booking hours cannot exceed 168 hours (1 week).')
+        return max_hours
+    
+    def clean_capacity(self):
+        """Validate capacity."""
+        capacity = self.cleaned_data.get('capacity')
+        if capacity < 1:
+            raise forms.ValidationError('Capacity must be at least 1.')
+        if capacity > 100:
+            raise forms.ValidationError('Capacity cannot exceed 100.')
+        return capacity

@@ -1,0 +1,181 @@
+{% extends 'booking/base.html' %}
+{% load static %}
+
+{% block title %}Lab Admin - Training Management - Aperture Booking{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1><i class="fas fa-graduation-cap me-2"></i>Training Management</h1>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a href="{% url 'booking:dashboard' %}">Dashboard</a></li>
+                            <li class="breadcrumb-item"><a href="{% url 'booking:lab_admin_dashboard' %}">Lab Admin</a></li>
+                            <li class="breadcrumb-item active">Training</li>
+                        </ol>
+                    </nav>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- Pending Training Requests -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-clock me-2"></i>Pending Training Requests
+                                <span class="badge bg-warning text-dark ms-2">{{ pending_requests.count }}</span>
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            {% for request in pending_requests %}
+                            <div class="border rounded p-3 mb-3">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h6 class="mb-1">{{ request.user.get_full_name }}</h6>
+                                        <p class="mb-1 text-muted">{{ request.training_course.name }}</p>
+                                        <small class="text-muted">Requested {{ request.created_at|date:"M j, Y" }}</small>
+                                    </div>
+                                    <form method="post" style="display: inline;">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="approve_request">
+                                        <input type="hidden" name="request_id" value="{{ request.id }}">
+                                        <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Approve this training request?')">
+                                            <i class="fas fa-check"></i> Approve
+                                        </button>
+                                    </form>
+                                </div>
+                                {% if request.justification %}
+                                <div class="mt-2">
+                                    <small><strong>Justification:</strong> {{ request.justification }}</small>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% empty %}
+                            <div class="text-center py-4">
+                                <i class="fas fa-inbox fa-2x text-muted mb-2"></i>
+                                <p class="text-muted mb-0">No pending training requests</p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upcoming Training Sessions -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="fas fa-calendar-check me-2"></i>Upcoming Training Sessions
+                                <span class="badge bg-info ms-2">{{ upcoming_sessions.count }}</span>
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            {% for session in upcoming_sessions %}
+                            <div class="border rounded p-3 mb-3">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h6 class="mb-1">{{ session.user.get_full_name }}</h6>
+                                        <p class="mb-1 text-muted">{{ session.training_course.name }}</p>
+                                        {% if session.session_date %}
+                                        <small class="text-success">
+                                            <i class="fas fa-calendar"></i> {{ session.session_date|date:"M j, Y" }}
+                                        </small>
+                                        {% endif %}
+                                        {% if session.instructor %}
+                                        <br><small class="text-muted">Instructor: {{ session.instructor.get_full_name }}</small>
+                                        {% endif %}
+                                    </div>
+                                    {% if not session.session_date %}
+                                    <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#scheduleModal{{ session.id }}">
+                                        <i class="fas fa-calendar-plus"></i> Schedule
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Schedule Modal -->
+                            {% if not session.session_date %}
+                            <div class="modal fade" id="scheduleModal{{ session.id }}" tabindex="-1">
+                                <div class="modal-dialog">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">Schedule Training Session</h5>
+                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                        </div>
+                                        <form method="post">
+                                            {% csrf_token %}
+                                            <div class="modal-body">
+                                                <input type="hidden" name="action" value="schedule_training">
+                                                <input type="hidden" name="user_training_id" value="{{ session.id }}">
+                                                
+                                                <p><strong>Student:</strong> {{ session.user.get_full_name }}</p>
+                                                <p><strong>Course:</strong> {{ session.training_course.name }}</p>
+                                                
+                                                <div class="mb-3">
+                                                    <label class="form-label">Session Date</label>
+                                                    <input type="date" name="session_date" class="form-control" required min="{{ today|date:'Y-m-d' }}">
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                                <button type="submit" class="btn btn-primary">Schedule Session</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            {% empty %}
+                            <div class="text-center py-4">
+                                <i class="fas fa-calendar fa-2x text-muted mb-2"></i>
+                                <p class="text-muted mb-0">No upcoming training sessions</p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Training Management Tasks</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="d-grid">
+                                        <button class="btn btn-outline-primary" onclick="location.reload()">
+                                            <i class="fas fa-sync-alt me-2"></i>Refresh Data
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="d-grid">
+                                        <a href="{% url 'booking:lab_admin_dashboard' %}" class="btn btn-outline-secondary">
+                                            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="d-grid">
+                                        <a href="{% url 'booking:lab_admin_users' %}" class="btn btn-outline-info">
+                                            <i class="fas fa-users me-2"></i>Manage Users
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

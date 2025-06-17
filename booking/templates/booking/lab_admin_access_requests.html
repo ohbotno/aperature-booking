@@ -1,0 +1,163 @@
+{% extends 'booking/base.html' %}
+{% load static %}
+
+{% block title %}Lab Admin - Access Requests - Aperture Booking{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1><i class="fas fa-key me-2"></i>Access Requests Management</h1>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a href="{% url 'booking:dashboard' %}">Dashboard</a></li>
+                            <li class="breadcrumb-item"><a href="{% url 'booking:lab_admin_dashboard' %}">Lab Admin</a></li>
+                            <li class="breadcrumb-item active">Access Requests</li>
+                        </ol>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Filter Section -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Status</label>
+                            <select name="status" class="form-select" onchange="this.form.submit()">
+                                <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Pending</option>
+                                <option value="approved" {% if status_filter == 'approved' %}selected{% endif %}>Approved</option>
+                                <option value="rejected" {% if status_filter == 'rejected' %}selected{% endif %}>Rejected</option>
+                                <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All</option>
+                            </select>
+                        </div>
+                        <div class="col-md-9 d-flex align-items-end">
+                            <a href="{% url 'booking:lab_admin_access_requests' %}" class="btn btn-outline-secondary">
+                                <i class="fas fa-sync-alt"></i> Reset Filter
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Access Requests List -->
+            {% for request in access_requests %}
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="mb-0">
+                            {{ request.user.get_full_name }} 
+                            <small class="text-muted">({{ request.user.username }})</small>
+                            {% if request.status == 'pending' %}
+                            <span class="badge bg-warning text-dark">Pending</span>
+                            {% elif request.status == 'approved' %}
+                            <span class="badge bg-success">Approved</span>
+                            {% elif request.status == 'rejected' %}
+                            <span class="badge bg-danger">Rejected</span>
+                            {% endif %}
+                        </h5>
+                        <small class="text-muted">
+                            Requested {{ request.created_at|date:"M j, Y g:i A" }}
+                        </small>
+                    </div>
+                    {% if request.status == 'pending' %}
+                    <div class="btn-group" role="group">
+                        <form method="post" style="display: inline;" onsubmit="return confirm('Approve this access request?')">
+                            {% csrf_token %}
+                            <input type="hidden" name="request_id" value="{{ request.id }}">
+                            <input type="hidden" name="action" value="approve">
+                            <button type="submit" class="btn btn-success btn-sm">
+                                <i class="fas fa-check"></i> Approve
+                            </button>
+                        </form>
+                        <form method="post" style="display: inline;" onsubmit="return confirm('Reject this access request?')">
+                            {% csrf_token %}
+                            <input type="hidden" name="request_id" value="{{ request.id }}">
+                            <input type="hidden" name="action" value="reject">
+                            <button type="submit" class="btn btn-danger btn-sm">
+                                <i class="fas fa-times"></i> Reject
+                            </button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Resource:</strong> {{ request.resource.name }}</p>
+                            <p><strong>Access Type:</strong> {{ request.get_access_type_display }}</p>
+                            {% if request.justification %}
+                            <p><strong>Justification:</strong></p>
+                            <p class="text-muted">{{ request.justification }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>User Role:</strong> {{ request.user.userprofile.get_role_display }}</p>
+                            {% if request.user.userprofile.department %}
+                            <p><strong>Department:</strong> {{ request.user.userprofile.department.name }}</p>
+                            {% endif %}
+                            {% if request.reviewed_by %}
+                            <p><strong>Reviewed by:</strong> {{ request.reviewed_by.get_full_name }}</p>
+                            <p><strong>Reviewed at:</strong> {{ request.reviewed_at|date:"M j, Y g:i A" }}</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <h4>No Access Requests Found</h4>
+                    <p class="text-muted">
+                        {% if status_filter == 'pending' %}
+                        No pending access requests at this time.
+                        {% else %}
+                        No access requests match the current filter.
+                        {% endif %}
+                    </p>
+                    {% if status_filter != 'pending' %}
+                    <a href="{% url 'booking:lab_admin_access_requests' %}" class="btn btn-outline-primary">
+                        View Pending Requests
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+
+            <!-- Pagination -->
+            {% if access_requests.has_other_pages %}
+            <nav aria-label="Access requests pagination">
+                <ul class="pagination justify-content-center">
+                    {% if access_requests.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{% if status_filter %}status={{ status_filter }}&{% endif %}page={{ access_requests.previous_page_number }}">Previous</a>
+                    </li>
+                    {% endif %}
+                    
+                    {% for num in access_requests.paginator.page_range %}
+                    {% if access_requests.number == num %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ num }}</span>
+                    </li>
+                    {% elif num > access_requests.number|add:'-3' and num < access_requests.number|add:'3' %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{% if status_filter %}status={{ status_filter }}&{% endif %}page={{ num }}">{{ num }}</a>
+                    </li>
+                    {% endif %}
+                    {% endfor %}
+                    
+                    {% if access_requests.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{% if status_filter %}status={{ status_filter }}&{% endif %}page={{ access_requests.next_page_number }}">Next</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
