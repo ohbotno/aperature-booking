@@ -20,6 +20,8 @@ urlpatterns = [
     
     # Template views
     path('', views.calendar_view, name='calendar'),
+    path('about/', views.about_page_view, name='about'),
+    path('about/edit/', views.about_page_edit_view, name='about_edit'),
     path('dashboard/', views.dashboard_view, name='dashboard'),
     path('register/', views.register_view, name='register'),
     path('profile/', views.profile_view, name='profile'),
@@ -47,9 +49,6 @@ urlpatterns = [
     path('booking/<int:booking_pk>/cancel-series/', views.cancel_recurring_series_view, name='cancel_recurring'),
     
     # Conflict management URLs
-    path('conflicts/', views.conflict_detection_view, name='conflicts'),
-    path('conflicts/resolve/<str:conflict_type>/<int:id1>/<int:id2>/', views.resolve_conflict_view, name='resolve_conflict'),
-    path('conflicts/bulk-resolve/', views.bulk_resolve_conflicts_view, name='bulk_resolve_conflicts'),
     
     # Template management URLs
     path('templates/', views.template_list_view, name='templates'),

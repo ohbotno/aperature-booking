@@ -578,3 +578,18 @@ This creates a **sophisticated enterprise-grade approval workflow system** suita
 - **Cross-Platform Testing**: Verified compatibility with major calendar applications
 
 This establishes a **complete enterprise-grade calendar synchronization system** that seamlessly integrates Aperture Booking with external calendar applications, providing users with unified calendar management across all their devices and platforms.
+
+## 📜 Licensing & Commercial Strategy
+
+### Dual Licensing Implementation
+- [ ] Add AGPL-3.0 LICENSE file to repository
+- [ ] Update copyright headers in all source files (currently GPL headers exist)
+- [ ] Create commercial licensing documentation for potential customers
+- [ ] Set up pricing tiers for white-label version
+- [ ] Create dual licensing strategy documentation
+- [ ] Develop commercial license terms and conditions
+- [ ] Create marketing materials for both versions:
+  - [ ] Open source "Aperture Booking" branded version documentation
+  - [ ] Commercial white-label version feature comparison
+  - [ ] Pricing structure and enterprise offerings
+- [ ] Set up commercial license contact and sales process

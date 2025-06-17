@@ -123,6 +123,99 @@
                         {% endif %}
                     </div>
 
+                    <!-- Hidden fields for conflict override -->
+                    {{ form.override_conflicts }}
+                    {{ form.override_message }}
+
+                    <!-- Debug info (remove in production) -->
+                    {% if conflicts_detected %}
+                        <div class="alert alert-info">
+                            <small>
+                                Debug: conflicts_detected={{ conflicts_detected }}, can_override={{ can_override }}, 
+                                user.is_superuser={{ user.is_superuser }}, user.is_staff={{ user.is_staff }}
+                            </small>
+                        </div>
+                    {% endif %}
+
+                    <!-- Conflict Override Section -->
+                    {% if conflicts_detected and can_override %}
+                        <div class="alert alert-warning border-warning" id="conflict-alert">
+                            <h6 class="alert-heading">
+                                <i class="fas fa-exclamation-triangle me-2"></i>Booking Conflict Detected
+                            </h6>
+                            <p class="mb-3">
+                                Your booking conflicts with existing reservations. As a privileged user, 
+                                you can override these conflicts, which will cancel the conflicting bookings 
+                                and notify the affected users.
+                            </p>
+                            
+                            <div class="mb-3">
+                                <strong>Conflicting Bookings:</strong>
+                                <ul class="mt-2">
+                                    {% for booking in conflicting_bookings %}
+                                        <li>
+                                            <strong>{{ booking.title }}</strong> by 
+                                            {{ booking.user.first_name }} {{ booking.user.last_name }}
+                                            <br>
+                                            <small class="text-muted">
+                                                {{ booking.start_time|date:"m/d H:i" }} - {{ booking.end_time|date:"H:i" }}
+                                            </small>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            
+                            <div class="form-check mb-3">
+                                <input type="checkbox" class="form-check-input" id="confirm-override" onchange="toggleOverrideMessage()">
+                                <label class="form-check-label" for="confirm-override">
+                                    <strong>I want to override these conflicts and notify the affected users</strong>
+                                </label>
+                            </div>
+                            
+                            <div id="override-message-section" style="display: none;">
+                                <label for="override-message-input" class="form-label">
+                                    <strong>Message to affected users:</strong>
+                                </label>
+                                <textarea 
+                                    id="override-message-input" 
+                                    class="form-control" 
+                                    rows="3" 
+                                    placeholder="Enter a message explaining why you're overriding their booking (required)..."
+                                    onchange="updateOverrideMessage()"
+                                ></textarea>
+                                <small class="form-text text-muted">
+                                    This message will be sent to users whose bookings are being overridden.
+                                </small>
+                            </div>
+                        </div>
+                    {% elif conflicts_detected %}
+                        <!-- Regular user conflict message -->
+                        <div class="alert alert-danger border-danger" id="conflict-alert">
+                            <h6 class="alert-heading">
+                                <i class="fas fa-exclamation-triangle me-2"></i>Booking Conflict Detected
+                            </h6>
+                            <p class="mb-3">
+                                Your booking conflicts with existing reservations. Please choose a different time slot.
+                            </p>
+                            
+                            <div class="mb-3">
+                                <strong>Conflicting Bookings:</strong>
+                                <ul class="mt-2">
+                                    {% for booking in conflicting_bookings %}
+                                        <li>
+                                            <strong>{{ booking.title }}</strong> by 
+                                            {{ booking.user.first_name }} {{ booking.user.last_name }}
+                                            <br>
+                                            <small class="text-muted">
+                                                {{ booking.start_time|date:"m/d H:i" }} - {{ booking.end_time|date:"H:i" }}
+                                            </small>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                    {% endif %}
+
                     <div class="d-flex justify-content-between">
                         <a href="{% url 'booking:calendar' %}" class="btn btn-secondary">Cancel</a>
                         <button type="submit" class="btn btn-primary">
@@ -251,5 +344,59 @@ function setQuickTime(hours) {
         endTimeInput.value = endTime.toISOString().slice(0, 16);
     }
 }
+
+// Conflict override functions
+function toggleOverrideMessage() {
+    const checkbox = document.getElementById('confirm-override');
+    const messageSection = document.getElementById('override-message-section');
+    const overrideConflictsInput = document.querySelector('[name="override_conflicts"]');
+    
+    if (checkbox.checked) {
+        messageSection.style.display = 'block';
+        overrideConflictsInput.value = 'true';
+    } else {
+        messageSection.style.display = 'none';
+        overrideConflictsInput.value = 'false';
+        document.getElementById('override-message-input').value = '';
+        updateOverrideMessage();
+    }
+}
+
+function updateOverrideMessage() {
+    const messageInput = document.getElementById('override-message-input');
+    const overrideMessageField = document.querySelector('[name="override_message"]');
+    
+    if (overrideMessageField) {
+        overrideMessageField.value = messageInput.value;
+    }
+}
+
+// Form submission validation for conflicts
+document.getElementById('create-booking-form').addEventListener('submit', function(e) {
+    const overrideConflictsInput = document.querySelector('[name="override_conflicts"]');
+    const confirmOverride = document.getElementById('confirm-override');
+    const overrideMessage = document.getElementById('override-message-input');
+    
+    // If conflicts detected and user wants to override
+    if (confirmOverride && confirmOverride.checked) {
+        if (!overrideMessage.value.trim()) {
+            e.preventDefault();
+            alert('Please provide a message to notify the affected users about the booking override.');
+            overrideMessage.focus();
+            return false;
+        }
+        
+        // Final confirmation
+        const confirmed = confirm(
+            'Are you sure you want to override the conflicting bookings? ' +
+            'This will cancel the existing bookings and notify the affected users.'
+        );
+        
+        if (!confirmed) {
+            e.preventDefault();
+            return false;
+        }
+    }
+});
 </script>
 {% endblock %}

@@ -15,7 +15,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 from .models import (
-    UserProfile, Resource, Booking, BookingAttendee, 
+    AboutPage, UserProfile, Resource, Booking, BookingAttendee, 
     ApprovalRule, Maintenance, BookingHistory,
     Notification, NotificationPreference, EmailTemplate, PushSubscription,
     WaitingListEntry,
@@ -41,6 +41,40 @@ class UserAdmin(BaseUserAdmin):
 
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
+
+
+@admin.register(AboutPage)
+class AboutPageAdmin(admin.ModelAdmin):
+    list_display = ('title', 'facility_name', 'is_active', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('title', 'facility_name', 'content')
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('title', 'facility_name', 'is_active')
+        }),
+        ('Content', {
+            'fields': ('content',),
+            'description': 'Main content for the about page. HTML is allowed.'
+        }),
+        ('Contact Information', {
+            'fields': ('contact_email', 'contact_phone', 'address', 'emergency_contact'),
+            'classes': ('collapse',)
+        }),
+        ('Operational Information', {
+            'fields': ('operating_hours', 'policies_url', 'safety_information'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.is_active and AboutPage.objects.filter(is_active=True).count() == 1:
+            return False
+        return super().has_delete_permission(request, obj)
 
 
 @admin.register(Faculty)

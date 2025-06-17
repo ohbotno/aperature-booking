@@ -18,7 +18,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import JsonResponse
 from django.contrib.auth import login
-from django.contrib.auth.views import PasswordResetView, PasswordResetConfirmView
+from django.contrib.auth.views import PasswordResetView, PasswordResetConfirmView, LoginView
 from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count
@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
 from .models import (
-    UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, 
+    AboutPage, UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, 
     PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, 
     Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest,
     ResourceResponsible, RiskAssessment, UserRiskAssessment, TrainingCourse, 
@@ -37,7 +37,7 @@ from .forms import (
     BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, 
     SaveAsTemplateForm, AccessRequestForm, AccessRequestReviewForm, RiskAssessmentForm, 
     UserRiskAssessmentForm, TrainingCourseForm, UserTrainingEnrollForm, ResourceResponsibleForm,
-    ResourceForm
+    ResourceForm, AboutPageEditForm
 )
 from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
@@ -764,27 +764,72 @@ def password_reset_complete_view(request):
 @login_required
 def create_booking_view(request):
     """Create a new booking."""
+    conflicts_detected = False
+    conflicting_bookings = []
+    
     if request.method == 'POST':
         form = BookingForm(request.POST, user=request.user)
+        
+        # Check if this is a conflict override attempt
+        override_conflicts = request.POST.get('override_conflicts') == 'true'
+        
+        # Debug logging
+        import logging
+        logger = logging.getLogger('booking')
+        logger.debug(f"Create booking POST data: {request.POST}")
+        logger.debug(f"User: {request.user}, is_superuser: {request.user.is_superuser}, is_staff: {request.user.is_staff}")
+        logger.debug(f"Override conflicts: {override_conflicts}")
+        
         if form.is_valid():
             try:
                 booking = form.save(commit=False)
                 booking.user = request.user
-                booking.save()
                 
+                # Handle conflict override if requested
+                if override_conflicts and form.cleaned_data.get('override_conflicts'):
+                    override_message = form.cleaned_data.get('override_message', '')
+                    conflicts = form.get_conflicts()
+                    
+                    # Process each conflicting booking
+                    from .notifications import BookingNotifications
+                    notification_service = BookingNotifications()
+                    
+                    for conflicting_booking in conflicts:
+                        notification_service.booking_overridden(
+                            conflicting_booking, 
+                            booking, 
+                            override_message
+                        )
+                
+                booking.save()
                 messages.success(request, f'Booking "{booking.title}" created successfully.')
                 return redirect('booking:booking_detail', pk=booking.pk)
+                
             except Exception as e:
                 messages.error(request, f'Error creating booking: {str(e)}')
         else:
-            # Add more detailed error messages
+            # Check if form validation failed due to conflicts
+            if hasattr(form, '_conflicts'):
+                conflicts_detected = True
+                conflicting_bookings = form._conflicts
+            
+            # Add error messages (excluding conflict messages for privileged users)
             for field, errors in form.errors.items():
                 for error in errors:
-                    messages.error(request, f'{field}: {error}')
+                    # Skip conflict error messages for privileged users as we handle them specially
+                    if not (conflicts_detected and form._can_override_conflicts() and 'conflict detected' in error.lower()):
+                        messages.error(request, f'{field.replace("_", " ").title()}: {error}')
     else:
         form = BookingForm(user=request.user)
     
-    return render(request, 'booking/create_booking.html', {'form': form})
+    context = {
+        'form': form,
+        'conflicts_detected': conflicts_detected,
+        'conflicting_bookings': conflicting_bookings,
+        'can_override': hasattr(form, '_can_override_conflicts') and form._can_override_conflicts(),
+    }
+    
+    return render(request, 'booking/create_booking.html', context)
 
 
 @login_required
@@ -4505,7 +4550,7 @@ def lab_admin_training_view(request):
         return redirect('booking:lab_admin_training')
     
     # Get training data
-    pending_requests = TrainingRequest.objects.filter(status='pending').select_related('user', 'training_course')
+    pending_requests = TrainingRequest.objects.filter(status='pending').select_related('user', 'resource', 'reviewed_by')
     upcoming_sessions = UserTraining.objects.filter(
         session_date__gte=timezone.now().date(),
         status='scheduled'
@@ -4837,3 +4882,66 @@ def calendar_sync_settings_view(request):
     }
     
     return render(request, 'booking/calendar_sync_settings.html', context)
+
+
+def about_page_view(request):
+    """Display the about page with configurable content."""
+    about_page = AboutPage.get_active()
+    
+    context = {
+        'about_page': about_page,
+    }
+    
+    return render(request, 'booking/about.html', context)
+
+
+@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
+def about_page_edit_view(request):
+    """Edit the about page with WYSIWYG editor."""
+    about_page = AboutPage.get_active()
+    
+    if request.method == 'POST':
+        form = AboutPageEditForm(request.POST, request.FILES, instance=about_page)
+        if form.is_valid():
+            about_page = form.save()
+            messages.success(request, 'About page has been updated successfully.')
+            return redirect('booking:about')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = AboutPageEditForm(instance=about_page)
+    
+    context = {
+        'form': form,
+        'about_page': about_page,
+        'is_new': about_page is None,
+    }
+    
+    return render(request, 'booking/about_edit.html', context)
+
+
+class CustomLoginView(LoginView):
+    """Custom login view that handles first login redirect logic."""
+    
+    def get_success_url(self):
+        """Redirect to about page on first login, dashboard on subsequent logins."""
+        user = self.request.user
+        
+        try:
+            profile = user.userprofile
+            
+            # Check if this is the user's first login
+            if profile.first_login is None:
+                # Mark the first login time
+                profile.first_login = timezone.now()
+                profile.save()
+                
+                # Redirect to about page for first-time users
+                return '/about/'
+            else:
+                # Redirect to dashboard for returning users
+                return '/dashboard/'
+                
+        except UserProfile.DoesNotExist:
+            # If no profile exists, redirect to about page
+            return '/about/'

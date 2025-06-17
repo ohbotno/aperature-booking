@@ -11,7 +11,7 @@ from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
 from .models import (
-    UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate, 
+    AboutPage, UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate, 
     Faculty, College, Department, AccessRequest, RiskAssessment, UserRiskAssessment, 
     TrainingCourse, UserTraining, ResourceResponsible
 )
@@ -474,6 +474,25 @@ class CustomAuthenticationForm(AuthenticationForm):
 class BookingForm(forms.ModelForm):
     """Form for creating and editing bookings."""
     
+    # Hidden field for conflict override
+    override_conflicts = forms.BooleanField(
+        required=False,
+        widget=forms.HiddenInput(),
+        help_text="Set to true to override booking conflicts (privileged users only)"
+    )
+    
+    # Field for custom override message
+    override_message = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 3,
+            'placeholder': 'Enter a message to notify the original booking holder about this override...',
+            'style': 'display: none;'
+        }),
+        help_text="Message to send to the original booking holder when overriding their booking"
+    )
+    
     class Meta:
         model = Booking
         fields = ['resource', 'title', 'description', 'start_time', 'end_time', 'shared_with_group', 'notes']
@@ -508,6 +527,8 @@ class BookingForm(forms.ModelForm):
         start_time = cleaned_data.get('start_time')
         end_time = cleaned_data.get('end_time')
         resource = cleaned_data.get('resource')
+        override_conflicts = cleaned_data.get('override_conflicts', False)
+        override_message = cleaned_data.get('override_message', '')
         
         if start_time and end_time:
             # Make timezone-aware if needed
@@ -540,8 +561,93 @@ class BookingForm(forms.ModelForm):
                     raise forms.ValidationError(
                         f"Booking exceeds maximum allowed hours ({resource.max_booking_hours}h)."
                     )
+            
+            # Check for booking conflicts
+            if resource and start_time and end_time:
+                try:
+                    conflicts = self._check_booking_conflicts(resource, start_time, end_time)
+                    
+                    if conflicts:
+                        # Check if user can override conflicts
+                        if self.user and self._can_override_conflicts():
+                            if not override_conflicts:
+                                # Show conflict information and override option
+                                conflict_details = self._format_conflict_details(conflicts)
+                                self._conflicts = conflicts  # Store for view to handle
+                                raise forms.ValidationError(
+                                    f"Booking conflict detected: {conflict_details}. "
+                                    "As a privileged user, you can override this conflict."
+                                )
+                            elif override_conflicts and not override_message.strip():
+                                raise forms.ValidationError(
+                                    "Please provide a message to notify the original booking holder about this override."
+                                )
+                        else:
+                            # Regular user - cannot override
+                            conflict_details = self._format_conflict_details(conflicts)
+                            raise forms.ValidationError(
+                                f"Booking conflict detected: {conflict_details}. "
+                                "Please choose a different time slot."
+                            )
+                except Exception as e:
+                    # Log the error but don't crash the form
+                    import logging
+                    logger = logging.getLogger('booking')
+                    logger.error(f"Error in conflict detection: {e}")
+                    # Allow booking to proceed if conflict detection fails
         
         return cleaned_data
+    
+    def _can_override_conflicts(self):
+        """Check if the current user can override booking conflicts."""
+        if not self.user:
+            return False
+        
+        # Superusers and staff can always override
+        if self.user.is_superuser or self.user.is_staff:
+            return True
+        
+        try:
+            profile = self.user.userprofile
+            return profile.role in ['lecturer', 'technician', 'lab_manager', 'sysadmin']
+        except UserProfile.DoesNotExist:
+            # If no profile exists, fall back to Django permissions
+            return False
+    
+    def _check_booking_conflicts(self, resource, start_time, end_time):
+        """Check for booking conflicts with the given time slot."""
+        conflicts = Booking.objects.filter(
+            resource=resource,
+            status__in=['approved', 'pending'],
+            start_time__lt=end_time,
+            end_time__gt=start_time
+        )
+        
+        # Exclude current booking if editing
+        if self.instance and self.instance.pk:
+            conflicts = conflicts.exclude(pk=self.instance.pk)
+        
+        return list(conflicts)
+    
+    def _format_conflict_details(self, conflicts):
+        """Format conflict details for user display."""
+        if not conflicts:
+            return "No conflicts found"
+        
+        details = []
+        for conflict in conflicts:
+            user_name = f"{conflict.user.first_name} {conflict.user.last_name}".strip()
+            if not user_name:
+                user_name = conflict.user.username
+            
+            time_str = f"{conflict.start_time.strftime('%m/%d %H:%M')} - {conflict.end_time.strftime('%H:%M')}"
+            details.append(f"'{conflict.title}' by {user_name} ({time_str})")
+        
+        return "; ".join(details)
+    
+    def get_conflicts(self):
+        """Get conflicts detected during validation for view processing."""
+        return getattr(self, '_conflicts', [])
 
 
 class RecurringBookingForm(forms.Form):
@@ -1124,3 +1230,105 @@ class ResourceForm(forms.ModelForm):
         if capacity > 100:
             raise forms.ValidationError('Capacity cannot exceed 100.')
         return capacity
+
+
+class AboutPageEditForm(forms.ModelForm):
+    """Form for editing the About page with WYSIWYG editor."""
+    
+    class Meta:
+        model = AboutPage
+        fields = [
+            'title', 'facility_name', 'content', 'image', 'contact_email', 
+            'contact_phone', 'address', 'operating_hours', 
+            'policies_url', 'emergency_contact', 'safety_information'
+        ]
+        widgets = {
+            'title': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'e.g., About Our Research Lab'
+            }),
+            'facility_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'e.g., Advanced Materials Research Laboratory'
+            }),
+            'content': forms.Textarea(attrs={
+                'class': 'form-control content-textarea',
+                'rows': 15,
+                'placeholder': 'Enter the main content for your about page...'
+            }),
+            'image': forms.FileInput(attrs={
+                'class': 'form-control',
+                'accept': 'image/*'
+            }),
+            'contact_email': forms.EmailInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'contact@university.edu'
+            }),
+            'contact_phone': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': '+44 1792 295678'
+            }),
+            'address': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 3,
+                'placeholder': 'Building, Room, University\nCity, Postcode'
+            }),
+            'operating_hours': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 4,
+                'placeholder': 'Monday - Friday: 9:00 AM - 6:00 PM\nSaturday: 10:00 AM - 4:00 PM\nSunday: Closed'
+            }),
+            'policies_url': forms.URLInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'https://university.edu/lab-policies'
+            }),
+            'emergency_contact': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Emergency: +44 1792 123456'
+            }),
+            'safety_information': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 4,
+                'placeholder': 'Important safety information for lab users...'
+            })
+        }
+        help_texts = {
+            'title': 'The main heading for your about page',
+            'facility_name': 'Official name of your facility or laboratory',
+            'content': 'Main content describing your facility, services, and important information',
+            'image': 'Upload an image to display alongside your content (optional)',
+            'contact_email': 'Primary contact email for inquiries',
+            'contact_phone': 'Primary contact phone number',
+            'address': 'Physical address of your facility',
+            'operating_hours': 'Normal operating hours and any special schedules',
+            'policies_url': 'Link to detailed policies and procedures document',
+            'emergency_contact': 'Emergency contact information',
+            'safety_information': 'Critical safety information that users must know'
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Add required field indicators
+        for field_name, field in self.fields.items():
+            if field.required:
+                field.widget.attrs['required'] = True
+                if 'placeholder' in field.widget.attrs:
+                    field.widget.attrs['placeholder'] += ' *'
+
+    def clean_content(self):
+        """Validate content field."""
+        content = self.cleaned_data.get('content')
+        if not content or not content.strip():
+            raise forms.ValidationError('Content is required.')
+        return content
+
+    def save(self, commit=True):
+        """Override save to ensure only one active AboutPage."""
+        instance = super().save(commit=False)
+        instance.is_active = True
+        if commit:
+            # Deactivate all other AboutPages
+            AboutPage.objects.filter(is_active=True).update(is_active=False)
+            instance.save()
+        return instance

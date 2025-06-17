@@ -20,12 +20,68 @@ import uuid
 import json
 
 
+class AboutPage(models.Model):
+    """Admin-configurable about page content."""
+    title = models.CharField(max_length=200, default="About Our Lab")
+    content = models.TextField(
+        help_text="Main content for the about page. HTML is allowed."
+    )
+    facility_name = models.CharField(max_length=200, blank=True)
+    contact_email = models.EmailField(blank=True)
+    contact_phone = models.CharField(max_length=50, blank=True)
+    address = models.TextField(blank=True)
+    operating_hours = models.TextField(
+        blank=True,
+        help_text="Describe your normal operating hours"
+    )
+    policies_url = models.URLField(
+        blank=True,
+        help_text="Link to detailed policies document"
+    )
+    emergency_contact = models.CharField(max_length=200, blank=True)
+    safety_information = models.TextField(
+        blank=True,
+        help_text="Important safety information for lab users"
+    )
+    image = models.ImageField(
+        upload_to='about_page/',
+        blank=True,
+        null=True,
+        help_text="Optional image to display alongside the content"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Only one AboutPage can be active at a time"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'booking_aboutpage'
+        verbose_name = "About Page"
+        verbose_name_plural = "About Pages"
+
+    def __str__(self):
+        return f"{self.title} ({'Active' if self.is_active else 'Inactive'})"
+
+    def save(self, *args, **kwargs):
+        if self.is_active:
+            AboutPage.objects.filter(is_active=True).update(is_active=False)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_active(cls):
+        """Get the currently active about page."""
+        return cls.objects.filter(is_active=True).first()
+
+
 class NotificationPreference(models.Model):
     """User notification preferences."""
     NOTIFICATION_TYPES = [
         ('booking_confirmed', 'Booking Confirmed'),
         ('booking_cancelled', 'Booking Cancelled'), 
         ('booking_reminder', 'Booking Reminder'),
+        ('booking_overridden', 'Booking Overridden'),
         ('approval_request', 'Approval Request'),
         ('approval_decision', 'Approval Decision'),
         ('maintenance_alert', 'Maintenance Alert'),
@@ -364,6 +420,11 @@ class UserProfile(models.Model):
     training_level = models.PositiveIntegerField(default=1)
     is_inducted = models.BooleanField(default=False)
     email_verified = models.BooleanField(default=False)
+    first_login = models.DateTimeField(
+        null=True, 
+        blank=True, 
+        help_text="Timestamp of user's first login"
+    )
     
     # Timezone and localization
     timezone = models.CharField(

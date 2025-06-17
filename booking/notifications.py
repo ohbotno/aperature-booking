@@ -39,6 +39,7 @@ class NotificationService:
             'approval_decision': {'email': True, 'in_app': True, 'push': True, 'sms': False},
             'maintenance_alert': {'email': True, 'in_app': True, 'push': True, 'sms': False},
             'conflict_detected': {'email': True, 'in_app': True, 'push': True, 'sms': False},
+            'booking_overridden': {'email': True, 'in_app': True, 'push': True, 'sms': False},
             'quota_warning': {'email': True, 'in_app': False, 'push': False, 'sms': False},
             'waitlist_joined': {'email': False, 'in_app': True, 'push': True, 'sms': False},
             'waitlist_availability': {'email': True, 'in_app': True, 'push': True, 'sms': True},
@@ -552,6 +553,65 @@ class BookingNotifications:
                 'booking_id': booking.id,
                 'conflicting_booking_ids': [b.id for b in conflicting_bookings],
             }
+        )
+    
+    def booking_overridden(self, original_booking: Booking, overriding_booking: Booking, override_message: str = ''):
+        """Send notification when a booking is overridden by a privileged user."""
+        overrider_name = f"{overriding_booking.user.first_name} {overriding_booking.user.last_name}".strip()
+        if not overrider_name:
+            overrider_name = overriding_booking.user.username
+        
+        # Get the overrider's role for context
+        overrider_role = "Administrator"
+        try:
+            profile = overriding_booking.user.userprofile
+            role_display = {
+                'lecturer': 'Lecturer',
+                'technician': 'Technician',
+                'lab_manager': 'Lab Manager',
+                'sysadmin': 'System Administrator'
+            }
+            overrider_role = role_display.get(profile.role, 'Administrator')
+        except:
+            pass
+        
+        # Construct notification message
+        message_parts = [
+            f'Your booking "{original_booking.title}" for {original_booking.resource.name}',
+            f'({original_booking.start_time.strftime("%m/%d %I:%M %p")} - {original_booking.end_time.strftime("%I:%M %p")})',
+            f'has been overridden by {overrider_name} ({overrider_role}).'
+        ]
+        
+        if override_message.strip():
+            message_parts.append(f'\n\nMessage from {overrider_name}: {override_message.strip()}')
+        
+        # Cancel the original booking
+        original_booking.status = 'cancelled'
+        original_booking.save()
+        
+        # Send notification to original booking holder
+        self.service.create_notification(
+            user=original_booking.user,
+            notification_type='booking_overridden',
+            title=f'Booking Override: {original_booking.resource.name}',
+            message=''.join(message_parts),
+            priority='high',
+            booking=original_booking,
+            metadata={
+                'original_booking_id': original_booking.id,
+                'overriding_booking_id': overriding_booking.id,
+                'overrider_id': overriding_booking.user.id,
+                'overrider_name': overrider_name,
+                'overrider_role': overrider_role,
+                'override_message': override_message,
+                'resource_id': original_booking.resource.id,
+            }
+        )
+        
+        # Log the override action
+        logger.info(
+            f"Booking override: {overrider_name} ({overrider_role}) overrode booking {original_booking.id} "
+            f"by {original_booking.user.username} for {original_booking.resource.name}"
         )
     
     def _notify_approvers(self, booking: Booking):

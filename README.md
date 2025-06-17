@@ -1,4 +1,4 @@
-# Aperture Booking
+# Aperture Booking v1.0.0
 
 An open-source Django application for managing laboratory resource bookings across academic institutions. Prevents double-booking conflicts while enabling group collaboration and providing comprehensive usage analytics.
 
@@ -484,6 +484,6 @@ For institutional deployment, training, or custom development:
 
 ---
 
-**Aperture Booking** - A Lab booking system. Streamlining laboratory resource management for academic institutions worldwide.
+**Aperture Booking v1.0.0** - A Lab booking system. Streamlining laboratory resource management for academic institutions worldwide.
 
 Made with ❤️ for the open source community.

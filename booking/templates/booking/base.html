@@ -90,7 +90,7 @@
             <a class="navbar-brand" href="{% url 'booking:calendar' %}">
                 <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" class="logo-cropped" style="height: 32px; width: 45px; margin-right: 8px;">
                 <span class="fw-bold">Aperture Booking</span>
-                <small class="text-muted ms-2" style="font-size: 0.7em;">A Lab booking system</small>
+                <small class="text-muted ms-2" style="font-size: 0.7em;">A Lab booking system v1.0.0</small>
             </a>
             
             <div class="navbar-nav ms-auto">
@@ -142,9 +142,9 @@
                 <div class="sidebar-sticky">
                     <ul class="nav flex-column">
                         <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'calendar' %}active{% endif %}" 
-                               href="{% url 'booking:calendar' %}">
-                                <i class="bi bi-calendar3"></i> Calendar
+                            <a class="nav-link {% if request.resolver_match.url_name == 'about' %}active{% endif %}" 
+                               href="{% url 'booking:about' %}">
+                                <i class="bi bi-info-circle"></i> About
                             </a>
                         </li>
                         <li class="nav-item">
@@ -154,9 +154,21 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if 'resource' in request.resolver_match.url_name %}active{% endif %}" 
+                               href="{% url 'booking:resources_list' %}">
+                                <i class="bi bi-tools"></i> Resources
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if request.resolver_match.url_name == 'my_bookings' %}active{% endif %}" 
                                href="{% url 'booking:my_bookings' %}">
                                 <i class="bi bi-calendar-check"></i> My Bookings
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.resolver_match.url_name == 'calendar' %}active{% endif %}" 
+                               href="{% url 'booking:calendar' %}">
+                                <i class="bi bi-calendar3"></i> Calendar
                             </a>
                         </li>
                         <li class="nav-item">
@@ -165,19 +177,7 @@
                                 <i class="bi bi-file-earmark-text"></i> Templates
                             </a>
                         </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if 'resource' in request.resolver_match.url_name %}active{% endif %}" 
-                               href="{% url 'booking:resources_list' %}">
-                                <i class="bi bi-tools"></i> Resources
-                            </a>
-                        </li>
                         {% if user.userprofile.role in 'technician,sysadmin' %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'conflicts' %}active{% endif %}" 
-                               href="{% url 'booking:conflicts' %}">
-                                <i class="bi bi-exclamation-triangle"></i> Conflicts
-                            </a>
-                        </li>
                         <li class="nav-item">
                             <a class="nav-link {% if request.resolver_match.url_name == 'manage_bookings' %}active{% endif %}" 
                                href="{% url 'booking:manage_bookings' %}">
@@ -243,13 +243,6 @@
                         </li>
                     </ul>
                     {% endif %}
-                    
-                    <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
-                        <span>Resources</span>
-                    </h6>
-                    <ul class="nav flex-column mb-2" id="resource-list">
-                        <!-- Resources will be loaded via JavaScript -->
-                    </ul>
                 </div>
             </nav>
 
@@ -320,24 +313,6 @@
                 }, 8000);
             });
         });
-        
-        // Load resources into sidebar
-        fetch('/api/resources/')
-            .then(response => response.json())
-            .then(data => {
-                const resourceList = document.getElementById('resource-list');
-                data.results.forEach(resource => {
-                    const li = document.createElement('li');
-                    li.className = 'nav-item';
-                    li.innerHTML = `
-                        <a class="nav-link text-muted" href="#" data-resource-id="${resource.id}">
-                            <i class="bi bi-gear"></i> ${resource.name}
-                        </a>
-                    `;
-                    resourceList.appendChild(li);
-                });
-            })
-            .catch(error => console.error('Error loading resources:', error));
     </script>
     
     <style>

@@ -16,11 +16,12 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib.auth import views as auth_views
 from booking.forms import CustomAuthenticationForm
+from booking.views import CustomLoginView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    # Custom login view with our form
-    path('accounts/login/', auth_views.LoginView.as_view(authentication_form=CustomAuthenticationForm), name='login'),
+    # Custom login view with our form and first login logic
+    path('accounts/login/', CustomLoginView.as_view(authentication_form=CustomAuthenticationForm), name='login'),
     # Include other auth URLs
     path('accounts/', include('django.contrib.auth.urls')),
     path('api/', include('booking.api_urls')),
