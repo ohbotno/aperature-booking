@@ -28,7 +28,8 @@ from .models import (
     SystemSetting, PDFExportSettings,
     ResourceResponsible, RiskAssessment, UserRiskAssessment,
     TrainingCourse, ResourceTrainingRequirement, UserTraining,
-    ApprovalStatistics
+    ApprovalStatistics, MaintenanceVendor, MaintenanceDocument,
+    MaintenanceAlert, MaintenanceAnalytics
 )
 
 
@@ -375,13 +376,6 @@ class ApprovalRuleAdmin(admin.ModelAdmin):
     search_fields = ('name', 'resource__name')
     filter_horizontal = ('approvers',)
 
-
-@admin.register(Maintenance)
-class MaintenanceAdmin(admin.ModelAdmin):
-    list_display = ('title', 'resource', 'start_time', 'end_time', 'maintenance_type', 'blocks_booking')
-    list_filter = ('maintenance_type', 'blocks_booking', 'is_recurring')
-    search_fields = ('title', 'description', 'resource__name')
-    date_hierarchy = 'start_time'
 
 
 @admin.register(BookingHistory)
@@ -1439,4 +1433,299 @@ class ApprovalStatisticsAdmin(admin.ModelAdmin):
         
         return response
     export_statistics_csv.short_description = 'Export selected statistics to CSV'
+
+
+# Maintenance Management Admin
+
+@admin.register(MaintenanceVendor)
+class MaintenanceVendorAdmin(admin.ModelAdmin):
+    list_display = ('name', 'contact_person', 'email', 'phone', 'is_active', 'contract_active', 'rating')
+    list_filter = ('is_active', 'specialties', 'contract_start_date', 'contract_end_date')
+    search_fields = ('name', 'contact_person', 'email', 'specialties')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'contact_person', 'email', 'phone', 'address', 'website')
+        }),
+        ('Capabilities', {
+            'fields': ('specialties', 'certifications', 'service_areas')
+        }),
+        ('Performance', {
+            'fields': ('average_response_time', 'rating')
+        }),
+        ('Business Details', {
+            'fields': ('hourly_rate', 'emergency_rate', 'contract_start_date', 'contract_end_date')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'notes')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def contract_active(self, obj):
+        return obj.contract_active
+    contract_active.boolean = True
+    contract_active.short_description = 'Contract Active'
+
+
+class MaintenanceDocumentInline(admin.TabularInline):
+    model = MaintenanceDocument
+    extra = 0
+    readonly_fields = ('uploaded_at', 'file_size')
+    fields = ('title', 'document_type', 'file', 'is_public', 'uploaded_at')
+
+
+class MaintenanceAlertInline(admin.TabularInline):
+    model = MaintenanceAlert
+    extra = 0
+    readonly_fields = ('created_at', 'acknowledged_at', 'resolved_at')
+    fields = ('alert_type', 'severity', 'title', 'is_active', 'created_at')
+
+
+@admin.register(Maintenance)
+class MaintenanceAdmin(admin.ModelAdmin):
+    list_display = ('title', 'resource', 'maintenance_type', 'priority', 'status', 'start_time', 'vendor', 'actual_cost')
+    list_filter = ('maintenance_type', 'priority', 'status', 'is_internal', 'vendor', 'start_time')
+    search_fields = ('title', 'description', 'resource__name', 'vendor__name')
+    readonly_fields = ('created_at', 'updated_at', 'completed_at', 'cost_variance', 'cost_variance_percentage')
+    date_hierarchy = 'start_time'
+    inlines = [MaintenanceDocumentInline, MaintenanceAlertInline]
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('resource', 'title', 'description', 'maintenance_type', 'priority', 'status')
+        }),
+        ('Schedule', {
+            'fields': ('start_time', 'end_time', 'is_recurring', 'next_maintenance_date')
+        }),
+        ('Resource Management', {
+            'fields': ('vendor', 'is_internal', 'assigned_to', 'approved_by')
+        }),
+        ('Cost Tracking', {
+            'fields': ('estimated_cost', 'actual_cost', 'labor_hours', 'parts_cost', 'cost_variance', 'cost_variance_percentage')
+        }),
+        ('Impact', {
+            'fields': ('blocks_booking', 'affects_other_resources', 'prerequisite_maintenances')
+        }),
+        ('Completion', {
+            'fields': ('completion_notes', 'issues_found', 'recommendations', 'completed_at'),
+            'classes': ('collapse',)
+        }),
+        ('Audit', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    filter_horizontal = ('affects_other_resources', 'prerequisite_maintenances')
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'resource', 'vendor', 'created_by', 'assigned_to', 'approved_by'
+        )
+    
+    actions = ['mark_completed', 'mark_in_progress', 'calculate_analytics']
+    
+    def mark_completed(self, request, queryset):
+        """Mark selected maintenance as completed."""
+        from django.utils import timezone
+        updated = 0
+        for maintenance in queryset:
+            if maintenance.status != 'completed':
+                maintenance.status = 'completed'
+                maintenance.completed_at = timezone.now()
+                maintenance.save()
+                updated += 1
+        
+        self.message_user(request, f'Marked {updated} maintenance items as completed.')
+    mark_completed.short_description = 'Mark selected maintenance as completed'
+    
+    def mark_in_progress(self, request, queryset):
+        """Mark selected maintenance as in progress."""
+        updated = queryset.exclude(status='completed').update(status='in_progress')
+        self.message_user(request, f'Marked {updated} maintenance items as in progress.')
+    mark_in_progress.short_description = 'Mark selected maintenance as in progress'
+    
+    def calculate_analytics(self, request, queryset):
+        """Recalculate analytics for resources with selected maintenance."""
+        resources = set(maintenance.resource for maintenance in queryset)
+        updated = 0
+        
+        for resource in resources:
+            analytics, created = MaintenanceAnalytics.objects.get_or_create(resource=resource)
+            analytics.calculate_metrics()
+            updated += 1
+        
+        self.message_user(request, f'Recalculated analytics for {updated} resources.')
+    calculate_analytics.short_description = 'Recalculate analytics for affected resources'
+
+
+@admin.register(MaintenanceDocument)
+class MaintenanceDocumentAdmin(admin.ModelAdmin):
+    list_display = ('title', 'maintenance', 'document_type', 'uploaded_by', 'uploaded_at', 'is_public', 'file_size_display')
+    list_filter = ('document_type', 'is_public', 'uploaded_at')
+    search_fields = ('title', 'description', 'maintenance__title', 'tags')
+    readonly_fields = ('uploaded_at', 'file_size')
+    
+    fieldsets = (
+        ('Document Information', {
+            'fields': ('maintenance', 'title', 'description', 'document_type')
+        }),
+        ('File', {
+            'fields': ('file', 'file_size')
+        }),
+        ('Metadata', {
+            'fields': ('tags', 'is_public', 'version')
+        }),
+        ('Upload Info', {
+            'fields': ('uploaded_by', 'uploaded_at')
+        })
+    )
+    
+    def file_size_display(self, obj):
+        if obj.file_size:
+            if obj.file_size < 1024:
+                return f"{obj.file_size} B"
+            elif obj.file_size < 1024 * 1024:
+                return f"{obj.file_size / 1024:.1f} KB"
+            else:
+                return f"{obj.file_size / (1024 * 1024):.1f} MB"
+        return "-"
+    file_size_display.short_description = 'File Size'
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('maintenance', 'uploaded_by')
+
+
+@admin.register(MaintenanceAlert)
+class MaintenanceAlertAdmin(admin.ModelAdmin):
+    list_display = ('title', 'resource', 'alert_type', 'severity', 'is_active', 'created_at', 'acknowledged_by')
+    list_filter = ('alert_type', 'severity', 'is_active', 'created_at')
+    search_fields = ('title', 'message', 'resource__name')
+    readonly_fields = ('created_at', 'acknowledged_at', 'resolved_at')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Alert Information', {
+            'fields': ('resource', 'maintenance', 'alert_type', 'severity', 'title')
+        }),
+        ('Content', {
+            'fields': ('message', 'recommendation')
+        }),
+        ('Metrics', {
+            'fields': ('threshold_value', 'actual_value', 'alert_data')
+        }),
+        ('Status', {
+            'fields': ('is_active', 'expires_at')
+        }),
+        ('Response', {
+            'fields': ('acknowledged_by', 'acknowledged_at', 'resolved_at')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('resource', 'maintenance', 'acknowledged_by')
+    
+    actions = ['acknowledge_alerts', 'resolve_alerts', 'extend_expiry']
+    
+    def acknowledge_alerts(self, request, queryset):
+        """Acknowledge selected alerts."""
+        updated = 0
+        for alert in queryset.filter(acknowledged_by__isnull=True):
+            alert.acknowledge(request.user)
+            updated += 1
+        
+        self.message_user(request, f'Acknowledged {updated} alerts.')
+    acknowledge_alerts.short_description = 'Acknowledge selected alerts'
+    
+    def resolve_alerts(self, request, queryset):
+        """Resolve selected alerts."""
+        updated = 0
+        for alert in queryset.filter(resolved_at__isnull=True):
+            alert.resolve()
+            updated += 1
+        
+        self.message_user(request, f'Resolved {updated} alerts.')
+    resolve_alerts.short_description = 'Resolve selected alerts'
+    
+    def extend_expiry(self, request, queryset):
+        """Extend alert expiry by 7 days."""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        updated = 0
+        for alert in queryset.filter(expires_at__isnull=False):
+            alert.expires_at = alert.expires_at + timedelta(days=7)
+            alert.save()
+            updated += 1
+        
+        self.message_user(request, f'Extended expiry for {updated} alerts.')
+    extend_expiry.short_description = 'Extend expiry by 7 days'
+
+
+@admin.register(MaintenanceAnalytics)
+class MaintenanceAnalyticsAdmin(admin.ModelAdmin):
+    list_display = (
+        'resource', 'total_maintenance_count', 'total_maintenance_cost', 
+        'preventive_cost_ratio', 'first_time_fix_rate', 'last_calculated'
+    )
+    list_filter = ('last_calculated',)
+    search_fields = ('resource__name',)
+    readonly_fields = (
+        'total_maintenance_cost', 'average_maintenance_cost', 'preventive_cost_ratio',
+        'total_downtime_hours', 'average_repair_time', 'planned_vs_unplanned_ratio',
+        'total_maintenance_count', 'preventive_maintenance_count', 'corrective_maintenance_count',
+        'emergency_maintenance_count', 'first_time_fix_rate', 'mean_time_between_failures',
+        'mean_time_to_repair', 'vendor_performance_score', 'external_maintenance_ratio',
+        'last_calculated'
+    )
+    
+    fieldsets = (
+        ('Resource', {
+            'fields': ('resource',)
+        }),
+        ('Cost Metrics', {
+            'fields': ('total_maintenance_cost', 'average_maintenance_cost', 'preventive_cost_ratio')
+        }),
+        ('Time Metrics', {
+            'fields': ('total_downtime_hours', 'average_repair_time', 'planned_vs_unplanned_ratio')
+        }),
+        ('Frequency Metrics', {
+            'fields': (
+                'total_maintenance_count', 'preventive_maintenance_count', 
+                'corrective_maintenance_count', 'emergency_maintenance_count'
+            )
+        }),
+        ('Performance Metrics', {
+            'fields': ('first_time_fix_rate', 'mean_time_between_failures', 'mean_time_to_repair')
+        }),
+        ('Vendor Metrics', {
+            'fields': ('vendor_performance_score', 'external_maintenance_ratio')
+        }),
+        ('Predictions', {
+            'fields': ('next_failure_prediction', 'failure_probability', 'recommended_maintenance_interval')
+        }),
+        ('System', {
+            'fields': ('last_calculated',)
+        })
+    )
+    
+    actions = ['recalculate_metrics']
+    
+    def recalculate_metrics(self, request, queryset):
+        """Recalculate metrics for selected analytics."""
+        updated = 0
+        for analytics in queryset:
+            analytics.calculate_metrics()
+            updated += 1
+        
+        self.message_user(request, f'Recalculated metrics for {updated} resources.')
+    recalculate_metrics.short_description = 'Recalculate metrics for selected analytics'
 
