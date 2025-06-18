@@ -5,10 +5,13 @@ URL configuration for the booking app.
 This file is part of the Aperture Booking.
 Copyright (C) 2025 Aperture Booking Contributors
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+This software is dual-licensed:
+1. GNU General Public License v3.0 (GPL-3.0) - for open source use
+2. Commercial License - for proprietary and commercial use
+
+For GPL-3.0 license terms, see LICENSE file.
+For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
+https://aperture-booking.org/commercial
 """
 
 from django.urls import path, include
@@ -128,6 +131,11 @@ urlpatterns = [
     path('lab-admin/resources/add/', views.lab_admin_add_resource_view, name='lab_admin_add_resource'),
     path('lab-admin/resources/<int:resource_id>/edit/', views.lab_admin_edit_resource_view, name='lab_admin_edit_resource'),
     path('lab-admin/resources/<int:resource_id>/delete/', views.lab_admin_delete_resource_view, name='lab_admin_delete_resource'),
+    path('lab-admin/maintenance/', views.lab_admin_maintenance_view, name='lab_admin_maintenance'),
+    path('lab-admin/maintenance/add/', views.lab_admin_add_maintenance_view, name='lab_admin_add_maintenance'),
+    path('lab-admin/maintenance/<int:maintenance_id>/', views.lab_admin_edit_maintenance_view, name='lab_admin_view_maintenance'),
+    path('lab-admin/maintenance/<int:maintenance_id>/edit/', views.lab_admin_edit_maintenance_view, name='lab_admin_edit_maintenance'),
+    path('lab-admin/maintenance/<int:maintenance_id>/delete/', views.lab_admin_delete_maintenance_view, name='lab_admin_delete_maintenance'),
     
     # Calendar Sync URLs
     path('calendar/export/', views.export_my_calendar_view, name='export_my_calendar'),
@@ -135,6 +143,26 @@ urlpatterns = [
     path('calendar/public/<str:token>/', views.public_calendar_feed_view, name='public_calendar_feed'),
     path('calendar/resource/<int:resource_id>/export/', views.export_resource_calendar_view, name='export_resource_calendar'),
     path('calendar/sync-settings/', views.calendar_sync_settings_view, name='calendar_sync_settings'),
+    
+    # Calendar Invitation URLs
+    path('booking/<int:booking_id>/invitation/', views.download_booking_invitation, name='download_booking_invitation'),
+    path('maintenance/<int:maintenance_id>/invitation/', views.download_maintenance_invitation, name='download_maintenance_invitation'),
+    
+    # Tutorial System URLs
+    path('tutorials/', views.tutorial_management_view, name='tutorial_management'),
+    path('tutorials/create/', views.tutorial_create_view, name='tutorial_create'),
+    path('tutorials/<int:tutorial_id>/edit/', views.tutorial_edit_view, name='tutorial_edit'),
+    path('tutorials/<int:tutorial_id>/preview/', views.tutorial_preview_view, name='tutorial_preview'),
+    path('tutorials/<int:tutorial_id>/analytics/', views.tutorial_analytics_view, name='tutorial_analytics'),
+    path('tutorials/categories/create/', views.tutorial_create_category_view, name='tutorial_create_category'),
+    path('tutorials/categories/<int:category_id>/edit/', views.tutorial_edit_category_view, name='tutorial_edit_category'),
+    
+    # Tutorial API URLs
+    path('api/tutorials/<int:tutorial_id>/', views.tutorial_api_detail, name='tutorial_api_detail'),
+    path('api/tutorials/progress/', views.tutorial_api_progress, name='tutorial_api_progress'),
+    path('api/tutorials/feedback/', views.tutorial_api_feedback, name='tutorial_api_feedback'),
+    path('api/tutorials/auto-start/', views.tutorial_api_auto_start, name='tutorial_api_auto_start'),
+    path('api/tutorials/available/', views.tutorial_api_available, name='tutorial_api_available'),
     
     # AJAX helper URLs
     path('ajax/load-colleges/', views.ajax_load_colleges, name='ajax_load_colleges'),

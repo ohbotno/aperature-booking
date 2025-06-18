@@ -5,10 +5,13 @@ API views for the Aperture Booking.
 This file is part of the Aperture Booking.
 Copyright (C) 2025 Aperture Booking Contributors
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+This software is dual-licensed:
+1. GNU General Public License v3.0 (GPL-3.0) - for open source use
+2. Commercial License - for proprietary and commercial use
+
+For GPL-3.0 license terms, see LICENSE file.
+For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
+https://aperture-booking.org/commercial
 """
 
 from rest_framework import viewsets, status, permissions
@@ -30,14 +33,14 @@ from .models import (
     PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, 
     Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest,
     ResourceResponsible, RiskAssessment, UserRiskAssessment, TrainingCourse, 
-    ResourceTrainingRequirement, UserTraining
+    ResourceTrainingRequirement, UserTraining, TutorialCategory, Tutorial, UserTutorialProgress, TutorialAnalytics
 )
 from .forms import (
     UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, 
     BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, 
     SaveAsTemplateForm, AccessRequestForm, AccessRequestReviewForm, RiskAssessmentForm, 
     UserRiskAssessmentForm, TrainingCourseForm, UserTrainingEnrollForm, ResourceResponsibleForm,
-    ResourceForm, AboutPageEditForm
+    ResourceForm, AboutPageEditForm, TutorialCategoryForm, TutorialForm, TutorialFeedbackForm
 )
 from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
@@ -603,6 +606,84 @@ class MaintenanceViewSet(viewsets.ReadOnlyModelViewSet):
                 pass
         
         return queryset.order_by('start_time')
+    
+    @action(detail=False, methods=['get'])
+    def calendar(self, request):
+        """Get maintenance periods formatted for FullCalendar."""
+        # Get date range from query params
+        start = request.query_params.get('start')
+        end = request.query_params.get('end')
+        resource_id = request.query_params.get('resource')
+        
+        # Base queryset
+        maintenance_periods = self.get_queryset()
+        
+        # Filter by date range if provided
+        if start and end:
+            try:
+                start_date = timezone.make_aware(datetime.fromisoformat(start.replace('Z', '+00:00')))
+                end_date = timezone.make_aware(datetime.fromisoformat(end.replace('Z', '+00:00')))
+                maintenance_periods = maintenance_periods.filter(
+                    end_time__gte=start_date,
+                    start_time__lte=end_date
+                )
+            except ValueError:
+                pass
+        
+        # Filter by resource if specified
+        if resource_id:
+            try:
+                maintenance_periods = maintenance_periods.filter(resource_id=resource_id)
+            except ValueError:
+                pass
+        
+        # Format for FullCalendar
+        events = []
+        for maintenance in maintenance_periods:
+            # Color coding based on maintenance type and status
+            now = timezone.now()
+            if maintenance.start_time > now:
+                # Scheduled maintenance - blue
+                color = '#007bff'
+            elif maintenance.end_time < now:
+                # Completed maintenance - gray
+                color = '#6c757d'
+            else:
+                # Active maintenance - orange
+                color = '#fd7e14'
+            
+            # Override color based on maintenance type
+            type_colors = {
+                'preventive': '#28a745',  # green
+                'corrective': '#dc3545',  # red
+                'inspection': '#17a2b8',  # cyan
+                'calibration': '#6f42c1',  # purple
+                'repair': '#ffc107',      # yellow
+                'upgrade': '#6c757d'      # gray
+            }
+            color = type_colors.get(maintenance.maintenance_type, color)
+            
+            events.append({
+                'id': f'maintenance-{maintenance.id}',
+                'title': f'🔧 {maintenance.title}',
+                'start': maintenance.start_time.isoformat(),
+                'end': maintenance.end_time.isoformat(),
+                'backgroundColor': color,
+                'borderColor': color,
+                'display': 'block',
+                'classNames': ['maintenance-event'],
+                'extendedProps': {
+                    'type': 'maintenance',
+                    'resource': maintenance.resource.name,
+                    'maintenance_type': maintenance.maintenance_type,
+                    'description': maintenance.description,
+                    'blocks_booking': maintenance.blocks_booking,
+                    'is_recurring': maintenance.is_recurring,
+                    'created_by': maintenance.created_by.get_full_name() or maintenance.created_by.username,
+                }
+            })
+        
+        return Response(events)
 
 
 # Template views
@@ -4745,6 +4826,251 @@ def lab_admin_delete_resource_view(request, resource_id):
 
 
 @login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_maintenance_view(request):
+    """Display and manage maintenance periods for lab administrators."""
+    from django.core.paginator import Paginator
+    from django.utils import timezone
+    
+    # Get filter parameters
+    resource_filter = request.GET.get('resource', '')
+    type_filter = request.GET.get('type', '')
+    search_query = request.GET.get('search', '')
+    
+    # Base queryset
+    maintenance_list = Maintenance.objects.select_related('resource', 'created_by').order_by('-start_time')
+    
+    # Apply filters
+    if resource_filter:
+        maintenance_list = maintenance_list.filter(resource_id=resource_filter)
+    
+    if type_filter:
+        maintenance_list = maintenance_list.filter(maintenance_type=type_filter)
+    
+    if search_query:
+        maintenance_list = maintenance_list.filter(
+            Q(title__icontains=search_query) |
+            Q(description__icontains=search_query) |
+            Q(resource__name__icontains=search_query)
+        )
+    
+    # Pagination
+    paginator = Paginator(maintenance_list, 25)
+    page_number = request.GET.get('page')
+    maintenance_periods = paginator.get_page(page_number)
+    
+    # Statistics
+    now = timezone.now()
+    stats = {
+        'scheduled_count': Maintenance.objects.filter(start_time__gt=now).count(),
+        'active_count': Maintenance.objects.filter(start_time__lte=now, end_time__gte=now).count(),
+        'completed_count': Maintenance.objects.filter(
+            end_time__lt=now,
+            start_time__month=now.month,
+            start_time__year=now.year
+        ).count(),
+        'recurring_count': Maintenance.objects.filter(is_recurring=True).count(),
+    }
+    
+    # Get all resources for filtering
+    resources = Resource.objects.filter(is_active=True).order_by('name')
+    
+    context = {
+        'maintenance_periods': maintenance_periods,
+        'resources': resources,
+        'stats': stats,
+        'resource_filter': resource_filter,
+        'type_filter': type_filter,
+        'search_query': search_query,
+    }
+    
+    return render(request, 'booking/lab_admin_maintenance.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_add_maintenance_view(request):
+    """Add a new maintenance period."""
+    import json
+    from django.utils.dateparse import parse_datetime
+    
+    if request.method == 'POST':
+        try:
+            # Get form data
+            title = request.POST.get('title')
+            resource_id = request.POST.get('resource')
+            description = request.POST.get('description', '')
+            start_time = parse_datetime(request.POST.get('start_time'))
+            end_time = parse_datetime(request.POST.get('end_time'))
+            maintenance_type = request.POST.get('maintenance_type')
+            blocks_booking = request.POST.get('blocks_booking') == 'on'
+            is_recurring = request.POST.get('is_recurring') == 'on'
+            
+            # Validation
+            if not all([title, resource_id, start_time, end_time, maintenance_type]):
+                return JsonResponse({'success': False, 'error': 'All required fields must be filled'})
+            
+            if end_time <= start_time:
+                return JsonResponse({'success': False, 'error': 'End time must be after start time'})
+            
+            resource = get_object_or_404(Resource, id=resource_id)
+            
+            # Handle recurring pattern
+            recurring_pattern = None
+            if is_recurring and request.POST.get('recurring_pattern'):
+                recurring_pattern = json.loads(request.POST.get('recurring_pattern'))
+            
+            # Create maintenance
+            maintenance = Maintenance.objects.create(
+                resource=resource,
+                title=title,
+                description=description,
+                start_time=start_time,
+                end_time=end_time,
+                maintenance_type=maintenance_type,
+                blocks_booking=blocks_booking,
+                is_recurring=is_recurring,
+                recurring_pattern=recurring_pattern,
+                created_by=request.user
+            )
+            
+            return JsonResponse({'success': True, 'message': 'Maintenance period scheduled successfully'})
+            
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+    
+    return JsonResponse({'success': False, 'error': 'Invalid request method'})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_edit_maintenance_view(request, maintenance_id):
+    """Edit or view an existing maintenance period."""
+    maintenance = get_object_or_404(Maintenance, id=maintenance_id)
+    
+    if request.method == 'GET':
+        # Return maintenance data for viewing/editing
+        maintenance_data = {
+            'id': maintenance.id,
+            'title': maintenance.title,
+            'description': maintenance.description,
+            'resource_id': maintenance.resource.id,
+            'resource_name': maintenance.resource.name,
+            'start_time': maintenance.start_time.strftime('%Y-%m-%dT%H:%M'),
+            'end_time': maintenance.end_time.strftime('%Y-%m-%dT%H:%M'),
+            'maintenance_type': maintenance.maintenance_type,
+            'blocks_booking': maintenance.blocks_booking,
+            'is_recurring': maintenance.is_recurring,
+            'recurring_pattern': maintenance.recurring_pattern,
+            'created_by': maintenance.created_by.get_full_name() or maintenance.created_by.username,
+            'created_at': maintenance.created_at.strftime('%Y-%m-%d %H:%M'),
+        }
+        
+        # Generate HTML for view modal
+        from django.template.loader import render_to_string
+        html = render_to_string('booking/maintenance_detail.html', {'maintenance': maintenance}, request=request)
+        
+        return JsonResponse({
+            'success': True,
+            'maintenance': maintenance_data,
+            'html': html
+        })
+    
+    elif request.method == 'POST':
+        # Update maintenance
+        try:
+            from django.utils.dateparse import parse_datetime
+            
+            maintenance.title = request.POST.get('title')
+            maintenance.description = request.POST.get('description', '')
+            maintenance.start_time = parse_datetime(request.POST.get('start_time'))
+            maintenance.end_time = parse_datetime(request.POST.get('end_time'))
+            maintenance.maintenance_type = request.POST.get('maintenance_type')
+            maintenance.blocks_booking = request.POST.get('blocks_booking') == 'on'
+            
+            # Validation
+            if maintenance.end_time <= maintenance.start_time:
+                return JsonResponse({'success': False, 'error': 'End time must be after start time'})
+            
+            # Update resource if changed
+            resource_id = request.POST.get('resource')
+            if resource_id and str(maintenance.resource.id) != resource_id:
+                maintenance.resource = get_object_or_404(Resource, id=resource_id)
+            
+            maintenance.save()
+            
+            return JsonResponse({'success': True, 'message': 'Maintenance period updated successfully'})
+            
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+    
+    return JsonResponse({'success': False, 'error': 'Invalid request method'})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_delete_maintenance_view(request, maintenance_id):
+    """Delete a maintenance period."""
+    maintenance = get_object_or_404(Maintenance, id=maintenance_id)
+    
+    if request.method == 'POST':
+        try:
+            maintenance_title = maintenance.title
+            maintenance.delete()
+            return JsonResponse({'success': True, 'message': f'Maintenance period "{maintenance_title}" deleted successfully'})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+    
+    return JsonResponse({'success': False, 'error': 'Invalid request method'})
+
+
+@login_required
+def download_booking_invitation(request, booking_id):
+    """Download a calendar invitation for a specific booking."""
+    from .calendar_sync import ICSCalendarGenerator, create_ics_response
+    from .models import Booking
+    
+    booking = get_object_or_404(Booking, id=booking_id)
+    
+    # Check permissions - user must be the booking owner or have admin access
+    if not (booking.user == request.user or 
+            request.user.userprofile.role in ['technician', 'sysadmin'] or
+            request.user.groups.filter(name='Lab Admin').exists()):
+        messages.error(request, "You don't have permission to download this booking invitation.")
+        return redirect('booking:my_bookings')
+    
+    # Generate ICS invitation
+    generator = ICSCalendarGenerator(request)
+    ics_content = generator.generate_booking_invitation(booking)
+    
+    # Create filename
+    safe_title = booking.title.replace(' ', '-').replace('/', '-')
+    filename = f"booking-{safe_title}-{booking.start_time.strftime('%Y%m%d')}.ics"
+    
+    return create_ics_response(ics_content, filename)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def download_maintenance_invitation(request, maintenance_id):
+    """Download a calendar invitation for a specific maintenance period."""
+    from .calendar_sync import ICSCalendarGenerator, create_ics_response
+    from .models import Maintenance
+    
+    maintenance = get_object_or_404(Maintenance, id=maintenance_id)
+    
+    # Generate ICS invitation
+    generator = ICSCalendarGenerator(request)
+    ics_content = generator.generate_maintenance_invitation(maintenance)
+    
+    # Create filename
+    safe_title = maintenance.title.replace(' ', '-').replace('/', '-')
+    filename = f"maintenance-{safe_title}-{maintenance.start_time.strftime('%Y%m%d')}.ics"
+    
+    return create_ics_response(ics_content, filename)
+
+
+@login_required
 def export_my_calendar_view(request):
     """Export user's bookings as ICS file for download."""
     from .calendar_sync import ICSCalendarGenerator, create_ics_response
@@ -4945,3 +5271,375 @@ class CustomLoginView(LoginView):
         except UserProfile.DoesNotExist:
             # If no profile exists, redirect to about page
             return '/about/'
+
+
+# Tutorial System Views
+
+@login_required
+@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
+def tutorial_management_view(request):
+    """Tutorial management dashboard."""
+    categories = TutorialCategory.objects.prefetch_related('tutorials').all()
+    
+    # Calculate statistics
+    total_tutorials = Tutorial.objects.count()
+    active_tutorials = Tutorial.objects.filter(is_active=True).count()
+    total_completions = UserTutorialProgress.objects.filter(status='completed').count()
+    
+    # Calculate average completion rate
+    analytics = TutorialAnalytics.objects.all()
+    if analytics.exists():
+        avg_completion_rate = sum(a.completion_rate for a in analytics) / len(analytics)
+    else:
+        avg_completion_rate = 0
+    
+    tutorial_stats = {
+        'total': total_tutorials,
+        'active': active_tutorials,
+        'completions': total_completions,
+        'avg_completion_rate': avg_completion_rate
+    }
+    
+    context = {
+        'categories': categories,
+        'tutorial_stats': tutorial_stats,
+    }
+    
+    return render(request, 'booking/tutorial_management.html', context)
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
+def tutorial_create_view(request):
+    """Create a new tutorial."""
+    if request.method == 'POST':
+        form = TutorialForm(request.POST)
+        if form.is_valid():
+            tutorial = form.save(commit=False)
+            tutorial.created_by = request.user
+            tutorial.save()
+            
+            # Create analytics record
+            TutorialAnalytics.objects.get_or_create(tutorial=tutorial)
+            
+            messages.success(request, f'Tutorial "{tutorial.name}" has been created successfully.')
+            return redirect('booking:tutorial_management')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = TutorialForm()
+        # Set category if provided in URL
+        category_id = request.GET.get('category')
+        if category_id:
+            try:
+                category = TutorialCategory.objects.get(pk=category_id)
+                form.fields['category'].initial = category
+            except TutorialCategory.DoesNotExist:
+                pass
+    
+    context = {
+        'form': form,
+        'tutorial': None,
+    }
+    
+    return render(request, 'booking/tutorial_form.html', context)
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
+def tutorial_edit_view(request, tutorial_id):
+    """Edit an existing tutorial."""
+    tutorial = get_object_or_404(Tutorial, pk=tutorial_id)
+    
+    if request.method == 'POST':
+        form = TutorialForm(request.POST, instance=tutorial)
+        if form.is_valid():
+            tutorial = form.save()
+            messages.success(request, f'Tutorial "{tutorial.name}" has been updated successfully.')
+            return redirect('booking:tutorial_management')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = TutorialForm(instance=tutorial)
+    
+    context = {
+        'form': form,
+        'tutorial': tutorial,
+    }
+    
+    return render(request, 'booking/tutorial_form.html', context)
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
+def tutorial_create_category_view(request):
+    """Create a new tutorial category."""
+    if request.method == 'POST':
+        form = TutorialCategoryForm(request.POST)
+        if form.is_valid():
+            category = form.save()
+            messages.success(request, f'Category "{category.name}" has been created successfully.')
+            return redirect('booking:tutorial_management')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = TutorialCategoryForm()
+    
+    context = {
+        'form': form,
+        'category': None,
+        'title': 'Create Tutorial Category',
+        'action': 'Create',
+    }
+    
+    return render(request, 'booking/tutorial_category_form.html', context)
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
+def tutorial_edit_category_view(request, category_id):
+    """Edit an existing tutorial category."""
+    category = get_object_or_404(TutorialCategory, pk=category_id)
+    
+    if request.method == 'POST':
+        form = TutorialCategoryForm(request.POST, instance=category)
+        if form.is_valid():
+            category = form.save()
+            messages.success(request, f'Category "{category.name}" has been updated successfully.')
+            return redirect('booking:tutorial_management')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = TutorialCategoryForm(instance=category)
+    
+    context = {
+        'form': form,
+        'category': category,
+        'title': 'Edit Tutorial Category',
+        'action': 'Update',
+    }
+    
+    return render(request, 'booking/tutorial_category_form.html', context)
+
+
+@login_required
+def tutorial_preview_view(request, tutorial_id):
+    """Preview a tutorial (for testing)."""
+    tutorial = get_object_or_404(Tutorial, pk=tutorial_id)
+    
+    # Check if user has permission to preview
+    if not (request.user.is_staff or 
+            (hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['technician', 'sysadmin'])):
+        # Regular users can only preview tutorials applicable to them
+        if not tutorial.is_applicable_for_user(request.user):
+            messages.error(request, 'You do not have permission to preview this tutorial.')
+            return redirect('booking:dashboard')
+    
+    context = {
+        'tutorial': tutorial,
+        'is_preview': True,
+    }
+    
+    return render(request, 'booking/tutorial_preview.html', context)
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
+def tutorial_analytics_view(request, tutorial_id):
+    """View tutorial analytics."""
+    tutorial = get_object_or_404(Tutorial, pk=tutorial_id)
+    analytics, created = TutorialAnalytics.objects.get_or_create(tutorial=tutorial)
+    
+    if created or request.GET.get('refresh'):
+        analytics.update_metrics()
+    
+    # Get recent user progress
+    recent_progress = UserTutorialProgress.objects.filter(
+        tutorial=tutorial
+    ).select_related('user').order_by('-last_accessed_at')[:20]
+    
+    context = {
+        'tutorial': tutorial,
+        'analytics': analytics,
+        'recent_progress': recent_progress,
+    }
+    
+    return render(request, 'booking/tutorial_analytics.html', context)
+
+
+# Tutorial API Views (for frontend interaction)
+
+@login_required
+def tutorial_api_detail(request, tutorial_id):
+    """API endpoint to get tutorial details."""
+    tutorial = get_object_or_404(Tutorial, pk=tutorial_id)
+    
+    # Check if user can access this tutorial
+    if not tutorial.is_applicable_for_user(request.user):
+        return JsonResponse({'error': 'Tutorial not applicable'}, status=403)
+    
+    data = {
+        'id': tutorial.id,
+        'name': tutorial.name,
+        'description': tutorial.description,
+        'steps': tutorial.steps,
+        'estimated_duration': tutorial.estimated_duration,
+        'difficulty_level': tutorial.get_difficulty_level_display(),
+        'allow_skip': tutorial.allow_skip,
+        'show_progress': tutorial.show_progress,
+    }
+    
+    return JsonResponse(data)
+
+
+@login_required
+def tutorial_api_progress(request):
+    """API endpoint to track tutorial progress."""
+    if request.method == 'POST':
+        import json
+        data = json.loads(request.body)
+        
+        tutorial_id = data.get('tutorial_id')
+        action = data.get('action')
+        step = data.get('step', 0)
+        time_spent = data.get('time_spent', 0)
+        
+        try:
+            tutorial = Tutorial.objects.get(pk=tutorial_id)
+            progress, created = UserTutorialProgress.objects.get_or_create(
+                user=request.user,
+                tutorial=tutorial
+            )
+            
+            if action == 'start':
+                progress.start_tutorial()
+            elif action == 'step_completed':
+                progress.complete_step(step)
+            elif action == 'completed':
+                progress.complete_tutorial()
+            elif action == 'skipped':
+                progress.skip_tutorial()
+            
+            # Update time spent
+            if time_spent > 0:
+                progress.time_spent = time_spent
+                progress.save(update_fields=['time_spent'])
+            
+            return JsonResponse({'status': 'success'})
+            
+        except Tutorial.DoesNotExist:
+            return JsonResponse({'error': 'Tutorial not found'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+@login_required
+def tutorial_api_feedback(request):
+    """API endpoint to submit tutorial feedback."""
+    if request.method == 'POST':
+        import json
+        data = json.loads(request.body)
+        
+        tutorial_id = data.get('tutorial_id')
+        rating = data.get('rating')
+        feedback = data.get('feedback', '')
+        
+        try:
+            tutorial = Tutorial.objects.get(pk=tutorial_id)
+            progress = UserTutorialProgress.objects.get(
+                user=request.user,
+                tutorial=tutorial
+            )
+            
+            progress.rating = rating
+            progress.feedback = feedback
+            progress.save(update_fields=['rating', 'feedback'])
+            
+            return JsonResponse({'status': 'success'})
+            
+        except (Tutorial.DoesNotExist, UserTutorialProgress.DoesNotExist):
+            return JsonResponse({'error': 'Tutorial or progress not found'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+@login_required
+def tutorial_api_auto_start(request):
+    """API endpoint to check for auto-start tutorials."""
+    user = request.user
+    
+    # Find applicable tutorials that should auto-start
+    applicable_tutorials = Tutorial.objects.filter(
+        is_active=True,
+        auto_start=True
+    )
+    
+    for tutorial in applicable_tutorials:
+        if tutorial.is_applicable_for_user(user):
+            # Check if user hasn't started this tutorial yet
+            progress = UserTutorialProgress.objects.filter(
+                user=user,
+                tutorial=tutorial
+            ).first()
+            
+            if not progress or progress.status == 'not_started':
+                return JsonResponse({
+                    'tutorial_id': tutorial.id,
+                    'auto_start': True
+                })
+    
+    # Check for manual tutorials with suggestions
+    suggested_tutorials = Tutorial.objects.filter(
+        is_active=True,
+        trigger_type='page_visit'
+    )
+    
+    current_page = request.GET.get('page', 'dashboard')
+    
+    for tutorial in suggested_tutorials:
+        if (tutorial.is_applicable_for_user(user) and 
+            current_page in tutorial.target_pages):
+            
+            progress = UserTutorialProgress.objects.filter(
+                user=user,
+                tutorial=tutorial
+            ).first()
+            
+            if not progress or progress.status == 'not_started':
+                return JsonResponse({
+                    'tutorial_id': tutorial.id,
+                    'auto_start': False
+                })
+    
+    return JsonResponse({})
+
+
+@login_required
+def tutorial_api_available(request):
+    """API endpoint to get available tutorials for user."""
+    user = request.user
+    
+    tutorials = []
+    for tutorial in Tutorial.objects.filter(is_active=True):
+        if tutorial.is_applicable_for_user(user):
+            progress = UserTutorialProgress.objects.filter(
+                user=user,
+                tutorial=tutorial
+            ).first()
+            
+            tutorials.append({
+                'id': tutorial.id,
+                'name': tutorial.name,
+                'description': tutorial.description,
+                'category': tutorial.category.name,
+                'difficulty': tutorial.get_difficulty_level_display(),
+                'duration': tutorial.estimated_duration,
+                'completed': progress.is_completed if progress else False,
+                'in_progress': progress.is_in_progress if progress else False,
+            })
+    
+    return JsonResponse(tutorials, safe=False)

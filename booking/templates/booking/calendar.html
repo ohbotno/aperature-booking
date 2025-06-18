@@ -122,6 +122,36 @@
         padding: 0.5rem;
     }
 }
+
+/* Maintenance Event Styling */
+.fc-event.maintenance-event {
+    background-image: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 2px,
+        rgba(255, 255, 255, 0.3) 2px,
+        rgba(255, 255, 255, 0.3) 4px
+    ) !important;
+    border-style: dashed !important;
+    border-width: 2px !important;
+    opacity: 0.9;
+}
+
+.fc-event.maintenance-event .fc-event-title {
+    font-weight: bold;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+/* Maintenance legend/info styling */
+.maintenance-legend {
+    font-size: 0.875rem;
+    color: #6c757d;
+    margin-top: 0.5rem;
+}
+
+.maintenance-legend i {
+    margin-right: 0.25rem;
+}
 </style>
 {% endblock %}
 
@@ -153,7 +183,7 @@
     <div class="card mb-3">
         <div class="card-body">
             <div class="row">
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <label class="form-label">Filter by Resource</label>
                     <select class="form-select" id="resource-filter">
                         <option value="">All Resources</option>
@@ -162,7 +192,7 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <label class="form-label">Calendar View</label>
                     <div class="btn-group w-100" role="group">
                         <input type="radio" class="btn-check" name="view-mode" id="month-view" autocomplete="off" checked>
@@ -175,6 +205,15 @@
                         <label class="btn btn-outline-primary" for="day-view">Day</label>
                     </div>
                 </div>
+                <div class="col-md-4">
+                    <label class="form-label">Display Options</label>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="show-maintenance" checked>
+                        <label class="form-check-label" for="show-maintenance">
+                            <i class="fas fa-wrench me-1"></i>Show Maintenance Periods
+                        </label>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -182,6 +221,15 @@
     <!-- Calendar -->
     <div class="calendar-wrapper">
         <div id="calendar"></div>
+        
+        <!-- Legend -->
+        <div class="maintenance-legend text-center">
+            <small>
+                <i class="fas fa-square" style="color: #28a745;"></i> Bookings &nbsp;&nbsp;
+                <i class="fas fa-wrench" style="color: #007bff;"></i> Maintenance Periods &nbsp;&nbsp;
+                <span class="text-muted">• Striped patterns indicate maintenance that blocks bookings</span>
+            </small>
+        </div>
     </div>
 </div>
 
@@ -270,6 +318,9 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a href="#" class="btn btn-success" id="download-booking-invitation" style="display: none;">
+                    <i class="fas fa-calendar-plus"></i> Add to Calendar
+                </a>
                 <a href="#" class="btn btn-primary" id="view-booking" style="display: none;">
                     <i class="bi bi-eye"></i> View Details
                 </a>
@@ -364,6 +415,34 @@
         </div>
     </div>
 </div>
+
+<!-- Maintenance Details Modal -->
+<div class="modal fade" id="maintenanceDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-wrench me-2"></i>Maintenance Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="maintenance-details-content">
+                <!-- Content will be loaded dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a href="#" class="btn btn-success" id="download-maintenance-invitation" style="display: none;">
+                    <i class="fas fa-calendar-plus"></i> Add to Calendar
+                </a>
+                {% if user.userprofile.role in 'technician,sysadmin' or user.groups.all|length > 0 and 'Lab Admin' in user.groups.all|join:',' %}
+                <a href="#" class="btn btn-primary" id="edit-maintenance" style="display: none;">
+                    <i class="fas fa-edit"></i> Edit Maintenance
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -411,15 +490,43 @@ document.addEventListener('DOMContentLoaded', function() {
         // Load events from API
         events: function(fetchInfo, successCallback, failureCallback) {
             const resourceFilter = document.getElementById('resource-filter').value;
-            let url = '/api/bookings/calendar/';
+            const showMaintenance = document.getElementById('show-maintenance')?.checked !== false;
             
+            // Build URLs for both bookings and maintenance
+            let bookingsUrl = '/api/bookings/calendar/';
+            let maintenanceUrl = '/api/maintenance/calendar/';
+            
+            const params = new URLSearchParams();
             if (resourceFilter) {
-                url += `?resource=${resourceFilter}`;
+                params.append('resource', resourceFilter);
+            }
+            params.append('start', fetchInfo.start.toISOString());
+            params.append('end', fetchInfo.end.toISOString());
+            
+            if (params.toString()) {
+                bookingsUrl += '?' + params.toString();
+                maintenanceUrl += '?' + params.toString();
             }
             
-            fetch(url)
-                .then(response => response.json())
-                .then(data => successCallback(data))
+            // Fetch both bookings and maintenance data
+            const promises = [
+                fetch(bookingsUrl).then(response => response.json())
+            ];
+            
+            if (showMaintenance) {
+                promises.push(
+                    fetch(maintenanceUrl).then(response => response.json())
+                );
+            }
+            
+            Promise.all(promises)
+                .then(results => {
+                    let allEvents = results[0]; // bookings
+                    if (results[1]) {
+                        allEvents = allEvents.concat(results[1]); // add maintenance
+                    }
+                    successCallback(allEvents);
+                })
                 .catch(error => {
                     console.error('Error loading events:', error);
                     failureCallback(error);
@@ -535,7 +642,15 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Handle event click for details
         eventClick: function(clickInfo) {
-            loadBookingDetails(clickInfo.event.id);
+            const event = clickInfo.event;
+            
+            // Check if this is a maintenance event
+            if (event.extendedProps?.type === 'maintenance') {
+                loadMaintenanceDetails(event.id);
+            } else {
+                // Regular booking event
+                loadBookingDetails(event.id);
+            }
         },
         
         // Handle event resize
@@ -605,6 +720,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Resource filter
     document.getElementById('resource-filter').addEventListener('change', function() {
+        calendar.refetchEvents();
+    });
+    
+    // Maintenance display toggle
+    document.getElementById('show-maintenance').addEventListener('change', function() {
         calendar.refetchEvents();
     });
     
@@ -692,6 +812,13 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (endTime.getHours() > 18 || (endTime.getHours() === 18 && endTime.getMinutes() > 0)) {
             showModalError('Booking must end by 18:00.');
+            return;
+        }
+        
+        // Check for maintenance conflicts
+        const resourceId = document.getElementById('resource').value;
+        if (resourceId && checkMaintenanceConflict(startTime, endTime, resourceId)) {
+            showModalError('Cannot book during scheduled maintenance period. Please select a different time.');
             return;
         }
         
@@ -807,13 +934,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 const editBtn = document.getElementById('edit-booking');
                 const duplicateBtn = document.getElementById('duplicate-booking');
                 const cancelBtn = document.getElementById('cancel-booking');
+                const invitationBtn = document.getElementById('download-booking-invitation');
                 
-                // Always show view and duplicate buttons
+                // Always show view, duplicate, and invitation buttons
                 viewBtn.style.display = 'inline-block';
                 viewBtn.href = `/booking/${bookingId}/`;
                 
                 duplicateBtn.style.display = 'inline-block';
                 duplicateBtn.onclick = () => window.location.href = `/booking/${bookingId}/duplicate/`;
+                
+                invitationBtn.style.display = 'inline-block';
+                invitationBtn.href = `/booking/${bookingId}/invitation/`;
+                invitationBtn.download = `booking-${data.title.replace(/[^a-z0-9]/gi, '-')}.ics`;
                 
                 // Show edit button if user can edit
                 if (data.can_edit && ['pending', 'approved'].includes(data.status)) {
@@ -953,6 +1085,86 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modalError) {
             modalError.remove();
         }
+    }
+    
+    function checkMaintenanceConflict(startTime, endTime, resourceId) {
+        // Get current maintenance events from the calendar
+        const events = calendar.getEvents();
+        
+        for (let event of events) {
+            // Check only maintenance events for the selected resource
+            if (event.extendedProps?.type === 'maintenance' && 
+                event.extendedProps?.resource && 
+                event.extendedProps?.blocks_booking) {
+                
+                // If resource filter is set, only check maintenance for that resource
+                if (resourceId) {
+                    // Get resource name from the select element
+                    const resourceSelect = document.getElementById('resource');
+                    const selectedOption = resourceSelect.options[resourceSelect.selectedIndex];
+                    const selectedResourceName = selectedOption.text.split(' (')[0]; // Remove type suffix
+                    
+                    if (event.extendedProps.resource !== selectedResourceName) {
+                        continue; // Skip maintenance for different resources
+                    }
+                }
+                
+                const maintenanceStart = new Date(event.start);
+                const maintenanceEnd = new Date(event.end);
+                
+                // Check for overlap: booking starts before maintenance ends AND booking ends after maintenance starts
+                if (startTime < maintenanceEnd && endTime > maintenanceStart) {
+                    return true; // Conflict found
+                }
+            }
+        }
+        
+        return false; // No conflicts
+    }
+    
+    function loadMaintenanceDetails(eventId) {
+        // Extract the maintenance ID from the event ID (format: 'maintenance-{id}')
+        const maintenanceId = eventId.replace('maintenance-', '');
+        
+        fetch(`/lab-admin/maintenance/${maintenanceId}/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Populate modal with maintenance details
+                    document.getElementById('maintenance-details-content').innerHTML = data.html;
+                    
+                    // Show invitation button
+                    const invitationBtn = document.getElementById('download-maintenance-invitation');
+                    if (invitationBtn) {
+                        invitationBtn.style.display = 'inline-block';
+                        invitationBtn.href = `/maintenance/${maintenanceId}/invitation/`;
+                        invitationBtn.download = `maintenance-${data.maintenance.title.replace(/[^a-z0-9]/gi, '-')}.ics`;
+                    }
+                    
+                    // Show edit button for admins and set up the link
+                    const editBtn = document.getElementById('edit-maintenance');
+                    if (editBtn) {
+                        editBtn.style.display = 'inline-block';
+                        editBtn.href = `/lab-admin/maintenance/#edit-${maintenanceId}`;
+                        editBtn.onclick = (e) => {
+                            e.preventDefault();
+                            // Close the details modal
+                            bootstrap.Modal.getInstance(document.getElementById('maintenanceDetailsModal')).hide();
+                            // Navigate to maintenance management page
+                            window.location.href = `/lab-admin/maintenance/`;
+                        };
+                    }
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('maintenanceDetailsModal'));
+                    modal.show();
+                } else {
+                    showAlert('Error loading maintenance details.', 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading maintenance details:', error);
+                showAlert('Error loading maintenance details.', 'danger');
+            });
     }
     
     function showModalError(message) {

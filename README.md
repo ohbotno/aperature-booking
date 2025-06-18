@@ -2,9 +2,10 @@
 
 An open-source Django application for managing laboratory resource bookings across academic institutions. Prevents double-booking conflicts while enabling group collaboration and providing comprehensive usage analytics.
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: Dual](https://img.shields.io/badge/License-Dual%20(GPL%2FCommercial)-blue.svg)](LICENSING.md)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Django 4.2+](https://img.shields.io/badge/django-4.2+-green.svg)](https://www.djangoproject.com/)
+[![Commercial License](https://img.shields.io/badge/Commercial-Available-green.svg)](LICENSING.md)
 
 ## 🚀 Features
 
@@ -452,18 +453,31 @@ def custom_approval_logic(booking, user):
 - Attach relevant log files
 - Specify expected vs. actual behavior
 
-## 📄 License
+## 📄 Dual Licensing
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+Aperture Booking is available under **dual licensing** - free with our branding, or paid for white-label customization.
 
-### GPL-3.0 Summary
-- ✅ Commercial use allowed
-- ✅ Modification allowed
-- ✅ Distribution allowed
-- ✅ Patent use allowed
-- ❗ License and copyright notice required
-- ❗ Source code must be disclosed
-- ❗ Same license required for derivatives
+### Open Source License (GPL-3.0) - FREE
+**Perfect for:** Everyone who's comfortable with "Aperture Booking" branding
+
+- ✅ **Completely free** - full-featured lab booking system
+- ✅ **Commercial use allowed** - use in your business
+- ✅ **"Aperture Booking" branded** interface
+- ✅ Full source code access and community support
+- ❗ Must keep Aperture Booking branding and credits
+
+### White-Label Commercial License - PAID
+**Perfect for:** Organizations needing custom branding
+
+- 🎨 **Remove "Aperture Booking" branding** entirely
+- 🏷️ **Add your own logo, colors, and product name**
+- 💼 **Professional support and priority updates**
+- 🔒 **No GPL source disclosure obligations**
+- ⚡ **Distribute as your own product**
+
+**Pricing:** Starting at £1,599/year for small business
+
+📋 **[View Complete Licensing Guide](LICENSING.md)** | 💼 **[Get White-Label License](mailto:commercial@aperture-booking.org)**
 
 ## 🆘 Support
 

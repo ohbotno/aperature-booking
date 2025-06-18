@@ -4,20 +4,32 @@
 {% block title %}Booking Management - Aperture Booking{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2><i class="bi bi-gear"></i> Booking Management</h2>
-    <div>
-        <button type="button" class="btn btn-success" id="bulk-approve-btn" disabled>
-            <i class="bi bi-check-circle"></i> Approve Selected
-        </button>
-        <button type="button" class="btn btn-warning" id="bulk-reject-btn" disabled>
-            <i class="bi bi-x-circle"></i> Reject Selected
-        </button>
-        <button type="button" class="btn btn-danger" id="bulk-cancel-btn" disabled>
-            <i class="bi bi-trash"></i> Cancel Selected
-        </button>
-    </div>
-</div>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1><i class="fas fa-tasks me-2"></i>Manage Bookings</h1>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a href="{% url 'booking:dashboard' %}">Dashboard</a></li>
+                            <li class="breadcrumb-item"><a href="{% url 'booking:lab_admin_dashboard' %}">Lab Admin</a></li>
+                            <li class="breadcrumb-item active">Manage Bookings</li>
+                        </ol>
+                    </nav>
+                </div>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-success" id="bulk-approve-btn" disabled>
+                        <i class="bi bi-check-circle"></i> Approve Selected
+                    </button>
+                    <button type="button" class="btn btn-warning" id="bulk-reject-btn" disabled>
+                        <i class="bi bi-x-circle"></i> Reject Selected
+                    </button>
+                    <button type="button" class="btn btn-danger" id="bulk-cancel-btn" disabled>
+                        <i class="bi bi-trash"></i> Cancel Selected
+                    </button>
+                </div>
+            </div>
 
 {% if messages %}
     {% for message in messages %}
@@ -216,6 +228,9 @@
     </ul>
 </nav>
 {% endif %}
+        </div>
+    </div>
+</div>
 
 <!-- Bulk Action Form (Hidden) -->
 <form id="bulk-action-form" method="post" action="{% url 'booking:bulk_operations' %}" style="display: none;">

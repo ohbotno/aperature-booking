@@ -5,10 +5,13 @@ Django's command-line utility for administrative tasks.
 This file is part of the Aperture Booking.
 Copyright (C) 2025 Aperture Booking Contributors
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+This software is dual-licensed:
+1. GNU General Public License v3.0 (GPL-3.0) - for open source use
+2. Commercial License - for proprietary and commercial use
+
+For GPL-3.0 license terms, see LICENSE file.
+For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
+https://aperture-booking.org/commercial
 """
 import os
 import sys

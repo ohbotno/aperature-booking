@@ -152,6 +152,10 @@
                                 <label for="{{ form.image.id_for_label }}" class="form-label">
                                     Page Image {% if form.image.field.required %}<span class="required-field">*</span>{% endif %}
                                 </label>
+                                
+                                <!-- Include drag-drop uploader component -->
+                                {% include 'booking/components/drag_drop_uploader.html' %}
+                                
                                 {{ form.image }}
                                 {% if form.image.help_text %}
                                     <div class="field-help">{{ form.image.help_text }}</div>
@@ -338,6 +342,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
         contentField.addEventListener('input', updateCharCount);
         updateCharCount(); // Initial count
+    }
+    
+    // Initialize drag-drop uploader for about page image
+    if (document.getElementById('{{ form.image.id_for_label }}')) {
+        initDragDropUploader('{{ form.image.id_for_label }}', {
+            allowedTypes: ['image/*'],
+            maxSize: 10 * 1024 * 1024, // 10MB for about page images
+            showPreview: true
+        });
     }
 });
 </script>

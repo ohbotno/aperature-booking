@@ -16,6 +16,28 @@
     </div>
 </div>
 
+<!-- Description Section -->
+<div class="alert alert-info mb-4">
+    <div class="row align-items-center">
+        <div class="col-md-8">
+            <h5 class="alert-heading mb-2"><i class="bi bi-info-circle"></i> Booking Templates</h5>
+            <p class="mb-1">
+                <strong>Save time on frequent bookings</strong> by creating reusable templates with pre-configured settings. Templates store your commonly used booking details including resource, duration, description, and recurring patterns.
+            </p>
+            <small class="text-muted">
+                Create private templates for personal use, or share public templates with your team to standardize common booking scenarios.
+            </small>
+        </div>
+        <div class="col-md-4 text-md-end">
+            <div class="d-flex flex-column gap-1">
+                <span class="badge bg-primary"><i class="bi bi-person"></i> Personal Templates</span>
+                <span class="badge bg-success"><i class="bi bi-globe"></i> Public Templates</span>
+                <span class="badge bg-info"><i class="bi bi-people"></i> Group Templates</span>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% if messages %}
     {% for message in messages %}
         <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
