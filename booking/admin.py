@@ -17,6 +17,7 @@ https://aperture-booking.org/commercial
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
+from django.utils.html import format_html
 from .models import (
     AboutPage, UserProfile, Resource, Booking, BookingAttendee, 
     ApprovalRule, Maintenance, BookingHistory,
@@ -29,7 +30,8 @@ from .models import (
     ResourceResponsible, RiskAssessment, UserRiskAssessment,
     TrainingCourse, ResourceTrainingRequirement, UserTraining,
     ApprovalStatistics, MaintenanceVendor, MaintenanceDocument,
-    MaintenanceAlert, MaintenanceAnalytics
+    MaintenanceAlert, MaintenanceAnalytics, ResourceUtilizationTrend,
+    ChecklistTemplate, ChecklistItem, ChecklistCompletion, ChecklistItemCompletion
 )
 
 
@@ -1728,4 +1730,500 @@ class MaintenanceAnalyticsAdmin(admin.ModelAdmin):
         
         self.message_user(request, f'Recalculated metrics for {updated} resources.')
     recalculate_metrics.short_description = 'Recalculate metrics for selected analytics'
+
+
+@admin.register(ResourceUtilizationTrend)
+class ResourceUtilizationTrendAdmin(admin.ModelAdmin):
+    """Admin interface for resource utilization trends."""
+    
+    list_display = (
+        'resource', 'period_type', 'period_start', 'utilization_rate', 
+        'actual_usage_rate', 'total_bookings', 'trend_direction', 
+        'capacity_status', 'calculated_at'
+    )
+    
+    list_filter = (
+        'period_type', 'trend_direction', 
+        ('resource', admin.RelatedOnlyFieldListFilter),
+        ('period_start', admin.DateFieldListFilter),
+        ('calculated_at', admin.DateFieldListFilter)
+    )
+    
+    search_fields = ('resource__name', 'resource__location')
+    
+    readonly_fields = (
+        'efficiency_score', 'demand_score', 'waste_score', 
+        'calculated_at', 'updated_at'
+    )
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('resource', 'period_type', 'period_start', 'period_end')
+        }),
+        ('Utilization Metrics', {
+            'fields': (
+                'total_available_hours', 'total_booked_hours', 'total_used_hours',
+                'utilization_rate', 'actual_usage_rate'
+            )
+        }),
+        ('Booking Statistics', {
+            'fields': (
+                'total_bookings', 'unique_users', 'average_booking_duration',
+                'no_show_count', 'no_show_rate'
+            )
+        }),
+        ('Peak Usage Analysis', {
+            'fields': ('peak_hour', 'peak_day', 'peak_utilization')
+        }),
+        ('Trend Analysis', {
+            'fields': ('trend_direction', 'trend_strength')
+        }),
+        ('Capacity Analysis', {
+            'fields': (
+                'capacity_utilization', 'over_capacity_hours', 'waiting_list_demand'
+            )
+        }),
+        ('Behavior Patterns', {
+            'fields': ('user_patterns', 'time_patterns'),
+            'classes': ('collapse',)
+        }),
+        ('Forecasting', {
+            'fields': ('forecast_next_period', 'forecast_confidence')
+        }),
+        ('Calculated Metrics', {
+            'fields': ('efficiency_score', 'demand_score', 'waste_score'),
+            'classes': ('collapse',)
+        }),
+        ('System Information', {
+            'fields': ('calculated_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    actions = ['recalculate_trends', 'export_trends']
+    
+    def capacity_status(self, obj):
+        """Display capacity status with color coding."""
+        status = obj.get_capacity_status()
+        colors = {
+            'Over capacity': 'red',
+            'Near capacity': 'orange', 
+            'High utilization': 'yellow',
+            'Moderate utilization': 'green',
+            'Low utilization': 'blue'
+        }
+        color = colors.get(status, 'black')
+        return format_html(
+            '<span style="color: {};">{}</span>',
+            color, status
+        )
+    capacity_status.short_description = 'Capacity Status'
+    
+    def recalculate_trends(self, request, queryset):
+        """Recalculate trends for selected records."""
+        from .utilization_service import utilization_service
+        
+        updated = 0
+        for trend in queryset:
+            try:
+                utilization_service.calculate_utilization_trends(
+                    resource=trend.resource,
+                    period_type=trend.period_type,
+                    start_date=trend.period_start,
+                    end_date=trend.period_end,
+                    force_recalculate=True
+                )
+                updated += 1
+            except Exception as e:
+                self.message_user(
+                    request, 
+                    f'Error recalculating trend for {trend}: {str(e)}',
+                    level='ERROR'
+                )
+        
+        self.message_user(request, f'Recalculated {updated} trends.')
+    recalculate_trends.short_description = 'Recalculate selected trends'
+    
+    def export_trends(self, request, queryset):
+        """Export selected trends as CSV."""
+        import csv
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="utilization_trends.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'Resource', 'Period Type', 'Period Start', 'Period End',
+            'Utilization Rate', 'Actual Usage Rate', 'Total Bookings',
+            'Unique Users', 'No Show Rate', 'Trend Direction',
+            'Trend Strength', 'Capacity Status', 'Efficiency Score'
+        ])
+        
+        for trend in queryset:
+            writer.writerow([
+                trend.resource.name,
+                trend.period_type,
+                trend.period_start.strftime('%Y-%m-%d %H:%M'),
+                trend.period_end.strftime('%Y-%m-%d %H:%M'),
+                float(trend.utilization_rate),
+                float(trend.actual_usage_rate),
+                trend.total_bookings,
+                trend.unique_users,
+                float(trend.no_show_rate),
+                trend.trend_direction,
+                float(trend.trend_strength),
+                trend.get_capacity_status(),
+                trend.efficiency_score,
+            ])
+        
+        return response
+    export_trends.short_description = 'Export selected trends as CSV'
+
+
+class ChecklistItemInline(admin.TabularInline):
+    model = ChecklistItem
+    extra = 1
+    fields = ('title', 'item_type', 'is_required', 'order', 'priority')
+    ordering = ['order']
+
+
+@admin.register(ChecklistTemplate)
+class ChecklistTemplateAdmin(admin.ModelAdmin):
+    list_display = ('name', 'resource', 'template_type', 'is_active', 'is_mandatory', 'approval_required', 'version', 'created_at')
+    list_filter = ('template_type', 'is_active', 'is_mandatory', 'approval_required', 'resource__resource_type')
+    search_fields = ('name', 'description', 'resource__name')
+    readonly_fields = ('created_at', 'updated_at')
+    inlines = [ChecklistItemInline]
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'description', 'resource', 'template_type')
+        }),
+        ('Configuration', {
+            'fields': ('is_active', 'is_mandatory', 'approval_required', 'version')
+        }),
+        ('Dates', {
+            'fields': ('effective_date', 'expiry_date'),
+            'classes': ('collapse',)
+        }),
+        ('Advanced Settings', {
+            'fields': ('conditional_logic', 'time_limit_minutes'),
+            'classes': ('collapse',)
+        }),
+        ('Notifications', {
+            'fields': ('reminder_enabled', 'reminder_interval_hours'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    actions = ['duplicate_template', 'activate_templates', 'deactivate_templates']
+    
+    def save_model(self, request, obj, form, change):
+        if not change:  # Creating new object
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+    
+    def duplicate_template(self, request, queryset):
+        """Duplicate selected templates."""
+        duplicated = 0
+        for template in queryset:
+            # Get all items before duplication
+            items = list(template.checklist_items.all())
+            
+            # Duplicate template
+            template.pk = None
+            template.name = f"{template.name} (Copy)"
+            template.version = 1
+            template.created_by = request.user
+            template.save()
+            
+            # Duplicate items
+            for item in items:
+                item.pk = None
+                item.template = template
+                item.save()
+            
+            duplicated += 1
+        
+        self.message_user(request, f'Duplicated {duplicated} templates.')
+    duplicate_template.short_description = 'Duplicate selected templates'
+    
+    def activate_templates(self, request, queryset):
+        """Activate selected templates."""
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f'Activated {updated} templates.')
+    activate_templates.short_description = 'Activate selected templates'
+    
+    def deactivate_templates(self, request, queryset):
+        """Deactivate selected templates."""
+        updated = queryset.update(is_active=False)
+        self.message_user(request, f'Deactivated {updated} templates.')
+    deactivate_templates.short_description = 'Deactivate selected templates'
+
+
+@admin.register(ChecklistItem)
+class ChecklistItemAdmin(admin.ModelAdmin):
+    list_display = ('title', 'template', 'item_type', 'is_required', 'is_active', 'order', 'priority')
+    list_filter = ('item_type', 'is_required', 'is_active', 'priority', 'template__resource__resource_type')
+    search_fields = ('title', 'description', 'template__name', 'template__resource__name')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('template', 'title', 'description', 'item_type')
+        }),
+        ('Configuration', {
+            'fields': ('is_required', 'is_active', 'order', 'priority')
+        }),
+        ('Type-Specific Options', {
+            'fields': ('options', 'validation_rules'),
+            'classes': ('collapse',)
+        }),
+        ('Conditional Logic', {
+            'fields': ('conditional_logic',),
+            'classes': ('collapse',)
+        }),
+        ('Help & Guidance', {
+            'fields': ('help_text', 'help_image'),
+            'classes': ('collapse',)
+        }),
+        ('Issue Escalation', {
+            'fields': ('escalation_enabled', 'escalation_contacts'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    actions = ['duplicate_items', 'activate_items', 'deactivate_items']
+    
+    def duplicate_items(self, request, queryset):
+        """Duplicate selected items."""
+        duplicated = 0
+        for item in queryset:
+            item.pk = None
+            item.title = f"{item.title} (Copy)"
+            item.save()
+            duplicated += 1
+        
+        self.message_user(request, f'Duplicated {duplicated} items.')
+    duplicate_items.short_description = 'Duplicate selected items'
+    
+    def activate_items(self, request, queryset):
+        """Activate selected items."""
+        updated = queryset.update(is_active=True)
+        self.message_user(request, f'Activated {updated} items.')
+    activate_items.short_description = 'Activate selected items'
+    
+    def deactivate_items(self, request, queryset):
+        """Deactivate selected items."""
+        updated = queryset.update(is_active=False)
+        self.message_user(request, f'Deactivated {updated} items.')
+    deactivate_items.short_description = 'Deactivate selected items'
+
+
+class ChecklistItemCompletionInline(admin.TabularInline):
+    model = ChecklistItemCompletion
+    extra = 0
+    readonly_fields = ('checklist_item', 'response', 'has_issue', 'is_valid', 'completed_at')
+    fields = ('checklist_item', 'response', 'has_issue', 'issue_description', 'is_valid')
+    
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ChecklistCompletion)
+class ChecklistCompletionAdmin(admin.ModelAdmin):
+    list_display = ('template', 'user', 'completion_type', 'status', 'completion_percentage', 'has_issues', 'is_overdue_display', 'created_at')
+    list_filter = ('status', 'completion_type', 'has_issues', 'template__resource__resource_type', 'created_at')
+    search_fields = ('template__name', 'user__username', 'user__email', 'booking__id')
+    readonly_fields = ('created_at', 'updated_at', 'started_at', 'completed_at', 'approved_at', 'completion_time_seconds')
+    inlines = [ChecklistItemCompletionInline]
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('template', 'booking', 'user', 'completion_type', 'status')
+        }),
+        ('Timestamps', {
+            'fields': ('started_at', 'completed_at', 'approved_at', 'due_date', 'completion_time_seconds'),
+            'classes': ('collapse',)
+        }),
+        ('Approval', {
+            'fields': ('approved_by', 'approval_notes'),
+            'classes': ('collapse',)
+        }),
+        ('Issues & Escalation', {
+            'fields': ('has_issues', 'issues_summary', 'escalated_to', 'escalation_reason'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('ip_address', 'user_agent', 'user_signature', 'supervisor_signature'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    actions = ['approve_completions', 'reject_completions', 'export_completions']
+    
+    def completion_percentage(self, obj):
+        """Display completion percentage."""
+        percentage = obj.get_completion_percentage()
+        color = 'green' if percentage == 100 else 'orange' if percentage >= 50 else 'red'
+        return format_html(
+            '<span style="color: {};">{:.1f}%</span>',
+            color, percentage
+        )
+    completion_percentage.short_description = 'Completion %'
+    
+    def is_overdue_display(self, obj):
+        """Display overdue status with color coding."""
+        if obj.is_overdue():
+            return format_html('<span style="color: red;">Overdue</span>')
+        elif obj.due_date and obj.status in ['not_started', 'in_progress']:
+            return format_html('<span style="color: orange;">Pending</span>')
+        else:
+            return format_html('<span style="color: green;">On Time</span>')
+    is_overdue_display.short_description = 'Due Status'
+    
+    def approve_completions(self, request, queryset):
+        """Bulk approve completed checklists."""
+        from .checklist_service import checklist_service
+        
+        completed_only = queryset.filter(status='completed')
+        if not completed_only.exists():
+            self.message_user(request, 'No completed checklists selected.', level='WARNING')
+            return
+        
+        approved_count, errors = checklist_service.bulk_approve_checklists(
+            completion_ids=list(completed_only.values_list('id', flat=True)),
+            approver=request.user,
+            notes="Bulk approved via admin interface"
+        )
+        
+        self.message_user(request, f'Approved {approved_count} checklists.')
+        if errors:
+            for error in errors:
+                self.message_user(request, error, level='ERROR')
+    approve_completions.short_description = 'Approve selected completed checklists'
+    
+    def reject_completions(self, request, queryset):
+        """Bulk reject completed checklists."""
+        from .checklist_service import checklist_service
+        
+        completed_only = queryset.filter(status='completed')
+        rejected_count = 0
+        
+        for completion in completed_only:
+            try:
+                checklist_service.reject_checklist(
+                    completion,
+                    request.user,
+                    "Bulk rejected via admin interface"
+                )
+                rejected_count += 1
+            except Exception as e:
+                self.message_user(request, f'Error rejecting {completion}: {str(e)}', level='ERROR')
+        
+        self.message_user(request, f'Rejected {rejected_count} checklists.')
+    reject_completions.short_description = 'Reject selected completed checklists'
+    
+    def export_completions(self, request, queryset):
+        """Export selected completions as CSV."""
+        import csv
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="checklist_completions.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'Template', 'Resource', 'User', 'Completion Type', 'Status',
+            'Completion %', 'Has Issues', 'Started At', 'Completed At',
+            'Approved At', 'Completion Time (seconds)', 'Is Overdue'
+        ])
+        
+        for completion in queryset:
+            writer.writerow([
+                completion.template.name,
+                completion.template.resource.name,
+                completion.user.username,
+                completion.completion_type,
+                completion.status,
+                completion.get_completion_percentage(),
+                completion.has_issues,
+                completion.started_at.strftime('%Y-%m-%d %H:%M:%S') if completion.started_at else '',
+                completion.completed_at.strftime('%Y-%m-%d %H:%M:%S') if completion.completed_at else '',
+                completion.approved_at.strftime('%Y-%m-%d %H:%M:%S') if completion.approved_at else '',
+                completion.completion_time_seconds or 0,
+                completion.is_overdue()
+            ])
+        
+        return response
+    export_completions.short_description = 'Export selected completions as CSV'
+
+
+@admin.register(ChecklistItemCompletion)
+class ChecklistItemCompletionAdmin(admin.ModelAdmin):
+    list_display = ('checklist_completion', 'checklist_item', 'display_response', 'has_issue', 'issue_severity', 'is_valid', 'completed_at')
+    list_filter = ('has_issue', 'issue_severity', 'is_valid', 'issue_resolved', 'checklist_item__item_type')
+    search_fields = ('checklist_completion__template__name', 'checklist_item__title', 'response', 'issue_description')
+    readonly_fields = ('completed_at', 'updated_at')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('checklist_completion', 'checklist_item', 'response', 'file_upload')
+        }),
+        ('Issue Tracking', {
+            'fields': ('has_issue', 'issue_description', 'issue_severity', 'issue_resolved', 'resolution_notes'),
+            'classes': ('collapse',)
+        }),
+        ('Validation', {
+            'fields': ('is_valid', 'validation_errors'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('completed_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    actions = ['mark_issues_resolved', 'revalidate_responses']
+    
+    def display_response(self, obj):
+        """Display formatted response value."""
+        return obj.get_display_value()
+    display_response.short_description = 'Response'
+    
+    def mark_issues_resolved(self, request, queryset):
+        """Mark selected issues as resolved."""
+        issues_only = queryset.filter(has_issue=True, issue_resolved=False)
+        resolved_count = 0
+        
+        for item in issues_only:
+            item.resolve_issue("Bulk resolved via admin interface")
+            resolved_count += 1
+        
+        self.message_user(request, f'Resolved {resolved_count} issues.')
+    mark_issues_resolved.short_description = 'Mark selected issues as resolved'
+    
+    def revalidate_responses(self, request, queryset):
+        """Revalidate selected responses."""
+        revalidated = 0
+        for item in queryset:
+            item.validate_response()
+            item.save()
+            revalidated += 1
+        
+        self.message_user(request, f'Revalidated {revalidated} responses.')
+    revalidate_responses.short_description = 'Revalidate selected responses'
 

@@ -4,7 +4,7 @@
 {% block title %}{{ about_page.title }} - Aperture Booking{% endblock %}
 
 {% block content %}
-<div class="container-fluid">
+<div class="container-fluid about-page">
     <div class="row">
         <div class="col-12">
             {% if about_page %}
@@ -48,7 +48,7 @@
                                 </div>
 
                                 {% if about_page.safety_information %}
-                                    <div class="alert alert-warning border-start border-warning border-4 mt-4">
+                                    <div class="alert alert-warning border-start border-warning border-4 mt-4 safety-information-alert">
                                         <h5 class="alert-heading">
                                             <i class="fas fa-exclamation-triangle me-2"></i>Safety Information
                                         </h5>
@@ -199,5 +199,6 @@
     width: 100%;
     object-fit: cover;
 }
+
 </style>
 {% endblock %}

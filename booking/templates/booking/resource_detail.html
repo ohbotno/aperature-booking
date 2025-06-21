@@ -196,6 +196,13 @@
 document.addEventListener('DOMContentLoaded', function() {
     const calendarEl = document.getElementById('resource-calendar');
     
+    // Function to get CSRF token
+    function getCSRFToken() {
+        return document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+               document.querySelector('[name=csrf-token]')?.getAttribute('content') ||
+               '{{ csrf_token }}';
+    }
+    
     const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'timeGridWeek',
         headerToolbar: {
@@ -203,8 +210,8 @@ document.addEventListener('DOMContentLoaded', function() {
             center: 'title',
             right: 'timeGridWeek,timeGridDay,listWeek'
         },
-        slotMinTime: '09:00:00',
-        slotMaxTime: '18:00:00',
+        slotMinTime: '07:00:00',
+        slotMaxTime: '20:00:00',
         allDaySlot: false,
         businessHours: {
             daysOfWeek: [1, 2, 3, 4, 5], // Monday - Friday
@@ -213,18 +220,42 @@ document.addEventListener('DOMContentLoaded', function() {
         },
         height: 'auto',
         contentHeight: 600,
-        events: '/api/bookings/?resource={{ resource.id }}',
+        nowIndicator: true,
+        weekNumbers: true,
+        eventSources: [{
+            url: '/api/bookings/calendar/',
+            extraParams: {
+                resource: '{{ resource.id }}'
+            },
+            failure: function(error) {
+                console.error('Failed to load calendar events:', error);
+                // Show user-friendly error message
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'alert alert-warning mt-3';
+                errorDiv.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Unable to load booking data. Please refresh the page.';
+                calendarEl.parentNode.insertBefore(errorDiv, calendarEl.nextSibling);
+            }
+        }],
         eventClick: function(info) {
             // Handle event click - could open booking details
-            window.location.href = `/booking/${info.event.extendedProps.booking_id}/`;
+            if (info.event.id) {
+                window.location.href = `/booking/${info.event.id}/`;
+            }
         },
         selectable: true,
         selectMirror: true,
+        selectConstraint: 'businessHours', // Only allow selection during business hours
         select: function(selectionInfo) {
             // Handle time slot selection for new booking
             const startTime = selectionInfo.start.toISOString();
             const endTime = selectionInfo.end.toISOString();
-            window.location.href = `/booking/create/?resource={{ resource.id }}&start=${startTime}&end=${endTime}`;
+            
+            // Confirm with user before redirecting
+            if (confirm(`Create a new booking from ${selectionInfo.start.toLocaleString()} to ${selectionInfo.end.toLocaleString()}?`)) {
+                window.location.href = `/booking/create/?resource={{ resource.id }}&start=${startTime}&end=${endTime}`;
+            } else {
+                calendar.unselect(); // Clear the selection
+            }
         },
         eventDisplay: 'block',
         eventClassNames: function(info) {
@@ -235,14 +266,39 @@ document.addEventListener('DOMContentLoaded', function() {
                 case 'cancelled': return ['fc-event-cancelled'];
                 default: return [];
             }
+        },
+        // Add loading indicator
+        loading: function(isLoading) {
+            if (isLoading) {
+                calendarEl.style.opacity = '0.6';
+            } else {
+                calendarEl.style.opacity = '1';
+            }
+        },
+        // Style the selection
+        selectAllow: function(selectInfo) {
+            // Only allow future selections
+            return selectInfo.start >= new Date();
         }
     });
 
+    // Add loading state
+    console.log('Initializing calendar for resource {{ resource.id }}');
     calendar.render();
+    
+    // Add visual feedback for interactivity
+    calendarEl.style.cursor = 'crosshair';
+    
+    // Add tooltip to indicate interactivity
+    const helpText = document.createElement('div');
+    helpText.className = 'small text-muted mt-2';
+    helpText.innerHTML = '<i class="bi bi-info-circle"></i> Click and drag to select time slots for new bookings. Click existing bookings to view details.';
+    calendarEl.parentNode.appendChild(helpText);
 });
 </script>
 
 <style>
+/* Event styling */
 .fc-event-approved {
     background-color: #28a745 !important;
     border-color: #1e7e34 !important;
@@ -261,6 +317,65 @@ document.addEventListener('DOMContentLoaded', function() {
 
 .fc-event:hover {
     opacity: 0.8;
+    cursor: pointer;
+}
+
+/* Calendar interactivity enhancements */
+.fc-timegrid-slot {
+    transition: background-color 0.2s ease;
+}
+
+.fc-timegrid-slot:hover {
+    background-color: rgba(0, 123, 255, 0.1) !important;
+}
+
+.fc-highlight {
+    background-color: rgba(0, 123, 255, 0.2) !important;
+}
+
+.fc-select-mirror {
+    background-color: rgba(0, 123, 255, 0.3) !important;
+    border: 2px solid #007bff !important;
+}
+
+/* Business hours styling */
+.fc-non-business {
+    background-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+.fc-business-hours {
+    background-color: rgba(255, 255, 255, 1) !important;
+}
+
+/* Calendar container styling */
+#resource-calendar {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    transition: opacity 0.3s ease;
+}
+
+/* Header styling */
+.fc-header-toolbar {
+    margin-bottom: 1rem !important;
+}
+
+/* Today indicator */
+.fc-timegrid-now-indicator-line {
+    border-color: #dc3545 !important;
+    border-width: 2px !important;
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+    .fc-header-toolbar {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .fc-toolbar-chunk {
+        margin: 0 !important;
+    }
 }
 </style>
 {% endif %}

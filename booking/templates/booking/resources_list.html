@@ -22,19 +22,12 @@
                 <div class="col-md-6">
                     <div class="btn-group" role="group" aria-label="Resource type filter">
                         <input type="radio" class="btn-check" name="resource-filter" id="filter-all" value="all" checked>
-                        <label class="btn btn-outline-primary" for="filter-all">All Resources</label>
+                        <label class="btn btn-outline-primary" for="filter-all">All Resources ({{ resources|length }})</label>
                         
-                        <input type="radio" class="btn-check" name="resource-filter" id="filter-robot" value="robot">
-                        <label class="btn btn-outline-primary" for="filter-robot">Robots</label>
-                        
-                        <input type="radio" class="btn-check" name="resource-filter" id="filter-instrument" value="instrument">
-                        <label class="btn btn-outline-primary" for="filter-instrument">Instruments</label>
-                        
-                        <input type="radio" class="btn-check" name="resource-filter" id="filter-room" value="room">
-                        <label class="btn btn-outline-primary" for="filter-room">Rooms</label>
-                        
-                        <input type="radio" class="btn-check" name="resource-filter" id="filter-equipment" value="equipment">
-                        <label class="btn btn-outline-primary" for="filter-equipment">Equipment</label>
+                        {% for resource_type, type_data in resources_by_type.items %}
+                        <input type="radio" class="btn-check" name="resource-filter" id="filter-{{ resource_type }}" value="{{ resource_type }}">
+                        <label class="btn btn-outline-primary" for="filter-{{ resource_type }}">{{ type_data.type_display }}s ({{ type_data.count }})</label>
+                        {% endfor %}
                     </div>
                 </div>
                 <div class="col-md-6">

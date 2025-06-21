@@ -36,6 +36,7 @@ router.register(r'training-courses', views.TrainingCourseViewSet)
 router.register(r'resource-training-requirements', views.ResourceTrainingRequirementViewSet)
 router.register(r'user-training', views.UserTrainingViewSet)
 router.register(r'access-requests', views.AccessRequestViewSet)
+router.register(r'utilization-trends', views.ResourceUtilizationTrendViewSet, basename='utilization-trend')
 # router.register(r'waiting-list-notifications', views.WaitingListNotificationViewSet, basename='waiting-list-notification')  # Removed - using Notification model
 
 app_name = 'api'

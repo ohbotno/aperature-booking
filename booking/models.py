@@ -3635,264 +3635,878 @@ class PDFExportSettings(models.Model):
         }
 
 
-# Onboarding Tutorial System Models
-
-class TutorialCategory(models.Model):
-    """Categories for organizing tutorials."""
-    name = models.CharField(max_length=100, unique=True)
-    description = models.TextField(blank=True)
-    icon = models.CharField(max_length=50, default='fas fa-graduation-cap')
-    order = models.PositiveIntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        db_table = 'booking_tutorialcategory'
-        ordering = ['order', 'name']
-        verbose_name = 'Tutorial Category'
-        verbose_name_plural = 'Tutorial Categories'
-    
-    def __str__(self):
-        return self.name
 
 
-class Tutorial(models.Model):
-    """Individual tutorial configurations."""
-    TRIGGER_TYPES = [
-        ('manual', 'Manual Start'),
-        ('first_login', 'First Login'),
-        ('role_change', 'Role Change'),
-        ('page_visit', 'Page Visit'),
-        ('feature_access', 'Feature Access'),
-    ]
+class ResourceUtilizationTrend(models.Model):
+    """
+    Track and analyze resource utilization trends over time.
     
-    DIFFICULTY_LEVELS = [
-        ('beginner', 'Beginner'),
-        ('intermediate', 'Intermediate'),
-        ('advanced', 'Advanced'),
-    ]
+    This model stores aggregated utilization data for resources across different time periods,
+    enabling trend analysis, usage forecasting, and capacity planning.
+    """
     
-    name = models.CharField(max_length=200)
-    description = models.TextField()
-    category = models.ForeignKey(TutorialCategory, on_delete=models.CASCADE, related_name='tutorials')
+    # Resource reference
+    resource = models.ForeignKey(
+        'Resource',
+        on_delete=models.CASCADE,
+        related_name='utilization_trends',
+        help_text="Resource being analyzed"
+    )
     
-    # Targeting
-    target_roles = models.JSONField(default=list, help_text="User roles this tutorial applies to")
-    target_pages = models.JSONField(default=list, help_text="Pages where this tutorial can be triggered")
+    # Time period information
+    period_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('hourly', 'Hourly'),
+            ('daily', 'Daily'),
+            ('weekly', 'Weekly'),
+            ('monthly', 'Monthly'),
+            ('quarterly', 'Quarterly'),
+            ('yearly', 'Yearly'),
+        ],
+        help_text="Time period granularity for this trend data"
+    )
     
-    # Configuration
-    trigger_type = models.CharField(max_length=20, choices=TRIGGER_TYPES, default='manual')
-    difficulty_level = models.CharField(max_length=20, choices=DIFFICULTY_LEVELS, default='beginner')
-    estimated_duration = models.PositiveIntegerField(help_text="Estimated duration in minutes")
+    period_start = models.DateTimeField(
+        help_text="Start of the time period for this data point"
+    )
+    period_end = models.DateTimeField(
+        help_text="End of the time period for this data point"
+    )
     
-    # Content
-    steps = models.JSONField(default=list, help_text="Tutorial steps configuration")
+    # Core utilization metrics
+    total_available_hours = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Total hours the resource was available for booking"
+    )
     
-    # Settings
-    is_mandatory = models.BooleanField(default=False, help_text="Whether users must complete this tutorial")
-    is_active = models.BooleanField(default=True)
-    auto_start = models.BooleanField(default=False, help_text="Auto-start when conditions are met")
-    allow_skip = models.BooleanField(default=True, help_text="Allow users to skip this tutorial")
-    show_progress = models.BooleanField(default=True, help_text="Show progress indicator")
+    total_booked_hours = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Total hours actually booked"
+    )
+    
+    total_used_hours = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text="Total hours actually used (based on check-in/check-out)"
+    )
+    
+    utilization_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        help_text="Percentage of available time that was booked (0-100)"
+    )
+    
+    actual_usage_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Percentage of booked time that was actually used (0-100)"
+    )
+    
+    # Booking statistics
+    total_bookings = models.PositiveIntegerField(
+        default=0,
+        help_text="Total number of bookings in this period"
+    )
+    
+    unique_users = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of unique users who booked this resource"
+    )
+    
+    average_booking_duration = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        help_text="Average duration of bookings in hours"
+    )
+    
+    no_show_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of bookings where users didn't show up"
+    )
+    
+    no_show_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Percentage of bookings that were no-shows (0-100)"
+    )
+    
+    # Peak usage analysis
+    peak_hour = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Hour of day with highest utilization (0-23)"
+    )
+    
+    peak_day = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Day of week with highest utilization (0=Monday, 6=Sunday)"
+    )
+    
+    peak_utilization = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Highest utilization rate in any sub-period"
+    )
+    
+    # Trend indicators
+    trend_direction = models.CharField(
+        max_length=20,
+        choices=[
+            ('increasing', 'Increasing'),
+            ('decreasing', 'Decreasing'),
+            ('stable', 'Stable'),
+            ('volatile', 'Volatile'),
+        ],
+        default='stable',
+        help_text="Overall trend direction compared to previous period"
+    )
+    
+    trend_strength = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Strength of trend (-100 to +100, negative=decreasing)"
+    )
+    
+    # Capacity analysis
+    capacity_utilization = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="How much of theoretical maximum capacity was used"
+    )
+    
+    over_capacity_hours = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        help_text="Hours when demand exceeded available capacity"
+    )
+    
+    waiting_list_demand = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+        help_text="Total hours of unfulfilled demand (waiting list entries)"
+    )
+    
+    # User behavior patterns
+    user_patterns = models.JSONField(
+        default=dict,
+        help_text="Detailed user behavior patterns and segmentation"
+    )
+    
+    time_patterns = models.JSONField(
+        default=dict,
+        help_text="Detailed time-based usage patterns"
+    )
+    
+    # Predictive metrics
+    forecast_next_period = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Predicted utilization rate for next period"
+    )
+    
+    forecast_confidence = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Confidence level in forecast (0-100)"
+    )
     
     # Metadata
-    version = models.CharField(max_length=10, default='1.0')
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_tutorials')
+    calculated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'booking_resourceutilizationtrend'
+        unique_together = ['resource', 'period_type', 'period_start']
+        ordering = ['-period_start']
+        indexes = [
+            models.Index(fields=['resource', 'period_type']),
+            models.Index(fields=['period_start', 'period_end']),
+            models.Index(fields=['utilization_rate']),
+            models.Index(fields=['trend_direction']),
+        ]
+    
+    def __str__(self):
+        return f"{self.resource.name} - {self.period_type} - {self.period_start.strftime('%Y-%m-%d')}"
+    
+    @property
+    def efficiency_score(self):
+        """Calculate efficiency score based on booked vs. used hours."""
+        if self.total_booked_hours == 0:
+            return 0
+        return float(self.total_used_hours / self.total_booked_hours * 100)
+    
+    @property
+    def demand_score(self):
+        """Calculate demand score including waiting list demand."""
+        total_demand = float(self.total_booked_hours) + float(self.waiting_list_demand)
+        if self.total_available_hours == 0:
+            return 0
+        return min(100, total_demand / float(self.total_available_hours) * 100)
+    
+    @property
+    def waste_score(self):
+        """Calculate waste score based on no-shows and unused time."""
+        if self.total_booked_hours == 0:
+            return 0
+        wasted_hours = float(self.total_booked_hours) - float(self.total_used_hours)
+        return wasted_hours / float(self.total_booked_hours) * 100
+    
+    def get_trend_description(self):
+        """Get human-readable trend description."""
+        strength_desc = "strongly" if abs(self.trend_strength) > 50 else "moderately" if abs(self.trend_strength) > 20 else "slightly"
+        
+        if self.trend_direction == 'increasing':
+            return f"Utilization is {strength_desc} increasing"
+        elif self.trend_direction == 'decreasing':
+            return f"Utilization is {strength_desc} decreasing"
+        elif self.trend_direction == 'volatile':
+            return "Utilization shows high variability"
+        else:
+            return "Utilization is stable"
+    
+    def get_capacity_status(self):
+        """Get capacity status description."""
+        if self.over_capacity_hours > 0:
+            return "Over capacity"
+        elif self.utilization_rate >= 90:
+            return "Near capacity"
+        elif self.utilization_rate >= 70:
+            return "High utilization"
+        elif self.utilization_rate >= 40:
+            return "Moderate utilization"
+        else:
+            return "Low utilization"
+    
+    def calculate_seasonal_factor(self, historical_data):
+        """Calculate seasonal adjustment factor for this period."""
+        if not historical_data:
+            return 1.0
+        
+        # Find same period in previous years
+        same_periods = historical_data.filter(
+            period_type=self.period_type,
+            period_start__month=self.period_start.month
+        )
+        
+        if same_periods.exists():
+            avg_utilization = same_periods.aggregate(
+                models.Avg('utilization_rate')
+            )['utilization_rate__avg']
+            
+            overall_avg = historical_data.aggregate(
+                models.Avg('utilization_rate')
+            )['utilization_rate__avg']
+            
+            if overall_avg and overall_avg > 0:
+                return float(avg_utilization) / float(overall_avg)
+        
+        return 1.0
+
+
+class ChecklistTemplate(models.Model):
+    """Template for equipment checkout/checkin checklists."""
+    
+    TEMPLATE_TYPE_CHOICES = [
+        ('checkout', 'Checkout Checklist'),
+        ('checkin', 'Check-in Checklist'),
+        ('both', 'Both Checkout and Check-in'),
+    ]
+    
+    APPROVAL_LEVEL_CHOICES = [
+        ('none', 'No Approval Required'),
+        ('user', 'User Sign-off Only'),
+        ('supervisor', 'Supervisor Approval Required'),
+        ('manager', 'Manager Approval Required'),
+    ]
+    
+    name = models.CharField(max_length=200, help_text="Descriptive name for this checklist template")
+    description = models.TextField(blank=True, help_text="Detailed description of when and how to use this checklist")
+    resource = models.ForeignKey(
+        Resource, 
+        on_delete=models.CASCADE, 
+        related_name='checklist_templates',
+        help_text="Resource this checklist applies to"
+    )
+    template_type = models.CharField(
+        max_length=20, 
+        choices=TEMPLATE_TYPE_CHOICES, 
+        default='both',
+        help_text="When this checklist should be used"
+    )
+    is_active = models.BooleanField(default=True, help_text="Whether this checklist template is currently active")
+    is_mandatory = models.BooleanField(default=True, help_text="Whether completing this checklist is required")
+    approval_required = models.CharField(
+        max_length=20, 
+        choices=APPROVAL_LEVEL_CHOICES, 
+        default='user',
+        help_text="Level of approval required for checklist completion"
+    )
+    version = models.IntegerField(default=1, help_text="Version number for tracking changes")
+    effective_date = models.DateTimeField(default=timezone.now, help_text="When this template becomes effective")
+    expiry_date = models.DateTimeField(null=True, blank=True, help_text="When this template expires (optional)")
+    
+    # Conditional logic settings
+    conditional_logic = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="JSON configuration for conditional item display based on previous answers"
+    )
+    
+    # Time limits
+    time_limit_minutes = models.IntegerField(
+        null=True, 
+        blank=True, 
+        help_text="Maximum time allowed to complete checklist (in minutes)"
+    )
+    
+    # Notification settings
+    reminder_enabled = models.BooleanField(default=True, help_text="Send reminders for incomplete checklists")
+    reminder_interval_hours = models.IntegerField(default=24, help_text="Hours between reminder notifications")
+    
+    created_by = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        related_name='created_checklist_templates'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        db_table = 'booking_tutorial'
-        ordering = ['category__order', 'name']
+        db_table = 'checklist_templates'
+        verbose_name = 'Checklist Template'
+        verbose_name_plural = 'Checklist Templates'
+        ordering = ['resource__name', 'name']
+        indexes = [
+            models.Index(fields=['resource', 'template_type', 'is_active']),
+            models.Index(fields=['effective_date', 'expiry_date']),
+        ]
     
     def __str__(self):
-        return f"{self.name} ({self.category.name})"
+        return f"{self.resource.name} - {self.name}"
     
-    def is_applicable_for_user(self, user):
-        """Check if tutorial applies to a specific user."""
-        if not self.is_active:
+    def is_valid_for_date(self, check_date=None):
+        """Check if template is valid for a given date."""
+        if check_date is None:
+            check_date = timezone.now()
+        
+        if check_date < self.effective_date:
             return False
         
-        if not user.is_authenticated:
-            return False
-        
-        try:
-            user_role = user.userprofile.role
-        except:
-            user_role = 'student'  # Default role
-        
-        # Check role targeting
-        if self.target_roles and user_role not in self.target_roles:
+        if self.expiry_date and check_date > self.expiry_date:
             return False
         
         return True
     
-    def get_next_step(self, current_step):
-        """Get the next step in the tutorial."""
-        if current_step < len(self.steps) - 1:
-            return current_step + 1
-        return None
+    def get_active_items(self):
+        """Get all active checklist items for this template."""
+        return self.checklist_items.filter(is_active=True).order_by('order', 'id')
     
-    def get_step_count(self):
-        """Get total number of steps."""
-        return len(self.steps)
+    def get_completion_rate(self):
+        """Calculate completion rate for this template."""
+        total_assignments = self.checklist_completions.count()
+        if total_assignments == 0:
+            return 0
+        
+        completed = self.checklist_completions.filter(
+            status__in=['completed', 'approved']
+        ).count()
+        
+        return (completed / total_assignments) * 100
 
 
-class UserTutorialProgress(models.Model):
-    """Track user progress through tutorials."""
+class ChecklistItem(models.Model):
+    """Individual item within a checklist template."""
+    
+    ITEM_TYPE_CHOICES = [
+        ('checkbox', 'Checkbox (Yes/No)'),
+        ('text', 'Text Input'),
+        ('textarea', 'Long Text'),
+        ('number', 'Number Input'),
+        ('date', 'Date Input'),
+        ('time', 'Time Input'),
+        ('select', 'Multiple Choice'),
+        ('photo', 'Photo Upload'),
+        ('signature', 'Digital Signature'),
+        ('rating', 'Rating Scale (1-5)'),
+        ('temperature', 'Temperature Reading'),
+        ('pressure', 'Pressure Reading'),
+        ('voltage', 'Voltage Reading'),
+        ('inspection', 'Visual Inspection'),
+    ]
+    
+    PRIORITY_CHOICES = [
+        ('low', 'Low Priority'),
+        ('normal', 'Normal Priority'),
+        ('high', 'High Priority'),
+        ('critical', 'Critical'),
+    ]
+    
+    template = models.ForeignKey(
+        ChecklistTemplate, 
+        on_delete=models.CASCADE, 
+        related_name='checklist_items'
+    )
+    title = models.CharField(max_length=200, help_text="Title/question for this checklist item")
+    description = models.TextField(blank=True, help_text="Detailed description or instructions")
+    item_type = models.CharField(max_length=20, choices=ITEM_TYPE_CHOICES, default='checkbox')
+    is_required = models.BooleanField(default=True, help_text="Whether this item must be completed")
+    is_active = models.BooleanField(default=True, help_text="Whether this item is currently active")
+    order = models.IntegerField(default=0, help_text="Display order within the checklist")
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='normal')
+    
+    # Type-specific configurations
+    options = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Configuration options specific to item type (e.g., choices for select, min/max for number)"
+    )
+    
+    # Validation rules
+    validation_rules = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Validation rules for the item response"
+    )
+    
+    # Conditional display
+    conditional_logic = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Conditions for when this item should be displayed"
+    )
+    
+    # Help and guidance
+    help_text = models.TextField(blank=True, help_text="Additional help text for users")
+    help_image = models.ImageField(
+        upload_to='checklist_help/', 
+        null=True, 
+        blank=True, 
+        help_text="Optional image to help explain the item"
+    )
+    
+    # Issue escalation
+    escalation_enabled = models.BooleanField(
+        default=False, 
+        help_text="Whether issues with this item should trigger escalation"
+    )
+    escalation_contacts = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of contact emails for escalation"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'checklist_items'
+        verbose_name = 'Checklist Item'
+        verbose_name_plural = 'Checklist Items'
+        ordering = ['template', 'order', 'id']
+        indexes = [
+            models.Index(fields=['template', 'is_active', 'order']),
+            models.Index(fields=['item_type', 'is_required']),
+        ]
+    
+    def __str__(self):
+        return f"{self.template.name} - {self.title}"
+    
+    def get_validation_errors(self, value):
+        """Validate a response value against this item's rules."""
+        errors = []
+        
+        if self.is_required and not value:
+            errors.append("This field is required.")
+        
+        if not value:
+            return errors
+        
+        # Type-specific validation
+        if self.item_type == 'number':
+            try:
+                num_value = float(value)
+                if 'min_value' in self.validation_rules:
+                    if num_value < self.validation_rules['min_value']:
+                        errors.append(f"Value must be at least {self.validation_rules['min_value']}")
+                if 'max_value' in self.validation_rules:
+                    if num_value > self.validation_rules['max_value']:
+                        errors.append(f"Value must be at most {self.validation_rules['max_value']}")
+            except (ValueError, TypeError):
+                errors.append("Invalid number format.")
+        
+        elif self.item_type == 'text':
+            if 'min_length' in self.validation_rules:
+                if len(str(value)) < self.validation_rules['min_length']:
+                    errors.append(f"Must be at least {self.validation_rules['min_length']} characters.")
+            if 'max_length' in self.validation_rules:
+                if len(str(value)) > self.validation_rules['max_length']:
+                    errors.append(f"Must be at most {self.validation_rules['max_length']} characters.")
+        
+        elif self.item_type == 'select':
+            valid_options = self.options.get('choices', [])
+            if valid_options and value not in valid_options:
+                errors.append("Invalid selection.")
+        
+        return errors
+    
+    def should_display(self, previous_responses):
+        """Check if this item should be displayed based on conditional logic."""
+        if not self.conditional_logic:
+            return True
+        
+        conditions = self.conditional_logic.get('conditions', [])
+        logic_operator = self.conditional_logic.get('operator', 'AND')
+        
+        if not conditions:
+            return True
+        
+        results = []
+        for condition in conditions:
+            item_id = condition.get('item_id')
+            operator = condition.get('operator', 'equals')
+            expected_value = condition.get('value')
+            
+            actual_value = previous_responses.get(str(item_id))
+            
+            if operator == 'equals':
+                results.append(actual_value == expected_value)
+            elif operator == 'not_equals':
+                results.append(actual_value != expected_value)
+            elif operator == 'contains':
+                results.append(expected_value in str(actual_value or ''))
+            elif operator == 'greater_than':
+                try:
+                    results.append(float(actual_value or 0) > float(expected_value))
+                except (ValueError, TypeError):
+                    results.append(False)
+            elif operator == 'less_than':
+                try:
+                    results.append(float(actual_value or 0) < float(expected_value))
+                except (ValueError, TypeError):
+                    results.append(False)
+            else:
+                results.append(True)
+        
+        if logic_operator == 'OR':
+            return any(results)
+        else:  # AND
+            return all(results)
+
+
+class ChecklistCompletion(models.Model):
+    """Record of a completed (or in-progress) checklist."""
+    
     STATUS_CHOICES = [
         ('not_started', 'Not Started'),
         ('in_progress', 'In Progress'),
         ('completed', 'Completed'),
-        ('skipped', 'Skipped'),
-        ('abandoned', 'Abandoned'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('escalated', 'Escalated'),
+        ('expired', 'Expired'),
     ]
     
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tutorial_progress')
-    tutorial = models.ForeignKey(Tutorial, on_delete=models.CASCADE, related_name='user_progress')
+    COMPLETION_TYPE_CHOICES = [
+        ('checkout', 'Equipment Checkout'),
+        ('checkin', 'Equipment Check-in'),
+        ('maintenance', 'Maintenance Check'),
+        ('inspection', 'Routine Inspection'),
+    ]
     
-    # Progress tracking
+    template = models.ForeignKey(
+        ChecklistTemplate, 
+        on_delete=models.CASCADE, 
+        related_name='checklist_completions'
+    )
+    booking = models.ForeignKey(
+        Booking, 
+        on_delete=models.CASCADE, 
+        related_name='checklist_completions',
+        null=True,
+        blank=True,
+        help_text="Associated booking (if applicable)"
+    )
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name='checklist_completions',
+        help_text="User completing the checklist"
+    )
+    completion_type = models.CharField(
+        max_length=20, 
+        choices=COMPLETION_TYPE_CHOICES, 
+        default='checkout'
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
-    current_step = models.PositiveIntegerField(default=0)
-    completed_steps = models.JSONField(default=list, help_text="List of completed step indices")
     
     # Timestamps
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
-    last_accessed_at = models.DateTimeField(auto_now=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    due_date = models.DateTimeField(null=True, blank=True, help_text="When checklist completion is due")
     
-    # Metrics
-    time_spent = models.PositiveIntegerField(default=0, help_text="Time spent in seconds")
-    attempts = models.PositiveIntegerField(default=0, help_text="Number of times tutorial was started")
+    # Approval workflow
+    approved_by = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='approved_checklists'
+    )
+    approval_notes = models.TextField(blank=True, help_text="Notes from approver")
     
-    # Feedback
-    rating = models.PositiveIntegerField(null=True, blank=True, help_text="User rating 1-5")
-    feedback = models.TextField(blank=True, help_text="User feedback")
+    # Issues and escalation
+    has_issues = models.BooleanField(default=False, help_text="Whether any items have reported issues")
+    issues_summary = models.TextField(blank=True, help_text="Summary of identified issues")
+    escalated_to = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='escalated_checklists'
+    )
+    escalation_reason = models.TextField(blank=True)
+    
+    # Metadata
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    completion_time_seconds = models.IntegerField(null=True, blank=True, help_text="Time taken to complete")
+    
+    # Digital signatures
+    user_signature = models.TextField(blank=True, help_text="Digital signature data")
+    supervisor_signature = models.TextField(blank=True, help_text="Supervisor signature data")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        db_table = 'booking_usertutorialprogress'
-        unique_together = ['user', 'tutorial']
-        ordering = ['-last_accessed_at']
+        db_table = 'checklist_completions'
+        verbose_name = 'Checklist Completion'
+        verbose_name_plural = 'Checklist Completions'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['template', 'status']),
+            models.Index(fields=['user', 'completion_type']),
+            models.Index(fields=['booking', 'status']),
+            models.Index(fields=['completed_at', 'approved_at']),
+            models.Index(fields=['has_issues', 'status']),
+        ]
     
     def __str__(self):
-        return f"{self.user.username} - {self.tutorial.name} ({self.status})"
+        return f"{self.template.name} - {self.user.username} ({self.status})"
     
-    def start_tutorial(self):
-        """Start the tutorial."""
+    def start_completion(self):
+        """Mark checklist as started."""
         if self.status == 'not_started':
-            self.attempts += 1
-        
-        self.status = 'in_progress'
-        self.started_at = timezone.now()
-        self.current_step = 0
-        self.save(update_fields=['status', 'started_at', 'current_step', 'attempts', 'last_accessed_at'])
+            self.status = 'in_progress'
+            self.started_at = timezone.now()
+            self.save()
     
-    def complete_step(self, step_index):
-        """Mark a step as completed."""
-        if step_index not in self.completed_steps:
-            self.completed_steps.append(step_index)
-            self.completed_steps.sort()
-        
-        self.current_step = step_index + 1
-        self.save(update_fields=['completed_steps', 'current_step', 'last_accessed_at'])
-        
-        # Check if tutorial is complete
-        if len(self.completed_steps) >= self.tutorial.get_step_count():
-            self.complete_tutorial()
+    def complete_checklist(self):
+        """Mark checklist as completed."""
+        if self.status == 'in_progress':
+            self.status = 'completed'
+            self.completed_at = timezone.now()
+            
+            # Calculate completion time
+            if self.started_at:
+                time_diff = self.completed_at - self.started_at
+                self.completion_time_seconds = int(time_diff.total_seconds())
+            
+            # Check if approval is required
+            if self.template.approval_required in ['supervisor', 'manager']:
+                # Keep status as completed until approved
+                pass
+            else:
+                # Auto-approve if no approval required
+                self.approve_checklist(auto_approved=True)
+            
+            self.save()
     
-    def complete_tutorial(self):
-        """Mark tutorial as completed."""
-        self.status = 'completed'
-        self.completed_at = timezone.now()
-        self.save(update_fields=['status', 'completed_at', 'last_accessed_at'])
+    def approve_checklist(self, approver=None, notes="", auto_approved=False):
+        """Approve the completed checklist."""
+        if self.status == 'completed':
+            self.status = 'approved'
+            self.approved_at = timezone.now()
+            self.approved_by = approver
+            self.approval_notes = notes
+            
+            if auto_approved:
+                self.approval_notes = "Auto-approved (no manual approval required)"
+            
+            self.save()
     
-    def skip_tutorial(self):
-        """Mark tutorial as skipped."""
-        self.status = 'skipped'
-        self.completed_at = timezone.now()
-        self.save(update_fields=['status', 'completed_at', 'last_accessed_at'])
+    def reject_checklist(self, approver, reason):
+        """Reject the completed checklist."""
+        if self.status == 'completed':
+            self.status = 'rejected'
+            self.approved_by = approver
+            self.approval_notes = reason
+            self.save()
     
-    @property
-    def progress_percentage(self):
-        """Calculate completion percentage."""
-        total_steps = self.tutorial.get_step_count()
-        if total_steps == 0:
+    def escalate_checklist(self, escalated_to, reason):
+        """Escalate checklist due to issues."""
+        self.status = 'escalated'
+        self.escalated_to = escalated_to
+        self.escalation_reason = reason
+        self.save()
+    
+    def get_completion_percentage(self):
+        """Calculate percentage of items completed."""
+        total_items = self.template.get_active_items().count()
+        if total_items == 0:
             return 100
-        return (len(self.completed_steps) / total_steps) * 100
+        
+        completed_items = self.item_completions.exclude(response__exact='').count()
+        return (completed_items / total_items) * 100
     
-    @property
-    def is_completed(self):
-        """Check if tutorial is completed."""
-        return self.status == 'completed'
+    def get_issues_count(self):
+        """Get count of items with issues."""
+        return self.item_completions.filter(has_issue=True).count()
     
-    @property
-    def is_in_progress(self):
-        """Check if tutorial is in progress."""
-        return self.status == 'in_progress'
+    def is_overdue(self):
+        """Check if checklist completion is overdue."""
+        if not self.due_date:
+            return False
+        
+        if self.status in ['completed', 'approved']:
+            return False
+        
+        return timezone.now() > self.due_date
 
 
-class TutorialAnalytics(models.Model):
-    """Analytics and metrics for tutorials."""
-    tutorial = models.OneToOneField(Tutorial, on_delete=models.CASCADE, related_name='analytics')
+class ChecklistItemCompletion(models.Model):
+    """Individual item completion within a checklist."""
     
-    # Completion metrics
-    total_starts = models.PositiveIntegerField(default=0)
-    total_completions = models.PositiveIntegerField(default=0)
-    total_skips = models.PositiveIntegerField(default=0)
-    total_abandons = models.PositiveIntegerField(default=0)
+    checklist_completion = models.ForeignKey(
+        ChecklistCompletion, 
+        on_delete=models.CASCADE, 
+        related_name='item_completions'
+    )
+    checklist_item = models.ForeignKey(
+        ChecklistItem, 
+        on_delete=models.CASCADE, 
+        related_name='item_completions'
+    )
+    response = models.TextField(blank=True, help_text="User's response to the checklist item")
     
-    # Time metrics
-    average_completion_time = models.PositiveIntegerField(default=0, help_text="Average completion time in seconds")
-    average_rating = models.FloatField(default=0.0, help_text="Average user rating")
+    # File uploads for photo/document items
+    file_upload = models.FileField(
+        upload_to='checklist_responses/', 
+        null=True, 
+        blank=True, 
+        help_text="File upload for photo or document items"
+    )
     
-    # Step analytics
-    step_completion_rates = models.JSONField(default=dict, help_text="Completion rate for each step")
-    step_drop_off_points = models.JSONField(default=list, help_text="Steps where users commonly drop off")
+    # Issue tracking
+    has_issue = models.BooleanField(default=False, help_text="Whether this item has identified an issue")
+    issue_description = models.TextField(blank=True, help_text="Description of the identified issue")
+    issue_severity = models.CharField(
+        max_length=20,
+        choices=[
+            ('low', 'Low'),
+            ('medium', 'Medium'),
+            ('high', 'High'),
+            ('critical', 'Critical'),
+        ],
+        default='low',
+        blank=True
+    )
+    issue_resolved = models.BooleanField(default=False, help_text="Whether the issue has been resolved")
+    resolution_notes = models.TextField(blank=True, help_text="Notes on how the issue was resolved")
     
-    # Updated timestamp
-    last_calculated_at = models.DateTimeField(auto_now=True)
+    # Validation
+    is_valid = models.BooleanField(default=True, help_text="Whether the response passes validation")
+    validation_errors = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of validation errors for this response"
+    )
+    
+    # Metadata
+    completed_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        db_table = 'booking_tutorialanalytics'
+        db_table = 'checklist_item_completions'
+        verbose_name = 'Checklist Item Completion'
+        verbose_name_plural = 'Checklist Item Completions'
+        ordering = ['checklist_completion', 'checklist_item__order']
+        unique_together = ['checklist_completion', 'checklist_item']
+        indexes = [
+            models.Index(fields=['checklist_completion', 'has_issue']),
+            models.Index(fields=['checklist_item', 'is_valid']),
+            models.Index(fields=['issue_severity', 'issue_resolved']),
+        ]
     
     def __str__(self):
-        return f"Analytics for {self.tutorial.name}"
+        return f"{self.checklist_completion} - {self.checklist_item.title}"
     
-    @property
-    def completion_rate(self):
-        """Calculate completion rate percentage."""
-        if self.total_starts == 0:
-            return 0
-        return (self.total_completions / self.total_starts) * 100
+    def validate_response(self):
+        """Validate the response against the item's validation rules."""
+        errors = self.checklist_item.get_validation_errors(self.response)
+        self.validation_errors = errors
+        self.is_valid = len(errors) == 0
+        return self.is_valid
     
-    @property
-    def skip_rate(self):
-        """Calculate skip rate percentage."""
-        if self.total_starts == 0:
-            return 0
-        return (self.total_skips / self.total_starts) * 100
-    
-    def update_metrics(self):
-        """Recalculate all metrics from user progress data."""
-        progress_qs = self.tutorial.user_progress.all()
-        
-        self.total_starts = progress_qs.exclude(status='not_started').count()
-        self.total_completions = progress_qs.filter(status='completed').count()
-        self.total_skips = progress_qs.filter(status='skipped').count()
-        self.total_abandons = progress_qs.filter(status='abandoned').count()
-        
-        # Calculate average completion time
-        completed_progress = progress_qs.filter(status='completed', time_spent__gt=0)
-        if completed_progress.exists():
-            self.average_completion_time = completed_progress.aggregate(
-                models.Avg('time_spent')
-            )['time_spent__avg'] or 0
-        
-        # Calculate average rating
-        rated_progress = progress_qs.filter(rating__isnull=False)
-        if rated_progress.exists():
-            self.average_rating = rated_progress.aggregate(
-                models.Avg('rating')
-            )['rating__avg'] or 0.0
-        
+    def mark_issue(self, description, severity='medium'):
+        """Mark this item as having an issue."""
+        self.has_issue = True
+        self.issue_description = description
+        self.issue_severity = severity
         self.save()
+        
+        # Update parent checklist
+        self.checklist_completion.has_issues = True
+        self.checklist_completion.save()
+    
+    def resolve_issue(self, resolution_notes=""):
+        """Mark the issue as resolved."""
+        self.issue_resolved = True
+        self.resolution_notes = resolution_notes
+        self.save()
+        
+        # Check if parent checklist still has unresolved issues
+        unresolved_issues = self.checklist_completion.item_completions.filter(
+            has_issue=True,
+            issue_resolved=False
+        ).exists()
+        
+        if not unresolved_issues:
+            self.checklist_completion.has_issues = False
+            self.checklist_completion.save()
+    
+    def get_display_value(self):
+        """Get formatted display value for this response."""
+        if not self.response:
+            return "No response"
+        
+        item_type = self.checklist_item.item_type
+        
+        if item_type == 'checkbox':
+            return "Yes" if self.response.lower() in ['true', '1', 'yes'] else "No"
+        elif item_type == 'rating':
+            return f"{self.response}/5 stars"
+        elif item_type in ['temperature', 'pressure', 'voltage']:
+            return f"{self.response} {self.checklist_item.options.get('unit', '')}"
+        elif item_type == 'photo' and self.file_upload:
+            return f"Photo: {self.file_upload.name}"
+        else:
+            return str(self.response)

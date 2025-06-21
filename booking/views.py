@@ -33,14 +33,14 @@ from .models import (
     PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, 
     Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest,
     ResourceResponsible, RiskAssessment, UserRiskAssessment, TrainingCourse, 
-    ResourceTrainingRequirement, UserTraining, TutorialCategory, Tutorial, UserTutorialProgress, TutorialAnalytics
+    ResourceTrainingRequirement, UserTraining
 )
 from .forms import (
     UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, 
     BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, 
     SaveAsTemplateForm, AccessRequestForm, AccessRequestReviewForm, RiskAssessmentForm, 
     UserRiskAssessmentForm, TrainingCourseForm, UserTrainingEnrollForm, ResourceResponsibleForm,
-    ResourceForm, AboutPageEditForm, TutorialCategoryForm, TutorialForm, TutorialFeedbackForm
+    ResourceForm, AboutPageEditForm
 )
 from .recurring import RecurringBookingGenerator, RecurringBookingManager
 from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
@@ -294,6 +294,31 @@ class BookingViewSet(viewsets.ModelViewSet):
         """Get bookings in calendar event format."""
         queryset = self.get_queryset()
         
+        # Handle FullCalendar date range parameters
+        start_param = request.query_params.get('start')
+        end_param = request.query_params.get('end')
+        
+        if start_param and end_param:
+            try:
+                # Parse ISO format dates from FullCalendar
+                start_date = timezone.datetime.fromisoformat(start_param.replace('Z', '+00:00'))
+                end_date = timezone.datetime.fromisoformat(end_param.replace('Z', '+00:00'))
+                
+                # Make timezone-aware if needed
+                if timezone.is_naive(start_date):
+                    start_date = timezone.make_aware(start_date)
+                if timezone.is_naive(end_date):
+                    end_date = timezone.make_aware(end_date)
+                
+                # Filter bookings by date range
+                queryset = queryset.filter(
+                    start_time__lt=end_date,
+                    end_time__gt=start_date
+                )
+            except (ValueError, TypeError) as e:
+                # If date parsing fails, just log and continue without filtering
+                print(f"Calendar date parsing error: {e}")
+        
         # Convert to FullCalendar event format
         events = []
         for booking in queryset:
@@ -313,10 +338,14 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'backgroundColor': color,
                 'borderColor': color,
                 'extendedProps': {
+                    'booking_id': booking.id,
                     'resource': booking.resource.name,
+                    'resource_id': booking.resource.id,
                     'user': booking.user.get_full_name(),
                     'status': booking.status,
                     'description': booking.description,
+                    'shared_with_group': booking.shared_with_group,
+                    'is_recurring': booking.is_recurring,
                 }
             })
         
@@ -1665,7 +1694,7 @@ class WaitingListEntryViewSet(viewsets.ModelViewSet):
 
 @login_required
 def resources_list_view(request):
-    """View to display all available resources with access control."""
+    """View to display all available resources with access control, grouped by resource type."""
     resources = Resource.objects.filter(is_active=True).order_by('resource_type', 'name')
     
     # Add access information for each resource
@@ -1687,8 +1716,23 @@ def resources_list_view(request):
             status__in=['pending', 'scheduled']
         ).exists()
     
+    # Group resources by type - only include types that have at least one resource
+    from itertools import groupby
+    resources_by_type = {}
+    for resource_type, group in groupby(resources, key=lambda x: x.resource_type):
+        resource_list = list(group)
+        if resource_list:  # Only include resource types that have available resources
+            # Get the human-readable name for the resource type
+            type_display = dict(Resource.RESOURCE_TYPES).get(resource_type, resource_type.title())
+            resources_by_type[resource_type] = {
+                'type_display': type_display,
+                'resources': resource_list,
+                'count': len(resource_list)
+            }
+    
     return render(request, 'booking/resources_list.html', {
-        'resources': resources,
+        'resources': resources,  # Keep for backward compatibility
+        'resources_by_type': resources_by_type,
         'user': request.user,
     })
 
@@ -3564,6 +3608,212 @@ class AccessRequestViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+class ResourceUtilizationTrendViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for resource utilization trend analysis."""
+    serializer_class = None  # Will define serializer separately
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        from .models import ResourceUtilizationTrend
+        queryset = ResourceUtilizationTrend.objects.select_related('resource')
+        
+        # Filter by resource if specified
+        resource_id = self.request.query_params.get('resource', None)
+        if resource_id:
+            queryset = queryset.filter(resource_id=resource_id)
+        
+        # Filter by period type
+        period_type = self.request.query_params.get('period_type', 'daily')
+        queryset = queryset.filter(period_type=period_type)
+        
+        # Filter by date range
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        
+        if start_date:
+            try:
+                start_date = datetime.fromisoformat(start_date)
+                queryset = queryset.filter(period_start__gte=start_date)
+            except ValueError:
+                pass
+        
+        if end_date:
+            try:
+                end_date = datetime.fromisoformat(end_date)
+                queryset = queryset.filter(period_end__lte=end_date)
+            except ValueError:
+                pass
+        
+        return queryset.order_by('-period_start')
+    
+    def list(self, request, *args, **kwargs):
+        """List utilization trends with summary statistics."""
+        queryset = self.get_queryset()
+        
+        # Pagination
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            data = self._serialize_trends(page)
+            return self.get_paginated_response(data)
+        
+        data = self._serialize_trends(queryset)
+        return Response(data)
+    
+    def _serialize_trends(self, trends):
+        """Serialize trend data with calculations."""
+        data = []
+        for trend in trends:
+            data.append({
+                'id': trend.id,
+                'resource': {
+                    'id': trend.resource.id,
+                    'name': trend.resource.name,
+                    'type': trend.resource.resource_type,
+                    'location': trend.resource.location,
+                },
+                'period_type': trend.period_type,
+                'period_start': trend.period_start.isoformat(),
+                'period_end': trend.period_end.isoformat(),
+                'utilization_rate': float(trend.utilization_rate),
+                'actual_usage_rate': float(trend.actual_usage_rate),
+                'total_bookings': trend.total_bookings,
+                'unique_users': trend.unique_users,
+                'no_show_rate': float(trend.no_show_rate),
+                'trend_direction': trend.trend_direction,
+                'trend_strength': float(trend.trend_strength),
+                'capacity_status': trend.get_capacity_status(),
+                'efficiency_score': trend.efficiency_score,
+                'demand_score': trend.demand_score,
+                'waste_score': trend.waste_score,
+                'peak_hour': trend.peak_hour,
+                'peak_day': trend.peak_day,
+                'forecast_next_period': float(trend.forecast_next_period) if trend.forecast_next_period else None,
+                'forecast_confidence': float(trend.forecast_confidence),
+                'calculated_at': trend.calculated_at.isoformat(),
+            })
+        return data
+    
+    @action(detail=False, methods=['get'])
+    def summary(self, request):
+        """Get utilization summary for dashboard."""
+        from .utilization_service import utilization_service
+        
+        resource_id = request.query_params.get('resource')
+        period_type = request.query_params.get('period_type', 'monthly')
+        limit = int(request.query_params.get('limit', 12))
+        
+        resource = None
+        if resource_id:
+            try:
+                from .models import Resource
+                resource = Resource.objects.get(id=resource_id)
+            except Resource.DoesNotExist:
+                return Response({'error': 'Resource not found'}, status=404)
+        
+        summary = utilization_service.get_utilization_summary(
+            resource=resource,
+            period_type=period_type,
+            limit=limit
+        )
+        
+        return Response(summary)
+    
+    @action(detail=False, methods=['post'])
+    def calculate(self, request):
+        """Trigger utilization trend calculation."""
+        from .utilization_service import utilization_service
+        
+        # Check if user has permission to trigger calculations
+        try:
+            user_profile = request.user.userprofile
+            if user_profile.role not in ['technician', 'sysadmin']:
+                return Response({'error': 'Permission denied'}, status=403)
+        except:
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        # Get calculation parameters
+        resource_id = request.data.get('resource_id')
+        period_type = request.data.get('period_type', 'daily')
+        start_date = request.data.get('start_date')
+        end_date = request.data.get('end_date')
+        force_recalculate = request.data.get('force_recalculate', False)
+        
+        # Parse dates
+        try:
+            if start_date:
+                start_date = datetime.fromisoformat(start_date)
+            if end_date:
+                end_date = datetime.fromisoformat(end_date)
+        except ValueError:
+            return Response({'error': 'Invalid date format'}, status=400)
+        
+        # Get resource if specified
+        resource = None
+        if resource_id:
+            try:
+                from .models import Resource
+                resource = Resource.objects.get(id=resource_id)
+            except Resource.DoesNotExist:
+                return Response({'error': 'Resource not found'}, status=404)
+        
+        # Trigger calculation
+        try:
+            results = utilization_service.calculate_utilization_trends(
+                resource=resource,
+                period_type=period_type,
+                start_date=start_date,
+                end_date=end_date,
+                force_recalculate=force_recalculate
+            )
+            
+            return Response({
+                'message': 'Calculation completed successfully',
+                'results': results
+            })
+        
+        except Exception as e:
+            logger.error(f"Utilization calculation error: {str(e)}")
+            return Response({'error': 'Calculation failed'}, status=500)
+    
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        """Export utilization trends as CSV."""
+        import csv
+        from django.http import HttpResponse
+        
+        queryset = self.get_queryset()
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="utilization_trends.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'Resource', 'Period Type', 'Period Start', 'Period End',
+            'Utilization Rate', 'Actual Usage Rate', 'Total Bookings',
+            'Unique Users', 'No Show Rate', 'Trend Direction',
+            'Trend Strength', 'Capacity Status', 'Efficiency Score'
+        ])
+        
+        for trend in queryset:
+            writer.writerow([
+                trend.resource.name,
+                trend.period_type,
+                trend.period_start.strftime('%Y-%m-%d %H:%M'),
+                trend.period_end.strftime('%Y-%m-%d %H:%M'),
+                float(trend.utilization_rate),
+                float(trend.actual_usage_rate),
+                trend.total_bookings,
+                trend.unique_users,
+                float(trend.no_show_rate),
+                trend.trend_direction,
+                float(trend.trend_strength),
+                trend.get_capacity_status(),
+                trend.efficiency_score,
+            ])
+        
+        return response
+
+
 # Approval Workflow Template Views
 
 @login_required
@@ -5273,373 +5523,3 @@ class CustomLoginView(LoginView):
             return '/about/'
 
 
-# Tutorial System Views
-
-@login_required
-@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
-def tutorial_management_view(request):
-    """Tutorial management dashboard."""
-    categories = TutorialCategory.objects.prefetch_related('tutorials').all()
-    
-    # Calculate statistics
-    total_tutorials = Tutorial.objects.count()
-    active_tutorials = Tutorial.objects.filter(is_active=True).count()
-    total_completions = UserTutorialProgress.objects.filter(status='completed').count()
-    
-    # Calculate average completion rate
-    analytics = TutorialAnalytics.objects.all()
-    if analytics.exists():
-        avg_completion_rate = sum(a.completion_rate for a in analytics) / len(analytics)
-    else:
-        avg_completion_rate = 0
-    
-    tutorial_stats = {
-        'total': total_tutorials,
-        'active': active_tutorials,
-        'completions': total_completions,
-        'avg_completion_rate': avg_completion_rate
-    }
-    
-    context = {
-        'categories': categories,
-        'tutorial_stats': tutorial_stats,
-    }
-    
-    return render(request, 'booking/tutorial_management.html', context)
-
-
-@login_required
-@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
-def tutorial_create_view(request):
-    """Create a new tutorial."""
-    if request.method == 'POST':
-        form = TutorialForm(request.POST)
-        if form.is_valid():
-            tutorial = form.save(commit=False)
-            tutorial.created_by = request.user
-            tutorial.save()
-            
-            # Create analytics record
-            TutorialAnalytics.objects.get_or_create(tutorial=tutorial)
-            
-            messages.success(request, f'Tutorial "{tutorial.name}" has been created successfully.')
-            return redirect('booking:tutorial_management')
-        else:
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        form = TutorialForm()
-        # Set category if provided in URL
-        category_id = request.GET.get('category')
-        if category_id:
-            try:
-                category = TutorialCategory.objects.get(pk=category_id)
-                form.fields['category'].initial = category
-            except TutorialCategory.DoesNotExist:
-                pass
-    
-    context = {
-        'form': form,
-        'tutorial': None,
-    }
-    
-    return render(request, 'booking/tutorial_form.html', context)
-
-
-@login_required
-@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
-def tutorial_edit_view(request, tutorial_id):
-    """Edit an existing tutorial."""
-    tutorial = get_object_or_404(Tutorial, pk=tutorial_id)
-    
-    if request.method == 'POST':
-        form = TutorialForm(request.POST, instance=tutorial)
-        if form.is_valid():
-            tutorial = form.save()
-            messages.success(request, f'Tutorial "{tutorial.name}" has been updated successfully.')
-            return redirect('booking:tutorial_management')
-        else:
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        form = TutorialForm(instance=tutorial)
-    
-    context = {
-        'form': form,
-        'tutorial': tutorial,
-    }
-    
-    return render(request, 'booking/tutorial_form.html', context)
-
-
-@login_required
-@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
-def tutorial_create_category_view(request):
-    """Create a new tutorial category."""
-    if request.method == 'POST':
-        form = TutorialCategoryForm(request.POST)
-        if form.is_valid():
-            category = form.save()
-            messages.success(request, f'Category "{category.name}" has been created successfully.')
-            return redirect('booking:tutorial_management')
-        else:
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        form = TutorialCategoryForm()
-    
-    context = {
-        'form': form,
-        'category': None,
-        'title': 'Create Tutorial Category',
-        'action': 'Create',
-    }
-    
-    return render(request, 'booking/tutorial_category_form.html', context)
-
-
-@login_required
-@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
-def tutorial_edit_category_view(request, category_id):
-    """Edit an existing tutorial category."""
-    category = get_object_or_404(TutorialCategory, pk=category_id)
-    
-    if request.method == 'POST':
-        form = TutorialCategoryForm(request.POST, instance=category)
-        if form.is_valid():
-            category = form.save()
-            messages.success(request, f'Category "{category.name}" has been updated successfully.')
-            return redirect('booking:tutorial_management')
-        else:
-            messages.error(request, 'Please correct the errors below.')
-    else:
-        form = TutorialCategoryForm(instance=category)
-    
-    context = {
-        'form': form,
-        'category': category,
-        'title': 'Edit Tutorial Category',
-        'action': 'Update',
-    }
-    
-    return render(request, 'booking/tutorial_category_form.html', context)
-
-
-@login_required
-def tutorial_preview_view(request, tutorial_id):
-    """Preview a tutorial (for testing)."""
-    tutorial = get_object_or_404(Tutorial, pk=tutorial_id)
-    
-    # Check if user has permission to preview
-    if not (request.user.is_staff or 
-            (hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['technician', 'sysadmin'])):
-        # Regular users can only preview tutorials applicable to them
-        if not tutorial.is_applicable_for_user(request.user):
-            messages.error(request, 'You do not have permission to preview this tutorial.')
-            return redirect('booking:dashboard')
-    
-    context = {
-        'tutorial': tutorial,
-        'is_preview': True,
-    }
-    
-    return render(request, 'booking/tutorial_preview.html', context)
-
-
-@login_required
-@user_passes_test(lambda u: u.is_staff or (hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin']))
-def tutorial_analytics_view(request, tutorial_id):
-    """View tutorial analytics."""
-    tutorial = get_object_or_404(Tutorial, pk=tutorial_id)
-    analytics, created = TutorialAnalytics.objects.get_or_create(tutorial=tutorial)
-    
-    if created or request.GET.get('refresh'):
-        analytics.update_metrics()
-    
-    # Get recent user progress
-    recent_progress = UserTutorialProgress.objects.filter(
-        tutorial=tutorial
-    ).select_related('user').order_by('-last_accessed_at')[:20]
-    
-    context = {
-        'tutorial': tutorial,
-        'analytics': analytics,
-        'recent_progress': recent_progress,
-    }
-    
-    return render(request, 'booking/tutorial_analytics.html', context)
-
-
-# Tutorial API Views (for frontend interaction)
-
-@login_required
-def tutorial_api_detail(request, tutorial_id):
-    """API endpoint to get tutorial details."""
-    tutorial = get_object_or_404(Tutorial, pk=tutorial_id)
-    
-    # Check if user can access this tutorial
-    if not tutorial.is_applicable_for_user(request.user):
-        return JsonResponse({'error': 'Tutorial not applicable'}, status=403)
-    
-    data = {
-        'id': tutorial.id,
-        'name': tutorial.name,
-        'description': tutorial.description,
-        'steps': tutorial.steps,
-        'estimated_duration': tutorial.estimated_duration,
-        'difficulty_level': tutorial.get_difficulty_level_display(),
-        'allow_skip': tutorial.allow_skip,
-        'show_progress': tutorial.show_progress,
-    }
-    
-    return JsonResponse(data)
-
-
-@login_required
-def tutorial_api_progress(request):
-    """API endpoint to track tutorial progress."""
-    if request.method == 'POST':
-        import json
-        data = json.loads(request.body)
-        
-        tutorial_id = data.get('tutorial_id')
-        action = data.get('action')
-        step = data.get('step', 0)
-        time_spent = data.get('time_spent', 0)
-        
-        try:
-            tutorial = Tutorial.objects.get(pk=tutorial_id)
-            progress, created = UserTutorialProgress.objects.get_or_create(
-                user=request.user,
-                tutorial=tutorial
-            )
-            
-            if action == 'start':
-                progress.start_tutorial()
-            elif action == 'step_completed':
-                progress.complete_step(step)
-            elif action == 'completed':
-                progress.complete_tutorial()
-            elif action == 'skipped':
-                progress.skip_tutorial()
-            
-            # Update time spent
-            if time_spent > 0:
-                progress.time_spent = time_spent
-                progress.save(update_fields=['time_spent'])
-            
-            return JsonResponse({'status': 'success'})
-            
-        except Tutorial.DoesNotExist:
-            return JsonResponse({'error': 'Tutorial not found'}, status=404)
-        except Exception as e:
-            return JsonResponse({'error': str(e)}, status=500)
-    
-    return JsonResponse({'error': 'Method not allowed'}, status=405)
-
-
-@login_required
-def tutorial_api_feedback(request):
-    """API endpoint to submit tutorial feedback."""
-    if request.method == 'POST':
-        import json
-        data = json.loads(request.body)
-        
-        tutorial_id = data.get('tutorial_id')
-        rating = data.get('rating')
-        feedback = data.get('feedback', '')
-        
-        try:
-            tutorial = Tutorial.objects.get(pk=tutorial_id)
-            progress = UserTutorialProgress.objects.get(
-                user=request.user,
-                tutorial=tutorial
-            )
-            
-            progress.rating = rating
-            progress.feedback = feedback
-            progress.save(update_fields=['rating', 'feedback'])
-            
-            return JsonResponse({'status': 'success'})
-            
-        except (Tutorial.DoesNotExist, UserTutorialProgress.DoesNotExist):
-            return JsonResponse({'error': 'Tutorial or progress not found'}, status=404)
-        except Exception as e:
-            return JsonResponse({'error': str(e)}, status=500)
-    
-    return JsonResponse({'error': 'Method not allowed'}, status=405)
-
-
-@login_required
-def tutorial_api_auto_start(request):
-    """API endpoint to check for auto-start tutorials."""
-    user = request.user
-    
-    # Find applicable tutorials that should auto-start
-    applicable_tutorials = Tutorial.objects.filter(
-        is_active=True,
-        auto_start=True
-    )
-    
-    for tutorial in applicable_tutorials:
-        if tutorial.is_applicable_for_user(user):
-            # Check if user hasn't started this tutorial yet
-            progress = UserTutorialProgress.objects.filter(
-                user=user,
-                tutorial=tutorial
-            ).first()
-            
-            if not progress or progress.status == 'not_started':
-                return JsonResponse({
-                    'tutorial_id': tutorial.id,
-                    'auto_start': True
-                })
-    
-    # Check for manual tutorials with suggestions
-    suggested_tutorials = Tutorial.objects.filter(
-        is_active=True,
-        trigger_type='page_visit'
-    )
-    
-    current_page = request.GET.get('page', 'dashboard')
-    
-    for tutorial in suggested_tutorials:
-        if (tutorial.is_applicable_for_user(user) and 
-            current_page in tutorial.target_pages):
-            
-            progress = UserTutorialProgress.objects.filter(
-                user=user,
-                tutorial=tutorial
-            ).first()
-            
-            if not progress or progress.status == 'not_started':
-                return JsonResponse({
-                    'tutorial_id': tutorial.id,
-                    'auto_start': False
-                })
-    
-    return JsonResponse({})
-
-
-@login_required
-def tutorial_api_available(request):
-    """API endpoint to get available tutorials for user."""
-    user = request.user
-    
-    tutorials = []
-    for tutorial in Tutorial.objects.filter(is_active=True):
-        if tutorial.is_applicable_for_user(user):
-            progress = UserTutorialProgress.objects.filter(
-                user=user,
-                tutorial=tutorial
-            ).first()
-            
-            tutorials.append({
-                'id': tutorial.id,
-                'name': tutorial.name,
-                'description': tutorial.description,
-                'category': tutorial.category.name,
-                'difficulty': tutorial.get_difficulty_level_display(),
-                'duration': tutorial.estimated_duration,
-                'completed': progress.is_completed if progress else False,
-                'in_progress': progress.is_in_progress if progress else False,
-            })
-    
-    return JsonResponse(tutorials, safe=False)
