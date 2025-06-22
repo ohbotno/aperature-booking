@@ -1,0 +1,310 @@
+{% extends 'booking/base.html' %}
+{% load static %}
+
+{% block title %}Checklist Configuration - {{ resource.name }} - Aperture Booking{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1><i class="fas fa-clipboard-check me-2"></i>Checklist Configuration</h1>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb">
+                            <li class="breadcrumb-item"><a href="{% url 'booking:dashboard' %}">Dashboard</a></li>
+                            <li class="breadcrumb-item"><a href="{% url 'booking:lab_admin_dashboard' %}">Lab Admin</a></li>
+                            <li class="breadcrumb-item"><a href="{% url 'booking:lab_admin_resources' %}">Resources</a></li>
+                            <li class="breadcrumb-item"><a href="{% url 'booking:lab_admin_edit_resource' resource.id %}">{{ resource.name }}</a></li>
+                            <li class="breadcrumb-item active">Checklist</li>
+                        </ol>
+                    </nav>
+                </div>
+                <div>
+                    <a href="{% url 'booking:lab_admin_edit_resource' resource.id %}" class="btn btn-outline-secondary me-2">
+                        <i class="fas fa-arrow-left me-1"></i> Back to Resource
+                    </a>
+                    <a href="/admin/booking/checklistitem/add/" class="btn btn-success" target="_blank">
+                        <i class="fas fa-plus me-1"></i> Create New Item
+                    </a>
+                </div>
+            </div>
+
+            <!-- Resource Info -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h5 class="mb-2">
+                                <i class="fas fa-cog me-2"></i>{{ resource.name }}
+                                {% if resource.requires_checkout_checklist %}
+                                <span class="badge bg-success ms-2">Checklist Enabled</span>
+                                {% else %}
+                                <span class="badge bg-warning ms-2">Checklist Disabled</span>
+                                {% endif %}
+                            </h5>
+                            <p class="text-muted mb-0">{{ resource.description|default:"No description provided" }}</p>
+                            {% if resource.requires_checkout_checklist %}
+                            <small class="text-success">
+                                <strong>Checklist Title:</strong> {{ resource.checkout_checklist_title }}
+                            </small>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <div class="row text-center">
+                                <div class="col-6">
+                                    <div class="h4 mb-0">{{ total_available }}</div>
+                                    <small class="text-muted">Available Items</small>
+                                </div>
+                                <div class="col-6">
+                                    <div class="h4 mb-0 text-primary">{{ total_assigned }}</div>
+                                    <small class="text-muted">Assigned Items</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% if not resource.requires_checkout_checklist %}
+            <div class="alert alert-warning">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>Checkout Checklist Disabled</h6>
+                <p class="mb-2">This resource does not currently require a checkout checklist. Items can be configured here, but users won't see them during checkout.</p>
+                <a href="{% url 'booking:lab_admin_edit_resource' resource.id %}" class="btn btn-sm btn-warning">
+                    <i class="fas fa-cog me-1"></i>Enable Checklist in Resource Settings
+                </a>
+            </div>
+            {% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+                
+                <div class="row">
+                    <!-- Available Items -->
+                    <div class="col-lg-8">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-list me-2"></i>Available Checklist Items
+                                    <small class="text-muted">({{ total_available }} items)</small>
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                {% if items_by_category %}
+                                {% for category, items in items_by_category.items %}
+                                <div class="mb-4">
+                                    <h6 class="text-primary border-bottom pb-2">
+                                        {% if category == "Safety Check" %}
+                                            <i class="fas fa-shield-alt me-2"></i>
+                                        {% elif category == "Equipment Status" %}
+                                            <i class="fas fa-cogs me-2"></i>
+                                        {% elif category == "Cleanliness" %}
+                                            <i class="fas fa-broom me-2"></i>
+                                        {% elif category == "Documentation" %}
+                                            <i class="fas fa-file-alt me-2"></i>
+                                        {% elif category == "Maintenance Check" %}
+                                            <i class="fas fa-wrench me-2"></i>
+                                        {% else %}
+                                            <i class="fas fa-clipboard me-2"></i>
+                                        {% endif %}
+                                        {{ category }}
+                                    </h6>
+                                    
+                                    {% for item in items %}
+                                    <div class="card mb-2 border-light">
+                                        <div class="card-body py-3">
+                                            <div class="row align-items-center">
+                                                <div class="col-md-1">
+                                                    <div class="form-check">
+                                                        {% for field in form %}
+                                                            {% if field.name == "item_"|add:item.id|add:"_enabled" %}
+                                                                {{ field }}
+                                                            {% endif %}
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <div>
+                                                        <strong>{{ item.title }}</strong>
+                                                        <span class="badge bg-secondary ms-2">{{ item.get_item_type_display }}</span>
+                                                        {% if item.is_required %}
+                                                        <span class="badge bg-danger ms-1">Required</span>
+                                                        {% endif %}
+                                                    </div>
+                                                    {% if item.description %}
+                                                    <small class="text-muted">{{ item.description }}</small>
+                                                    {% endif %}
+                                                    
+                                                    {% if item.item_type == 'select' and item.options %}
+                                                    <div class="mt-1">
+                                                        <small class="text-info">
+                                                            <strong>Options:</strong> {{ item.options|join:", " }}
+                                                        </small>
+                                                    </div>
+                                                    {% endif %}
+                                                    
+                                                    {% if item.item_type == 'number' %}
+                                                    <div class="mt-1">
+                                                        <small class="text-info">
+                                                            <strong>Range:</strong> 
+                                                            {% if item.min_value %}{{ item.min_value }}{% else %}-∞{% endif %} 
+                                                            to 
+                                                            {% if item.max_value %}{{ item.max_value }}{% else %}+∞{% endif %}
+                                                        </small>
+                                                    </div>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Order</label>
+                                                    {% for field in form %}
+                                                        {% if field.name == "item_"|add:item.id|add:"_order" %}
+                                                            {{ field }}
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <div class="form-check">
+                                                        {% for field in form %}
+                                                            {% if field.name == "item_"|add:item.id|add:"_required" %}
+                                                                {{ field }}
+                                                                <label class="form-check-label small">Required</label>
+                                                            {% endif %}
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-1 text-end">
+                                                    <a href="/admin/booking/checklistitem/{{ item.id }}/change/" 
+                                                       class="btn btn-sm btn-outline-secondary" 
+                                                       target="_blank"
+                                                       title="Edit Item">
+                                                        <i class="fas fa-edit"></i>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% endfor %}
+                                {% else %}
+                                <div class="text-center py-5">
+                                    <i class="fas fa-clipboard fa-3x text-muted mb-3"></i>
+                                    <h5 class="text-muted">No Checklist Items Available</h5>
+                                    <p class="text-muted">Create checklist items first before assigning them to resources.</p>
+                                    <a href="/admin/booking/checklistitem/add/" class="btn btn-primary" target="_blank">
+                                        <i class="fas fa-plus me-2"></i>Create First Checklist Item
+                                    </a>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Currently Assigned Items -->
+                    <div class="col-lg-4">
+                        <div class="card sticky-top" style="top: 1rem;">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-check-circle me-2"></i>Assigned Items
+                                    <small class="text-muted">({{ total_assigned }})</small>
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                {% if assigned_items %}
+                                <div class="small text-muted mb-3">
+                                    Items will appear in this order during checkout:
+                                </div>
+                                {% for assignment in assigned_items %}
+                                <div class="d-flex align-items-center mb-2 p-2 border rounded">
+                                    <div class="me-2">
+                                        <span class="badge bg-primary">{{ assignment.order|default:0 }}</span>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-bold small">{{ assignment.checklist_item.title }}</div>
+                                        <div class="text-muted small">
+                                            {{ assignment.checklist_item.get_category_display }} • 
+                                            {{ assignment.checklist_item.get_item_type_display }}
+                                            {% if assignment.is_required %}
+                                            • <span class="text-danger">Required</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                                {% else %}
+                                <div class="text-center py-4">
+                                    <i class="fas fa-clipboard text-muted mb-2"></i>
+                                    <div class="text-muted small">No items assigned yet</div>
+                                    <div class="text-muted small">Select items from the left to add them</div>
+                                </div>
+                                {% endif %}
+                            </div>
+                            
+                            {% if items_by_category %}
+                            <div class="card-footer">
+                                <div class="d-grid gap-2">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-save me-2"></i>Save Configuration
+                                    </button>
+                                    <a href="{% url 'booking:lab_admin_edit_resource' resource.id %}" class="btn btn-outline-secondary">
+                                        <i class="fas fa-times me-2"></i>Cancel
+                                    </a>
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-update order numbers when items are selected/deselected
+    const checkboxes = document.querySelectorAll('input[type="checkbox"][name$="_enabled"]');
+    
+    function updateOrderNumbers() {
+        let nextOrder = 1;
+        checkboxes.forEach(checkbox => {
+            if (checkbox.checked) {
+                const itemId = checkbox.name.match(/item_(\d+)_enabled/)[1];
+                const orderInput = document.querySelector(`input[name="item_${itemId}_order"]`);
+                if (orderInput && orderInput.value === '0') {
+                    orderInput.value = nextOrder++;
+                }
+            }
+        });
+    }
+    
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const itemId = this.name.match(/item_(\d+)_enabled/)[1];
+            const orderInput = document.querySelector(`input[name="item_${itemId}_order"]`);
+            const requiredInput = document.querySelector(`input[name="item_${itemId}_required"]`);
+            
+            if (this.checked) {
+                // Item was selected
+                if (orderInput.value === '0') {
+                    updateOrderNumbers();
+                }
+                orderInput.disabled = false;
+                requiredInput.disabled = false;
+            } else {
+                // Item was deselected
+                orderInput.value = '0';
+                orderInput.disabled = true;
+                requiredInput.disabled = true;
+            }
+        });
+        
+        // Initialize state
+        const event = new Event('change');
+        checkbox.dispatchEvent(event);
+    });
+});
+</script>
+{% endblock %}

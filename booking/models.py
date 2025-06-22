@@ -673,6 +673,23 @@ class Resource(models.Model):
     max_booking_hours = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     image = models.ImageField(upload_to='resources/', blank=True, null=True, help_text="Resource image")
+    
+    # Sign-off checklist configuration
+    requires_checkout_checklist = models.BooleanField(
+        default=False,
+        help_text="Require users to complete a checklist before checking out"
+    )
+    checkout_checklist_title = models.CharField(
+        max_length=200,
+        blank=True,
+        default="Pre-Checkout Safety Checklist",
+        help_text="Title displayed on the checkout checklist"
+    )
+    checkout_checklist_description = models.TextField(
+        blank=True,
+        help_text="Instructions or description shown above the checklist"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -715,6 +732,149 @@ class Resource(models.Model):
             return user.userprofile.role in ['technician', 'sysadmin']
         except:
             return False
+    
+    def get_approval_progress(self, user):
+        """Get approval progress information for a user."""
+        from django.utils import timezone
+        
+        progress = {
+            'has_access': self.user_has_access(user),
+            'stages': []
+        }
+        
+        try:
+            user_profile = user.userprofile
+        except:
+            return progress
+        
+        # Stage 1: Lab Induction (one-time user requirement)
+        induction_stage = {
+            'name': 'Lab Induction',
+            'key': 'induction',
+            'required': True,  # Always required for lab access
+            'completed': user_profile.is_inducted,
+            'status': 'completed' if user_profile.is_inducted else 'pending',
+            'icon': 'bi-shield-check',
+            'description': 'One-time general laboratory safety induction'
+        }
+        progress['stages'].append(induction_stage)
+        
+        # Stage 2: Equipment-Specific Training Requirements
+        required_training = ResourceTrainingRequirement.objects.filter(resource=self)
+        training_completed = []
+        training_pending = []
+        
+        for req in required_training:
+            user_training = UserTraining.objects.filter(
+                user=user,
+                course=req.training_course,
+                status='completed'
+            ).first()
+            
+            if user_training and user_training.is_valid:
+                training_completed.append(req.training_course.title)
+            else:
+                training_pending.append(req.training_course.title)
+        
+        training_stage = {
+            'name': 'Equipment Training',
+            'key': 'training',
+            'required': len(required_training) > 0,
+            'completed': len(training_pending) == 0 and len(required_training) > 0,
+            'status': 'completed' if len(training_pending) == 0 and len(required_training) > 0 else ('not_required' if len(required_training) == 0 else 'pending'),
+            'icon': 'bi-mortarboard',
+            'description': f'Equipment-specific training: {len(training_completed)} of {len(required_training)} courses completed',
+            'details': {
+                'completed': training_completed,
+                'pending': training_pending,
+                'total_required': len(required_training)
+            }
+        }
+        progress['stages'].append(training_stage)
+        
+        # Stage 3: Risk Assessment
+        required_assessments = RiskAssessment.objects.filter(resource=self, is_mandatory=True)
+        assessment_completed = []
+        assessment_pending = []
+        
+        for assessment in required_assessments:
+            user_assessment = UserRiskAssessment.objects.filter(
+                user=user,
+                risk_assessment=assessment,
+                status='approved'
+            ).first()
+            
+            if user_assessment:
+                assessment_completed.append(assessment.title)
+            else:
+                assessment_pending.append(assessment.title)
+        
+        risk_stage = {
+            'name': 'Risk Assessment',
+            'key': 'risk_assessment',
+            'required': len(required_assessments) > 0,
+            'completed': len(assessment_pending) == 0 and len(required_assessments) > 0,
+            'status': 'completed' if len(assessment_pending) == 0 and len(required_assessments) > 0 else ('not_required' if len(required_assessments) == 0 else 'pending'),
+            'icon': 'bi-clipboard-check',
+            'description': f'{len(assessment_completed)} of {len(required_assessments)} risk assessments completed',
+            'details': {
+                'completed': assessment_completed,
+                'pending': assessment_pending,
+                'total_required': len(required_assessments)
+            }
+        }
+        progress['stages'].append(risk_stage)
+        
+        # Stage 4: Administrative Approval
+        pending_request = AccessRequest.objects.filter(
+            resource=self,
+            user=user,
+            status='pending'
+        ).first()
+        
+        approved_request = AccessRequest.objects.filter(
+            resource=self,
+            user=user,
+            status='approved'
+        ).first()
+        
+        admin_stage = {
+            'name': 'Administrative Approval',
+            'key': 'admin_approval',
+            'required': True,
+            'completed': progress['has_access'],
+            'status': 'completed' if progress['has_access'] else ('pending' if pending_request else 'not_started'),
+            'icon': 'bi-person-check',
+            'description': 'Final approval by lab administrator',
+            'details': {
+                'has_pending_request': bool(pending_request),
+                'request_date': pending_request.created_at if pending_request else None,
+                'approved_date': approved_request.reviewed_at if approved_request else None
+            }
+        }
+        progress['stages'].append(admin_stage)
+        
+        # Calculate overall progress
+        required_stages = [s for s in progress['stages'] if s['required']]
+        completed_stages = [s for s in required_stages if s['completed']]
+        
+        progress['overall'] = {
+            'total_stages': len(required_stages),
+            'completed_stages': len(completed_stages),
+            'percentage': int((len(completed_stages) / len(required_stages)) * 100) if required_stages else 100,
+            'all_completed': len(completed_stages) == len(required_stages) and len(required_stages) > 0
+        }
+        
+        # Find the next pending stage for guidance
+        next_pending_stage = None
+        for stage in progress['stages']:
+            if stage['required'] and not stage['completed']:
+                next_pending_stage = stage
+                break
+        
+        progress['next_step'] = next_pending_stage
+        
+        return progress
 
 
 class ResourceAccess(models.Model):
@@ -3896,3 +4056,568 @@ class TutorialAnalytics(models.Model):
             )['rating__avg'] or 0.0
         
         self.save()
+
+
+class EmailConfiguration(models.Model):
+    """Store and manage email configuration settings."""
+    
+    # Email Backend Configuration
+    BACKEND_CHOICES = [
+        ('django.core.mail.backends.smtp.EmailBackend', 'SMTP Email Backend'),
+        ('django.core.mail.backends.console.EmailBackend', 'Console Email Backend (Development)'),
+        ('django.core.mail.backends.filebased.EmailBackend', 'File-based Email Backend (Testing)'),
+        ('django.core.mail.backends.locmem.EmailBackend', 'In-memory Email Backend (Testing)'),
+        ('django.core.mail.backends.dummy.EmailBackend', 'Dummy Email Backend (No emails sent)'),
+    ]
+    
+    # Basic Configuration
+    is_active = models.BooleanField(
+        default=False,
+        help_text="Enable this configuration as the active email settings"
+    )
+    name = models.CharField(
+        max_length=100,
+        help_text="Descriptive name for this email configuration"
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description of this configuration"
+    )
+    
+    # Email Backend Settings
+    email_backend = models.CharField(
+        max_length=100,
+        choices=BACKEND_CHOICES,
+        default='django.core.mail.backends.smtp.EmailBackend',
+        help_text="Django email backend to use"
+    )
+    
+    # SMTP Server Settings
+    email_host = models.CharField(
+        max_length=255,
+        help_text="SMTP server hostname (e.g., smtp.gmail.com)"
+    )
+    email_port = models.PositiveIntegerField(
+        default=587,
+        help_text="SMTP server port (587 for TLS, 465 for SSL, 25 for standard)"
+    )
+    email_use_tls = models.BooleanField(
+        default=True,
+        help_text="Use TLS (Transport Layer Security) encryption"
+    )
+    email_use_ssl = models.BooleanField(
+        default=False,
+        help_text="Use SSL (Secure Sockets Layer) encryption"
+    )
+    
+    # Authentication Settings
+    email_host_user = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="SMTP server username/email address"
+    )
+    email_host_password = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="SMTP server password (stored encrypted)"
+    )
+    
+    # Email Addresses
+    default_from_email = models.EmailField(
+        help_text="Default 'from' email address for outgoing emails"
+    )
+    server_email = models.EmailField(
+        blank=True,
+        help_text="Email address used for error messages from Django"
+    )
+    
+    # Advanced Settings
+    email_timeout = models.PositiveIntegerField(
+        default=10,
+        help_text="Timeout in seconds for SMTP connections"
+    )
+    
+    # File-based Backend Settings (for testing)
+    email_file_path = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="Directory path for file-based email backend"
+    )
+    
+    # Validation and Testing
+    is_validated = models.BooleanField(
+        default=False,
+        help_text="Whether this configuration has been successfully tested"
+    )
+    last_test_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this configuration was tested"
+    )
+    last_test_result = models.TextField(
+        blank=True,
+        help_text="Result of the last configuration test"
+    )
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='created_email_configs',
+        help_text="User who created this configuration"
+    )
+    
+    class Meta:
+        verbose_name = "Email Configuration"
+        verbose_name_plural = "Email Configurations"
+        ordering = ['-is_active', '-updated_at']
+    
+    def __str__(self):
+        active_indicator = " (Active)" if self.is_active else ""
+        return f"{self.name}{active_indicator}"
+    
+    def clean(self):
+        """Validate the configuration settings."""
+        super().clean()
+        
+        # Validate that only one configuration can be active
+        if self.is_active:
+            existing_active = EmailConfiguration.objects.filter(is_active=True)
+            if self.pk:
+                existing_active = existing_active.exclude(pk=self.pk)
+            
+            if existing_active.exists():
+                raise ValidationError(
+                    "Only one email configuration can be active at a time. "
+                    "Please deactivate the current active configuration first."
+                )
+        
+        # Validate SMTP settings for SMTP backend
+        if self.email_backend == 'django.core.mail.backends.smtp.EmailBackend':
+            if not self.email_host:
+                raise ValidationError("Email host is required for SMTP backend.")
+            
+            if self.email_use_tls and self.email_use_ssl:
+                raise ValidationError("Cannot use both TLS and SSL simultaneously.")
+        
+        # Validate file path for file-based backend
+        if self.email_backend == 'django.core.mail.backends.filebased.EmailBackend':
+            if not self.email_file_path:
+                raise ValidationError("File path is required for file-based email backend.")
+    
+    def save(self, *args, **kwargs):
+        """Override save to ensure only one active configuration."""
+        self.full_clean()
+        
+        # If this configuration is being set as active, deactivate others
+        if self.is_active:
+            EmailConfiguration.objects.filter(is_active=True).update(is_active=False)
+        
+        super().save(*args, **kwargs)
+    
+    def activate(self):
+        """Activate this configuration and deactivate others."""
+        EmailConfiguration.objects.filter(is_active=True).update(is_active=False)
+        self.is_active = True
+        self.save()
+    
+    def deactivate(self):
+        """Deactivate this configuration."""
+        self.is_active = False
+        self.save()
+    
+    def test_configuration(self, test_email=None):
+        """Test this email configuration by sending a test email."""
+        from django.core.mail import send_mail
+        from django.conf import settings
+        import tempfile
+        import os
+        
+        # Temporarily apply this configuration
+        original_settings = {}
+        test_settings = {
+            'EMAIL_BACKEND': self.email_backend,
+            'EMAIL_HOST': self.email_host,
+            'EMAIL_PORT': self.email_port,
+            'EMAIL_USE_TLS': self.email_use_tls,
+            'EMAIL_USE_SSL': self.email_use_ssl,
+            'EMAIL_HOST_USER': self.email_host_user,
+            'EMAIL_HOST_PASSWORD': self.email_host_password,
+            'DEFAULT_FROM_EMAIL': self.default_from_email,
+            'EMAIL_TIMEOUT': self.email_timeout,
+        }
+        
+        # Handle file-based backend
+        if self.email_backend == 'django.core.mail.backends.filebased.EmailBackend':
+            if self.email_file_path:
+                test_settings['EMAIL_FILE_PATH'] = self.email_file_path
+            else:
+                test_settings['EMAIL_FILE_PATH'] = tempfile.gettempdir()
+        
+        # Save original settings
+        for key in test_settings:
+            if hasattr(settings, key):
+                original_settings[key] = getattr(settings, key)
+        
+        try:
+            # Apply test settings
+            for key, value in test_settings.items():
+                setattr(settings, key, value)
+            
+            # Send test email
+            test_recipient = test_email or self.default_from_email
+            subject = f"Email Configuration Test - {self.name}"
+            message = f"""
+Email Configuration Test
+
+This is a test email sent to verify the email configuration "{self.name}".
+
+Configuration Details:
+- Backend: {self.email_backend}
+- Host: {self.email_host}
+- Port: {self.email_port}
+- Use TLS: {self.email_use_tls}
+- Use SSL: {self.email_use_ssl}
+- From: {self.default_from_email}
+
+If you received this email, the configuration is working correctly!
+
+--
+Aperture Booking System
+            """.strip()
+            
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=self.default_from_email,
+                recipient_list=[test_recipient],
+                fail_silently=False
+            )
+            
+            # Update test results
+            self.is_validated = True
+            self.last_test_date = timezone.now()
+            self.last_test_result = f"Success: Test email sent to {test_recipient}"
+            self.save()
+            
+            return True, f"Test email sent successfully to {test_recipient}"
+            
+        except Exception as e:
+            # Update test results with error
+            self.is_validated = False
+            self.last_test_date = timezone.now()
+            self.last_test_result = f"Error: {str(e)}"
+            self.save()
+            
+            return False, f"Test failed: {str(e)}"
+            
+        finally:
+            # Restore original settings
+            for key, value in original_settings.items():
+                setattr(settings, key, value)
+            
+            # Remove any test settings that weren't originally present
+            for key in test_settings:
+                if key not in original_settings and hasattr(settings, key):
+                    delattr(settings, key)
+    
+    def apply_to_settings(self):
+        """Apply this configuration to Django settings."""
+        from django.conf import settings
+        
+        if not self.is_active:
+            return False
+        
+        # Apply configuration to settings
+        settings.EMAIL_BACKEND = self.email_backend
+        settings.EMAIL_HOST = self.email_host
+        settings.EMAIL_PORT = self.email_port
+        settings.EMAIL_USE_TLS = self.email_use_tls
+        settings.EMAIL_USE_SSL = self.email_use_ssl
+        settings.EMAIL_HOST_USER = self.email_host_user
+        settings.EMAIL_HOST_PASSWORD = self.email_host_password
+        settings.DEFAULT_FROM_EMAIL = self.default_from_email
+        settings.EMAIL_TIMEOUT = self.email_timeout
+        
+        if self.server_email:
+            settings.SERVER_EMAIL = self.server_email
+        
+        if self.email_backend == 'django.core.mail.backends.filebased.EmailBackend' and self.email_file_path:
+            settings.EMAIL_FILE_PATH = self.email_file_path
+        
+        return True
+    
+    def get_configuration_dict(self):
+        """Return configuration as a dictionary."""
+        config = {
+            'EMAIL_BACKEND': self.email_backend,
+            'EMAIL_HOST': self.email_host,
+            'EMAIL_PORT': self.email_port,
+            'EMAIL_USE_TLS': self.email_use_tls,
+            'EMAIL_USE_SSL': self.email_use_ssl,
+            'EMAIL_HOST_USER': self.email_host_user,
+            'EMAIL_HOST_PASSWORD': '***' if self.email_host_password else '',
+            'DEFAULT_FROM_EMAIL': self.default_from_email,
+            'EMAIL_TIMEOUT': self.email_timeout,
+        }
+        
+        if self.server_email:
+            config['SERVER_EMAIL'] = self.server_email
+        
+        if self.email_backend == 'django.core.mail.backends.filebased.EmailBackend' and self.email_file_path:
+            config['EMAIL_FILE_PATH'] = self.email_file_path
+        
+        return config
+    
+    @classmethod
+    def get_active_configuration(cls):
+        """Get the currently active email configuration."""
+        return cls.objects.filter(is_active=True).first()
+    
+    @classmethod
+    def get_common_configurations(cls):
+        """Return a list of common email provider configurations."""
+        return [
+            {
+                'name': 'Gmail SMTP',
+                'email_host': 'smtp.gmail.com',
+                'email_port': 587,
+                'email_use_tls': True,
+                'email_use_ssl': False,
+                'description': 'Google Gmail SMTP configuration'
+            },
+            {
+                'name': 'Outlook/Hotmail SMTP',
+                'email_host': 'smtp-mail.outlook.com',
+                'email_port': 587,
+                'email_use_tls': True,
+                'email_use_ssl': False,
+                'description': 'Microsoft Outlook/Hotmail SMTP configuration'
+            },
+            {
+                'name': 'Yahoo Mail SMTP',
+                'email_host': 'smtp.mail.yahoo.com',
+                'email_port': 587,
+                'email_use_tls': True,
+                'email_use_ssl': False,
+                'description': 'Yahoo Mail SMTP configuration'
+            },
+            {
+                'name': 'SendGrid SMTP',
+                'email_host': 'smtp.sendgrid.net',
+                'email_port': 587,
+                'email_use_tls': True,
+                'email_use_ssl': False,
+                'description': 'SendGrid email service SMTP configuration'
+            },
+            {
+                'name': 'Mailgun SMTP',
+                'email_host': 'smtp.mailgun.org',
+                'email_port': 587,
+                'email_use_tls': True,
+                'email_use_ssl': False,
+                'description': 'Mailgun email service SMTP configuration'
+            }
+        ]
+
+
+class ChecklistItem(models.Model):
+    """Individual checklist item that can be assigned to resources."""
+    
+    ITEM_TYPES = [
+        ('checkbox', 'Checkbox (Yes/No)'),
+        ('text', 'Text Input'),
+        ('number', 'Number Input'),
+        ('select', 'Dropdown Selection'),
+        ('textarea', 'Long Text'),
+    ]
+    
+    CATEGORY_CHOICES = [
+        ('safety', 'Safety Check'),
+        ('equipment', 'Equipment Status'),
+        ('cleanliness', 'Cleanliness'),
+        ('documentation', 'Documentation'),
+        ('maintenance', 'Maintenance Check'),
+        ('other', 'Other'),
+    ]
+    
+    title = models.CharField(max_length=200, help_text="Question or instruction text")
+    description = models.TextField(blank=True, help_text="Additional description or guidance")
+    item_type = models.CharField(max_length=20, choices=ITEM_TYPES, default='checkbox')
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='other')
+    is_required = models.BooleanField(default=True, help_text="Must be completed to proceed")
+    
+    # For select/dropdown items
+    options = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="JSON array of options for select items, e.g. ['Good', 'Needs Attention', 'Damaged']"
+    )
+    
+    # For validation
+    min_value = models.FloatField(null=True, blank=True, help_text="Minimum value for number inputs")
+    max_value = models.FloatField(null=True, blank=True, help_text="Maximum value for number inputs")
+    max_length = models.IntegerField(null=True, blank=True, help_text="Maximum length for text inputs")
+    
+    # System fields
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_checklist_items'
+    )
+    
+    class Meta:
+        db_table = 'booking_checklistitem'
+        ordering = ['category', 'title']
+    
+    def __str__(self):
+        return f"{self.get_category_display()}: {self.title}"
+    
+    def clean(self):
+        """Validate the checklist item configuration."""
+        from django.core.exceptions import ValidationError
+        
+        if self.item_type == 'select' and not self.options:
+            raise ValidationError("Select items must have options defined")
+        
+        if self.item_type == 'number':
+            if self.min_value is not None and self.max_value is not None:
+                if self.min_value >= self.max_value:
+                    raise ValidationError("Min value must be less than max value")
+
+
+class ResourceChecklistItem(models.Model):
+    """Links checklist items to specific resources with ordering."""
+    
+    resource = models.ForeignKey(
+        Resource,
+        on_delete=models.CASCADE,
+        related_name='checklist_items'
+    )
+    checklist_item = models.ForeignKey(
+        ChecklistItem,
+        on_delete=models.CASCADE,
+        related_name='resource_assignments'
+    )
+    order = models.PositiveIntegerField(default=0, help_text="Display order (lower numbers first)")
+    is_active = models.BooleanField(default=True, help_text="Include this item in the checklist")
+    
+    # Override settings per resource
+    override_required = models.BooleanField(
+        default=False,
+        help_text="Override the default required setting for this resource"
+    )
+    is_required_override = models.BooleanField(
+        default=True,
+        help_text="Required setting when override is enabled"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'booking_resourcechecklistitem'
+        ordering = ['order', 'checklist_item__category', 'checklist_item__title']
+        unique_together = ['resource', 'checklist_item']
+    
+    def __str__(self):
+        return f"{self.resource.name} - {self.checklist_item.title}"
+    
+    @property
+    def is_required(self):
+        """Get the effective required status for this item."""
+        if self.override_required:
+            return self.is_required_override
+        return self.checklist_item.is_required
+
+
+class ChecklistResponse(models.Model):
+    """User responses to checklist items during checkout."""
+    
+    booking = models.ForeignKey(
+        'Booking',
+        on_delete=models.CASCADE,
+        related_name='checklist_responses'
+    )
+    checklist_item = models.ForeignKey(
+        ChecklistItem,
+        on_delete=models.CASCADE,
+        related_name='responses'
+    )
+    
+    # Response data
+    text_response = models.TextField(blank=True, help_text="Text/textarea responses")
+    number_response = models.FloatField(null=True, blank=True, help_text="Number responses")
+    boolean_response = models.BooleanField(null=True, blank=True, help_text="Checkbox responses")
+    select_response = models.CharField(max_length=200, blank=True, help_text="Selected option")
+    
+    # Metadata
+    completed_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
+    
+    # Validation status
+    is_valid = models.BooleanField(default=True, help_text="Whether the response passes validation")
+    validation_notes = models.TextField(blank=True, help_text="Notes about validation issues")
+    
+    class Meta:
+        db_table = 'booking_checklistresponse'
+        unique_together = ['booking', 'checklist_item']
+        ordering = ['-completed_at']
+    
+    def __str__(self):
+        return f"{self.booking} - {self.checklist_item.title}"
+    
+    def get_response_value(self):
+        """Get the actual response value based on item type."""
+        item_type = self.checklist_item.item_type
+        
+        if item_type == 'checkbox':
+            return self.boolean_response
+        elif item_type == 'number':
+            return self.number_response
+        elif item_type == 'select':
+            return self.select_response
+        else:  # text, textarea
+            return self.text_response
+    
+    def validate_response(self):
+        """Validate the response against the checklist item constraints."""
+        item = self.checklist_item
+        value = self.get_response_value()
+        
+        # Required field validation
+        if item.is_required and value in [None, '', False]:
+            self.is_valid = False
+            self.validation_notes = "This field is required"
+            return False
+        
+        # Type-specific validation
+        if item.item_type == 'number' and self.number_response is not None:
+            if item.min_value is not None and self.number_response < item.min_value:
+                self.is_valid = False
+                self.validation_notes = f"Value must be at least {item.min_value}"
+                return False
+            if item.max_value is not None and self.number_response > item.max_value:
+                self.is_valid = False
+                self.validation_notes = f"Value must be at most {item.max_value}"
+                return False
+        
+        if item.item_type in ['text', 'textarea'] and self.text_response:
+            if item.max_length and len(self.text_response) > item.max_length:
+                self.is_valid = False
+                self.validation_notes = f"Text must be {item.max_length} characters or less"
+                return False
+        
+        if item.item_type == 'select' and self.select_response:
+            if item.options and self.select_response not in item.options:
+                self.is_valid = False
+                self.validation_notes = "Invalid selection"
+                return False
+        
+        self.is_valid = True
+        self.validation_notes = ""
+        return True

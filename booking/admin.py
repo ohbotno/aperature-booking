@@ -29,7 +29,8 @@ from .models import (
     ResourceResponsible, RiskAssessment, UserRiskAssessment,
     TrainingCourse, ResourceTrainingRequirement, UserTraining,
     ApprovalStatistics, MaintenanceVendor, MaintenanceDocument,
-    MaintenanceAlert, MaintenanceAnalytics
+    MaintenanceAlert, MaintenanceAnalytics, EmailConfiguration,
+    ChecklistItem, ResourceChecklistItem, ChecklistResponse
 )
 
 
@@ -275,13 +276,6 @@ class UserProfileAdmin(admin.ModelAdmin):
         
         return redirect('admin:booking_userprofile_changelist')
 
-
-@admin.register(Resource)
-class ResourceAdmin(admin.ModelAdmin):
-    list_display = ('name', 'resource_type', 'location', 'capacity', 'required_training_level', 'is_active')
-    list_filter = ('resource_type', 'location', 'is_active', 'requires_induction')
-    search_fields = ('name', 'description', 'location')
-    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(Booking)
@@ -1728,4 +1722,269 @@ class MaintenanceAnalyticsAdmin(admin.ModelAdmin):
         
         self.message_user(request, f'Recalculated metrics for {updated} resources.')
     recalculate_metrics.short_description = 'Recalculate metrics for selected analytics'
+
+
+@admin.register(EmailConfiguration)
+class EmailConfigurationAdmin(admin.ModelAdmin):
+    """Admin interface for email configurations."""
+    
+    list_display = [
+        'name', 'email_backend', 'email_host', 'default_from_email', 
+        'is_active', 'is_validated', 'last_test_date', 'created_by'
+    ]
+    
+    list_filter = [
+        'email_backend', 'is_active', 'is_validated', 'email_use_tls', 'email_use_ssl'
+    ]
+    
+    search_fields = [
+        'name', 'description', 'email_host', 'default_from_email', 'server_email'
+    ]
+    
+    readonly_fields = [
+        'created_at', 'updated_at', 'last_test_date', 'last_test_result', 'is_validated'
+    ]
+    
+    fieldsets = [
+        ('Basic Information', {
+            'fields': ('name', 'description', 'email_backend', 'is_active')
+        }),
+        ('SMTP Server Settings', {
+            'fields': ('email_host', 'email_port', 'email_use_tls', 'email_use_ssl', 'email_timeout'),
+            'classes': ('collapse',)
+        }),
+        ('Authentication', {
+            'fields': ('email_host_user', 'email_host_password'),
+            'classes': ('collapse',)
+        }),
+        ('Email Addresses', {
+            'fields': ('default_from_email', 'server_email')
+        }),
+        ('File Backend Settings', {
+            'fields': ('email_file_path',),
+            'classes': ('collapse',)
+        }),
+        ('Validation Status', {
+            'fields': ('is_validated', 'last_test_date', 'last_test_result'),
+            'classes': ('collapse',)
+        }),
+        ('System Information', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    ]
+    
+    actions = ['activate_configuration', 'deactivate_configuration', 'test_configuration']
+    
+    def save_model(self, request, obj, form, change):
+        """Set the created_by field on new objects."""
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+    
+    def activate_configuration(self, request, queryset):
+        """Activate selected configuration (only one can be active)."""
+        if queryset.count() > 1:
+            self.message_user(request, 'You can only activate one configuration at a time.', level='error')
+            return
+        
+        config = queryset.first()
+        config.activate()
+        self.message_user(request, f'Configuration "{config.name}" has been activated.')
+    
+    activate_configuration.short_description = 'Activate selected configuration'
+    
+    def deactivate_configuration(self, request, queryset):
+        """Deactivate selected configurations."""
+        deactivated_count = 0
+        
+        for config in queryset:
+            if config.is_active:
+                config.is_active = False
+                config.save()
+                deactivated_count += 1
+        
+        if deactivated_count > 0:
+            self.message_user(request, f'Successfully deactivated {deactivated_count} configuration(s).')
+        else:
+            self.message_user(request, 'No active configurations were selected to deactivate.', level='warning')
+    
+    deactivate_configuration.short_description = 'Deactivate selected configurations'
+    
+    def test_configuration(self, request, queryset):
+        """Test selected configurations."""
+        success_count = 0
+        error_count = 0
+        
+        for config in queryset:
+            try:
+                success, message = config.test_configuration()
+                if success:
+                    success_count += 1
+                else:
+                    error_count += 1
+            except Exception as e:
+                error_count += 1
+        
+        if success_count > 0:
+            self.message_user(request, f'Successfully tested {success_count} configuration(s).')
+        if error_count > 0:
+            self.message_user(request, f'Failed to test {error_count} configuration(s).', level='warning')
+    
+    test_configuration.short_description = 'Test selected configurations'
+
+
+@admin.register(ChecklistItem)
+class ChecklistItemAdmin(admin.ModelAdmin):
+    """Admin interface for checklist items."""
+    
+    list_display = [
+        'title', 'category', 'item_type', 'is_required', 'created_by', 'created_at'
+    ]
+    
+    list_filter = [
+        'category', 'item_type', 'is_required', 'created_at'
+    ]
+    
+    search_fields = [
+        'title', 'description'
+    ]
+    
+    readonly_fields = [
+        'created_at', 'updated_at'
+    ]
+    
+    fieldsets = [
+        ('Basic Information', {
+            'fields': ('title', 'description', 'category', 'item_type', 'is_required')
+        }),
+        ('Configuration', {
+            'fields': ('options', 'min_value', 'max_value', 'max_length'),
+            'classes': ('collapse',),
+            'description': 'Item-specific configuration options'
+        }),
+        ('System Information', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    ]
+    
+    def save_model(self, request, obj, form, change):
+        """Set the created_by field on new objects."""
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+class ResourceChecklistItemInline(admin.TabularInline):
+    """Inline admin for resource checklist items."""
+    model = ResourceChecklistItem
+    extra = 0
+    fields = ['checklist_item', 'order', 'is_active', 'override_required', 'is_required_override']
+    ordering = ['order']
+
+
+@admin.register(ResourceChecklistItem)
+class ResourceChecklistItemAdmin(admin.ModelAdmin):
+    """Admin interface for resource checklist item assignments."""
+    
+    list_display = [
+        'resource', 'checklist_item', 'order', 'is_active', 'is_required', 'created_at'
+    ]
+    
+    list_filter = [
+        'resource__resource_type', 'checklist_item__category', 'is_active', 'override_required'
+    ]
+    
+    search_fields = [
+        'resource__name', 'checklist_item__title'
+    ]
+    
+    ordering = ['resource', 'order']
+
+
+@admin.register(ChecklistResponse)
+class ChecklistResponseAdmin(admin.ModelAdmin):
+    """Admin interface for checklist responses."""
+    
+    list_display = [
+        'booking', 'checklist_item', 'user', 'get_response_value', 'is_valid', 'completed_at'
+    ]
+    
+    list_filter = [
+        'checklist_item__category', 'is_valid', 'completed_at', 'booking__resource'
+    ]
+    
+    search_fields = [
+        'booking__resource__name', 'checklist_item__title', 'user__username',
+        'text_response', 'validation_notes'
+    ]
+    
+    readonly_fields = [
+        'booking', 'checklist_item', 'user', 'completed_at'
+    ]
+    
+    fieldsets = [
+        ('Booking Information', {
+            'fields': ('booking', 'checklist_item', 'user', 'completed_at')
+        }),
+        ('Response Data', {
+            'fields': ('text_response', 'number_response', 'boolean_response', 'select_response')
+        }),
+        ('Validation', {
+            'fields': ('is_valid', 'validation_notes')
+        })
+    ]
+    
+    def has_add_permission(self, request):
+        """Prevent manual creation of responses (should be created during checkout)."""
+        return False
+
+
+# Update the Resource admin to include checklist configuration
+@admin.register(Resource)
+class ResourceAdmin(admin.ModelAdmin):
+    """Enhanced Resource admin with checklist configuration."""
+    
+    list_display = [
+        'name', 'resource_type', 'location', 'capacity', 'is_active', 
+        'requires_checkout_checklist', 'checklist_items_count'
+    ]
+    
+    list_filter = [
+        'resource_type', 'is_active', 'requires_induction', 'requires_checkout_checklist'
+    ]
+    
+    search_fields = ['name', 'description', 'location']
+    
+    fieldsets = [
+        ('Basic Information', {
+            'fields': ('name', 'resource_type', 'description', 'location', 'image')
+        }),
+        ('Booking Configuration', {
+            'fields': ('capacity', 'max_booking_hours', 'is_active')
+        }),
+        ('Access Requirements', {
+            'fields': ('required_training_level', 'requires_induction'),
+            'classes': ('collapse',)
+        }),
+        ('Checkout Checklist', {
+            'fields': ('requires_checkout_checklist', 'checkout_checklist_title', 'checkout_checklist_description'),
+            'description': 'Configure whether users must complete a checklist before checking out'
+        }),
+        ('System Information', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    ]
+    
+    readonly_fields = ['created_at', 'updated_at']
+    
+    inlines = [ResourceChecklistItemInline]
+    
+    def checklist_items_count(self, obj):
+        """Show the number of active checklist items for this resource."""
+        return obj.checklist_items.filter(is_active=True).count()
+    
+    checklist_items_count.short_description = 'Checklist Items'
 

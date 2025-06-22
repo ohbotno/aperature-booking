@@ -79,19 +79,19 @@
                 </div>
                 
                 <div class="col-md-3">
-                    <div class="card bg-primary text-white">
+                    <div class="card bg-warning text-white">
                         <div class="card-body">
                             <div class="d-flex align-items-center">
-                                <i class="fas fa-user-plus fa-2x me-3"></i>
+                                <i class="fas fa-shield-check fa-2x me-3"></i>
                                 <div>
-                                    <h3 class="mb-0">{{ recent_registrations }}</h3>
-                                    <small>New Users (7 days)</small>
+                                    <h3 class="mb-0">{{ not_inducted_count }}</h3>
+                                    <small>Pending Inductions</small>
                                 </div>
                             </div>
                         </div>
                         <div class="card-footer">
-                            <a href="{% url 'booking:lab_admin_users' %}" class="text-white">
-                                View Users <i class="fas fa-arrow-right"></i>
+                            <a href="{% url 'booking:lab_admin_inductions' %}" class="text-white">
+                                Manage Inductions <i class="fas fa-arrow-right"></i>
                             </a>
                         </div>
                     </div>
@@ -128,6 +128,9 @@
                                 </a>
                                 <a href="{% url 'booking:lab_admin_users' %}" class="btn btn-outline-info">
                                     <i class="fas fa-users me-2"></i>Manage Users
+                                </a>
+                                <a href="{% url 'booking:lab_admin_inductions' %}" class="btn btn-outline-warning">
+                                    <i class="fas fa-shield-alt me-2"></i>Lab Inductions
                                 </a>
                             </div>
                         </div>

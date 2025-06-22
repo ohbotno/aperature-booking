@@ -160,6 +160,15 @@
                             <i class="fas fa-list-alt me-2"></i>
                             Audit Logs
                         </a>
+                        <a href="{% url 'booking:site_admin_email_config' %}" class="btn btn-outline-success">
+                            <i class="fas fa-envelope-open-text me-2"></i>
+                            Email Configuration
+                        </a>
+                        <button id="healthCheckBtn" class="btn btn-outline-danger">
+                            <i class="fas fa-heartbeat me-2"></i>
+                            System Health Check
+                            <span id="healthCheckSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status" aria-hidden="true"></span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -265,4 +274,172 @@
         </div>
     </div>
 </div>
+
+{% csrf_token %}
+
+<!-- Health Check Results Modal -->
+<div class="modal fade" id="healthCheckModal" tabindex="-1" aria-labelledby="healthCheckModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="healthCheckModalLabel">
+                    <i class="fas fa-heartbeat me-2"></i>
+                    System Health Check Results
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="healthCheckResults">
+                <!-- Results will be populated here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="refreshHealthCheck">
+                    <i class="fas fa-sync me-2"></i>
+                    Refresh
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const healthCheckBtn = document.getElementById('healthCheckBtn');
+    const healthCheckSpinner = document.getElementById('healthCheckSpinner');
+    const healthCheckModal = document.getElementById('healthCheckModal');
+    const healthCheckResults = document.getElementById('healthCheckResults');
+    const refreshHealthCheck = document.getElementById('refreshHealthCheck');
+    
+    function performHealthCheck() {
+        // Show spinner
+        healthCheckSpinner.classList.remove('d-none');
+        healthCheckBtn.disabled = true;
+        
+        // Make AJAX request to health check endpoint
+        fetch('{% url "booking:site_admin_health_check" %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json',
+            },
+        })
+        .then(response => response.json())
+        .then(data => {
+            displayHealthCheckResults(data);
+            
+            // Show modal
+            const modal = new bootstrap.Modal(healthCheckModal);
+            modal.show();
+        })
+        .catch(error => {
+            console.error('Health check failed:', error);
+            healthCheckResults.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Health Check Failed</h6>
+                    <p>Unable to perform health check. Error: ${error.message}</p>
+                </div>
+            `;
+            
+            // Show modal with error
+            const modal = new bootstrap.Modal(healthCheckModal);
+            modal.show();
+        })
+        .finally(() => {
+            // Hide spinner
+            healthCheckSpinner.classList.add('d-none');
+            healthCheckBtn.disabled = false;
+        });
+    }
+    
+    function displayHealthCheckResults(data) {
+        const overallStatusClass = data.overall_status === 'healthy' ? 'success' : 
+                                  data.overall_status === 'warning' ? 'warning' : 'danger';
+        
+        const overallStatusIcon = data.overall_status === 'healthy' ? 'fa-check-circle' : 
+                                 data.overall_status === 'warning' ? 'fa-exclamation-triangle' : 'fa-times-circle';
+        
+        let html = `
+            <div class="alert alert-${overallStatusClass}">
+                <h6><i class="fas ${overallStatusIcon} me-2"></i>Overall Status: ${data.overall_status.toUpperCase()}</h6>
+                <p class="mb-0">
+                    <strong>Summary:</strong> ${data.summary.healthy} healthy, ${data.summary.warnings} warnings, ${data.summary.unhealthy} issues
+                    <br><small>Checked at: ${new Date(data.timestamp).toLocaleString()}</small>
+                </p>
+            </div>
+        `;
+        
+        // Add individual check results
+        html += '<div class="row">';
+        
+        Object.entries(data.checks).forEach(([checkName, result]) => {
+            const statusClass = result.status === 'healthy' ? 'success' : 
+                               result.status === 'warning' ? 'warning' : 'danger';
+            
+            const statusIcon = result.status === 'healthy' ? 'fa-check-circle' : 
+                              result.status === 'warning' ? 'fa-exclamation-triangle' : 'fa-times-circle';
+            
+            html += `
+                <div class="col-md-6 mb-3">
+                    <div class="card border-${statusClass}">
+                        <div class="card-header bg-${statusClass} text-white">
+                            <h6 class="mb-0">
+                                <i class="fas ${statusIcon} me-2"></i>
+                                ${checkName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-1">${result.message}</p>
+                            
+                            ${result.response_time_ms ? `<small class="text-muted">Response time: ${result.response_time_ms}ms</small>` : ''}
+                            
+                            ${result.cpu_percent ? `
+                                <small class="d-block">CPU: ${result.cpu_percent}%</small>
+                                <small class="d-block">Memory: ${result.memory_percent}%</small>
+                                <small class="d-block">Disk: ${result.disk_percent}%</small>
+                            ` : ''}
+                            
+                            ${result.counts ? `
+                                <small class="d-block">${result.counts.join(', ')}</small>
+                            ` : ''}
+                            
+                            ${result.warnings && result.warnings.length > 0 ? `
+                                <div class="mt-2">
+                                    <strong>Warnings:</strong>
+                                    <ul class="mb-0">
+                                        ${result.warnings.map(warning => `<li>${warning}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            
+                            ${result.issues && result.issues.length > 0 ? `
+                                <div class="mt-2">
+                                    <strong>Issues:</strong>
+                                    <ul class="mb-0">
+                                        ${result.issues.map(issue => `<li>${issue}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            
+                            ${result.error ? `
+                                <div class="mt-2 text-danger">
+                                    <strong>Error:</strong> ${result.error}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        
+        healthCheckResults.innerHTML = html;
+    }
+    
+    // Event listeners
+    healthCheckBtn.addEventListener('click', performHealthCheck);
+    refreshHealthCheck.addEventListener('click', performHealthCheck);
+});
+</script>
+
 {% endblock %}

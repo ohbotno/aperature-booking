@@ -95,8 +95,17 @@
                                             {% endif %}
                                             <div>
                                                 <strong>{{ resource.name }}</strong>
+                                                {% if resource.requires_checkout_checklist %}
+                                                <i class="fas fa-clipboard-check ms-2 text-success" title="Checkout checklist enabled"></i>
+                                                {% endif %}
                                                 {% if resource.description %}
                                                 <br><small class="text-muted">{{ resource.description|truncatechars:50 }}</small>
+                                                {% endif %}
+                                                {% if resource.requires_checkout_checklist %}
+                                                <br><small class="text-success">
+                                                    <i class="fas fa-clipboard-check me-1"></i>
+                                                    Checkout checklist: {{ resource.checkout_checklist_title }}
+                                                </small>
                                                 {% endif %}
                                             </div>
                                         </div>

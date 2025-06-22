@@ -130,12 +130,14 @@ urlpatterns = [
     path('lab-admin/resources/', views.lab_admin_resources_view, name='lab_admin_resources'),
     path('lab-admin/resources/add/', views.lab_admin_add_resource_view, name='lab_admin_add_resource'),
     path('lab-admin/resources/<int:resource_id>/edit/', views.lab_admin_edit_resource_view, name='lab_admin_edit_resource'),
+    path('lab-admin/resources/<int:resource_id>/checklist/', views.lab_admin_resource_checklist_view, name='lab_admin_resource_checklist'),
     path('lab-admin/resources/<int:resource_id>/delete/', views.lab_admin_delete_resource_view, name='lab_admin_delete_resource'),
     path('lab-admin/maintenance/', views.lab_admin_maintenance_view, name='lab_admin_maintenance'),
     path('lab-admin/maintenance/add/', views.lab_admin_add_maintenance_view, name='lab_admin_add_maintenance'),
     path('lab-admin/maintenance/<int:maintenance_id>/', views.lab_admin_edit_maintenance_view, name='lab_admin_view_maintenance'),
     path('lab-admin/maintenance/<int:maintenance_id>/edit/', views.lab_admin_edit_maintenance_view, name='lab_admin_edit_maintenance'),
     path('lab-admin/maintenance/<int:maintenance_id>/delete/', views.lab_admin_delete_maintenance_view, name='lab_admin_delete_maintenance'),
+    path('lab-admin/inductions/', views.lab_admin_inductions_view, name='lab_admin_inductions'),
     
     # Calendar Sync URLs
     path('calendar/export/', views.export_my_calendar_view, name='export_my_calendar'),
@@ -158,5 +160,10 @@ urlpatterns = [
     path('site-admin/users/', views.site_admin_users_view, name='site_admin_users'),
     path('site-admin/config/', views.site_admin_system_config_view, name='site_admin_config'),
     path('site-admin/audit/', views.site_admin_audit_logs_view, name='site_admin_audit'),
+    path('site-admin/health-check/', views.site_admin_health_check_view, name='site_admin_health_check'),
+    path('site-admin/test-email/', views.site_admin_test_email_view, name='site_admin_test_email'),
+    path('site-admin/email-config/', views.site_admin_email_config_view, name='site_admin_email_config'),
+    path('site-admin/email-config/create/', views.site_admin_email_config_create_view, name='site_admin_email_config_create'),
+    path('site-admin/email-config/edit/<int:config_id>/', views.site_admin_email_config_edit_view, name='site_admin_email_config_edit'),
     
 ]

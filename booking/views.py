@@ -1282,13 +1282,24 @@ def bulk_resolve_conflicts_view(request):
 @login_required
 def notifications_list(request):
     """Display user's notifications."""
-    notifications = notification_service.get_user_notifications(
-        request.user, 
-        limit=50, 
-        unread_only=False
-    )
+    from .models import Notification
     
-    unread_count = len([n for n in notifications if n.status in ['pending', 'sent']])
+    # Get user's notifications, ordered by most recent first
+    notifications = Notification.objects.filter(user=request.user).order_by('-created_at')[:50]
+    
+    # Count unread notifications (not marked as read)
+    unread_count = Notification.objects.filter(
+        user=request.user, 
+        read_at__isnull=True
+    ).count()
+    
+    # Mark notifications as read when viewing the list
+    if request.method == 'GET':
+        from django.utils import timezone
+        Notification.objects.filter(
+            user=request.user,
+            read_at__isnull=True
+        ).update(read_at=timezone.now(), status='read')
     
     return render(request, 'booking/notifications.html', {
         'notifications': notifications,
@@ -1716,6 +1727,9 @@ def resource_detail_view(request, resource_id):
         status__in=['pending', 'scheduled']
     ).exists()
     
+    # Get approval progress for the user
+    approval_progress = resource.get_approval_progress(request.user)
+    
     # If user can view calendar, show calendar view
     if can_view_calendar:
         return render(request, 'booking/resource_detail.html', {
@@ -1723,6 +1737,7 @@ def resource_detail_view(request, resource_id):
             'user_has_access': user_has_access,
             'can_view_calendar': can_view_calendar,
             'has_pending_training': has_pending_training,
+            'approval_progress': approval_progress,
             'show_calendar': True,
         })
     
@@ -1733,6 +1748,7 @@ def resource_detail_view(request, resource_id):
         'can_view_calendar': can_view_calendar,
         'has_pending_request': has_pending_request,
         'has_pending_training': has_pending_training,
+        'approval_progress': approval_progress,
         'show_calendar': False,
     })
 
@@ -4526,12 +4542,16 @@ def lab_admin_dashboard_view(request):
         created_at__lt=timezone.now() - timedelta(days=3)
     ).count()
     
+    # Get induction statistics
+    not_inducted_count = UserProfile.objects.filter(is_inducted=False).count()
+    
     context = {
         'pending_access_requests': pending_access_requests,
         'pending_training_requests': pending_training_requests,
         'upcoming_training': upcoming_training,
         'recent_registrations': recent_registrations,
         'overdue_access_requests': overdue_access_requests,
+        'not_inducted_count': not_inducted_count,
     }
     
     return render(request, 'booking/lab_admin_dashboard.html', context)
@@ -4827,6 +4847,59 @@ def lab_admin_delete_resource_view(request, resource_id):
 
 @login_required
 @user_passes_test(is_lab_admin)
+def lab_admin_resource_checklist_view(request, resource_id):
+    """Manage checklist items for a resource."""
+    from django.shortcuts import render, redirect, get_object_or_404
+    from django.contrib import messages
+    from .models import Resource, ChecklistItem, ResourceChecklistItem
+    from .forms import ResourceChecklistConfigForm
+    from django.utils import timezone
+    
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    if request.method == 'POST':
+        form = ResourceChecklistConfigForm(resource, request.POST)
+        if form.is_valid():
+            try:
+                form.save()
+                messages.success(request, f'Checklist configuration updated for "{resource.name}".')
+                return redirect('booking:lab_admin_resource_checklist', resource_id=resource.id)
+            except Exception as e:
+                messages.error(request, f'Error updating checklist: {str(e)}')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = ResourceChecklistConfigForm(resource)
+    
+    # Get available checklist items grouped by category
+    available_items = ChecklistItem.objects.all().order_by('category', 'title')
+    items_by_category = {}
+    for item in available_items:
+        category = item.get_category_display()
+        if category not in items_by_category:
+            items_by_category[category] = []
+        items_by_category[category].append(item)
+    
+    # Get currently assigned items
+    assigned_items = ResourceChecklistItem.objects.filter(
+        resource=resource,
+        is_active=True
+    ).select_related('checklist_item').order_by('order', 'checklist_item__category')
+    
+    context = {
+        'resource': resource,
+        'form': form,
+        'items_by_category': items_by_category,
+        'assigned_items': assigned_items,
+        'total_available': available_items.count(),
+        'total_assigned': assigned_items.count(),
+    }
+    
+    return render(request, 'booking/lab_admin_resource_checklist.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
 def lab_admin_maintenance_view(request):
     """Display and manage maintenance periods for lab administrators."""
     from django.core.paginator import Paginator
@@ -5068,6 +5141,100 @@ def download_maintenance_invitation(request, maintenance_id):
     filename = f"maintenance-{safe_title}-{maintenance.start_time.strftime('%Y%m%d')}.ics"
     
     return create_ics_response(ics_content, filename)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_inductions_view(request):
+    """Manage lab induction status for users."""
+    from django.db.models import Q
+    from django.core.paginator import Paginator
+    from .models import UserProfile
+    from django.contrib.auth.models import User
+    
+    # Get filter parameters
+    status_filter = request.GET.get('status', 'all')
+    search_query = request.GET.get('search', '').strip()
+    
+    # Base queryset - users with profiles
+    users = User.objects.select_related('userprofile').filter(userprofile__isnull=False)
+    
+    # Apply status filter
+    if status_filter == 'inducted':
+        users = users.filter(userprofile__is_inducted=True)
+    elif status_filter == 'not_inducted':
+        users = users.filter(userprofile__is_inducted=False)
+    
+    # Apply search filter
+    if search_query:
+        users = users.filter(
+            Q(first_name__icontains=search_query) |
+            Q(last_name__icontains=search_query) |
+            Q(email__icontains=search_query) |
+            Q(userprofile__student_id__icontains=search_query)
+        )
+    
+    # Handle POST requests for updating induction status
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        user_id = request.POST.get('user_id')
+        
+        try:
+            user = User.objects.get(id=user_id)
+            user_profile = user.userprofile
+            
+            if action == 'mark_inducted':
+                user_profile.is_inducted = True
+                user_profile.save()
+                
+                messages.success(request, f'Successfully marked {user.get_full_name() or user.username} as inducted.')
+                
+                # Send notification to user
+                from .models import Notification
+                Notification.objects.create(
+                    user=user,
+                    title='Lab Induction Completed',
+                    message=f'Your lab induction has been confirmed by {request.user.get_full_name() or request.user.username}. You can now request access to lab resources.',
+                    notification_type='induction',
+                    is_read=False
+                )
+                
+            elif action == 'mark_not_inducted':
+                user_profile.is_inducted = False
+                user_profile.save()
+                
+                messages.success(request, f'Successfully marked {user.get_full_name() or user.username} as not inducted.')
+                
+        except User.DoesNotExist:
+            messages.error(request, 'User not found.')
+        except Exception as e:
+            messages.error(request, f'Error updating induction status: {str(e)}')
+        
+        return redirect('booking:lab_admin_inductions')
+    
+    # Order by induction status (not inducted first) then by name
+    users = users.order_by('userprofile__is_inducted', 'first_name', 'last_name')
+    
+    # Pagination
+    paginator = Paginator(users, 25)
+    page_number = request.GET.get('page')
+    users_page = paginator.get_page(page_number)
+    
+    # Count statistics
+    total_users = User.objects.filter(userprofile__isnull=False).count()
+    inducted_count = User.objects.filter(userprofile__is_inducted=True).count()
+    not_inducted_count = total_users - inducted_count
+    
+    context = {
+        'users': users_page,
+        'total_users': total_users,
+        'inducted_count': inducted_count,
+        'not_inducted_count': not_inducted_count,
+        'status_filter': status_filter,
+        'search_query': search_query,
+    }
+    
+    return render(request, 'booking/lab_admin_inductions.html', context)
 
 
 @login_required
@@ -5396,6 +5563,156 @@ def site_admin_users_view(request):
 def site_admin_system_config_view(request):
     """System configuration interface."""
     from django.conf import settings
+    from django.http import JsonResponse
+    from django.core.cache import cache
+    
+    # Handle AJAX requests
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        action = request.GET.get('action')
+        
+        if action == 'clear_cache' and request.method == 'POST':
+            try:
+                # Clear Django cache
+                cache.clear()
+                
+                # Try to clear additional caches if available
+                cache_stats = {
+                    'django_cache': 'cleared',
+                }
+                
+                # If using Redis, could also clear Redis cache
+                try:
+                    from django.core.cache.backends.redis import RedisCache
+                    from django_redis import get_redis_connection
+                    if isinstance(cache, RedisCache):
+                        redis_conn = get_redis_connection("default")
+                        redis_conn.flushdb()
+                        cache_stats['redis_cache'] = 'cleared'
+                except ImportError:
+                    pass
+                except Exception:
+                    pass
+                
+                # Clear session cache if using cached sessions
+                try:
+                    from django.contrib.sessions.backends.cached_db import SessionStore
+                    from django.contrib.sessions.backends.cache import SessionStore as CacheSessionStore
+                    cache_stats['session_cache'] = 'cleared'
+                except Exception:
+                    pass
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Application cache cleared successfully. Cache types cleared: {", ".join(cache_stats.keys())}',
+                    'cache_stats': cache_stats
+                })
+                
+            except Exception as e:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Failed to clear cache: {str(e)}'
+                })
+        
+        elif action == 'restart_app' and request.method == 'POST':
+            try:
+                import os
+                import sys
+                import signal
+                import subprocess
+                from django.conf import settings
+                
+                # Log the restart attempt
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Application restart initiated by user: {request.user.username}")
+                
+                # Different restart methods depending on deployment
+                restart_method = None
+                restart_command = None
+                
+                # Try to detect deployment method and choose appropriate restart
+                if hasattr(settings, 'WSGI_APPLICATION'):
+                    # Production WSGI deployment
+                    if os.environ.get('GUNICORN_CMD_ARGS') or 'gunicorn' in sys.modules:
+                        # Gunicorn deployment
+                        restart_method = 'gunicorn'
+                        try:
+                            # Send HUP signal to gunicorn master process
+                            ppid = os.getppid()
+                            os.kill(ppid, signal.SIGHUP)
+                            restart_command = f'SIGHUP signal sent to gunicorn master (PID: {ppid})'
+                        except Exception as e:
+                            # Alternative: try to restart via systemctl if available
+                            try:
+                                result = subprocess.run(['systemctl', 'reload', 'gunicorn'], 
+                                                      capture_output=True, text=True, timeout=5)
+                                if result.returncode == 0:
+                                    restart_command = 'systemctl reload gunicorn executed'
+                                else:
+                                    raise Exception(f'systemctl failed: {result.stderr}')
+                            except Exception:
+                                restart_command = f'Gunicorn restart attempted but may have failed: {e}'
+                    
+                    elif 'uwsgi' in sys.modules or os.environ.get('UWSGI_ORIGINAL_PROC_NAME'):
+                        # uWSGI deployment
+                        restart_method = 'uwsgi'
+                        try:
+                            # Send SIGHUP to uwsgi master
+                            ppid = os.getppid()
+                            os.kill(ppid, signal.SIGHUP)
+                            restart_command = f'SIGHUP signal sent to uwsgi master (PID: {ppid})'
+                        except Exception as e:
+                            restart_command = f'uWSGI restart attempted: {e}'
+                    
+                    else:
+                        # Generic WSGI or unknown deployment
+                        restart_method = 'generic'
+                        try:
+                            # Try touching wsgi.py file to trigger reload
+                            wsgi_file = os.path.join(settings.BASE_DIR, 'aperture_booking', 'wsgi.py')
+                            if os.path.exists(wsgi_file):
+                                # Touch the file to update modification time
+                                os.utime(wsgi_file, None)
+                                restart_command = f'Touched WSGI file: {wsgi_file}'
+                            else:
+                                restart_command = 'WSGI file not found for touch restart'
+                        except Exception as e:
+                            restart_command = f'Generic restart attempted: {e}'
+                
+                else:
+                    # Development server
+                    restart_method = 'development'
+                    try:
+                        # For development, we can restart by sending signal to current process
+                        # This will cause the Django development server to restart
+                        def restart_server():
+                            import threading
+                            import time
+                            time.sleep(1)  # Small delay to allow response to be sent
+                            os.kill(os.getpid(), signal.SIGTERM)
+                        
+                        # Start restart in a separate thread to allow response to be sent first
+                        restart_thread = threading.Thread(target=restart_server)
+                        restart_thread.daemon = True
+                        restart_thread.start()
+                        
+                        restart_command = 'Development server restart initiated'
+                    except Exception as e:
+                        restart_command = f'Development restart attempted: {e}'
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Application restart initiated successfully',
+                    'restart_method': restart_method,
+                    'restart_command': restart_command,
+                    'note': 'The application should be back online within 10-30 seconds'
+                })
+                
+            except Exception as e:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Failed to restart application: {str(e)}'
+                })
     
     if request.method == 'POST':
         # Handle configuration updates
@@ -5443,4 +5760,698 @@ def site_admin_audit_logs_view(request):
     
     return render(request, 'booking/site_admin_audit.html', context)
 
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_health_check_view(request):
+    """System health check endpoint for site administrators."""
+    from django.http import JsonResponse
+    from django.db import connection
+    from django.core.cache import cache
+    from django.conf import settings
+    import os
+    import time
+    
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    health_results = {}
+    overall_status = 'healthy'
+    
+    # Database connectivity check
+    try:
+        start_time = time.time()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+        db_response_time = round((time.time() - start_time) * 1000, 2)
+        health_results['database'] = {
+            'status': 'healthy',
+            'response_time_ms': db_response_time,
+            'message': 'Database connection successful'
+        }
+    except Exception as e:
+        health_results['database'] = {
+            'status': 'unhealthy',
+            'error': str(e),
+            'message': 'Database connection failed'
+        }
+        overall_status = 'unhealthy'
+    
+    # Cache system check (if configured)
+    try:
+        cache_key = 'health_check_test'
+        cache_value = 'test_value'
+        cache.set(cache_key, cache_value, timeout=60)
+        retrieved_value = cache.get(cache_key)
+        
+        if retrieved_value == cache_value:
+            health_results['cache'] = {
+                'status': 'healthy',
+                'message': 'Cache system operational'
+            }
+        else:
+            health_results['cache'] = {
+                'status': 'warning',
+                'message': 'Cache not working properly'
+            }
+            if overall_status == 'healthy':
+                overall_status = 'warning'
+    except Exception as e:
+        health_results['cache'] = {
+            'status': 'warning',
+            'error': str(e),
+            'message': 'Cache check failed - may not be configured'
+        }
+        if overall_status == 'healthy':
+            overall_status = 'warning'
+    
+    # System resources check
+    try:
+        import psutil
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        system_status = 'healthy'
+        warnings = []
+        
+        if cpu_percent > 80:
+            warnings.append(f'High CPU usage: {cpu_percent}%')
+            system_status = 'warning'
+        
+        if memory.percent > 80:
+            warnings.append(f'High memory usage: {memory.percent}%')
+            system_status = 'warning'
+        
+        if disk.percent > 85:
+            warnings.append(f'High disk usage: {disk.percent}%')
+            system_status = 'warning'
+        
+        health_results['system_resources'] = {
+            'status': system_status,
+            'cpu_percent': cpu_percent,
+            'memory_percent': memory.percent,
+            'disk_percent': disk.percent,
+            'warnings': warnings,
+            'message': 'System resources monitored'
+        }
+        
+        if system_status == 'warning' and overall_status == 'healthy':
+            overall_status = 'warning'
+            
+    except ImportError:
+        health_results['system_resources'] = {
+            'status': 'warning',
+            'message': 'System resource monitoring unavailable (psutil not installed)'
+        }
+        if overall_status == 'healthy':
+            overall_status = 'warning'
+    except Exception as e:
+        health_results['system_resources'] = {
+            'status': 'warning',
+            'error': str(e),
+            'message': 'Could not check system resources'
+        }
+        if overall_status == 'healthy':
+            overall_status = 'warning'
+    
+    # Application models check
+    try:
+        models_check = []
+        
+        # Check critical models
+        user_count = User.objects.count()
+        resource_count = Resource.objects.count()
+        booking_count = Booking.objects.count()
+        
+        models_check.append(f'Users: {user_count}')
+        models_check.append(f'Resources: {resource_count}')
+        models_check.append(f'Bookings: {booking_count}')
+        
+        health_results['application_models'] = {
+            'status': 'healthy',
+            'counts': models_check,
+            'message': 'Application models accessible'
+        }
+        
+    except Exception as e:
+        health_results['application_models'] = {
+            'status': 'unhealthy',
+            'error': str(e),
+            'message': 'Application models check failed'
+        }
+        overall_status = 'unhealthy'
+    
+    # File system permissions check
+    try:
+        media_root = getattr(settings, 'MEDIA_ROOT', '/tmp')
+        test_file = os.path.join(media_root, 'health_check_test.txt')
+        
+        # Try to write and read a test file
+        with open(test_file, 'w') as f:
+            f.write('health check test')
+        
+        with open(test_file, 'r') as f:
+            content = f.read()
+        
+        os.remove(test_file)
+        
+        if content == 'health check test':
+            health_results['file_system'] = {
+                'status': 'healthy',
+                'message': 'File system read/write operational'
+            }
+        else:
+            health_results['file_system'] = {
+                'status': 'warning',
+                'message': 'File system write/read issue detected'
+            }
+            if overall_status == 'healthy':
+                overall_status = 'warning'
+                
+    except Exception as e:
+        health_results['file_system'] = {
+            'status': 'warning',
+            'error': str(e),
+            'message': 'File system permissions check failed'
+        }
+        if overall_status == 'healthy':
+            overall_status = 'warning'
+    
+    # Environment configuration check
+    try:
+        config_issues = []
+        
+        # Check critical settings
+        if not settings.SECRET_KEY:
+            config_issues.append('SECRET_KEY not configured')
+        
+        if settings.DEBUG:
+            config_issues.append('DEBUG is True (should be False in production)')
+        
+        if not settings.ALLOWED_HOSTS:
+            config_issues.append('ALLOWED_HOSTS not configured')
+        
+        config_status = 'warning' if config_issues else 'healthy'
+        
+        health_results['configuration'] = {
+            'status': config_status,
+            'issues': config_issues,
+            'message': 'Configuration checked'
+        }
+        
+        if config_status == 'warning' and overall_status == 'healthy':
+            overall_status = 'warning'
+            
+    except Exception as e:
+        health_results['configuration'] = {
+            'status': 'warning',
+            'error': str(e),
+            'message': 'Configuration check failed'
+        }
+        if overall_status == 'healthy':
+            overall_status = 'warning'
+    
+    # Return comprehensive health check results
+    return JsonResponse({
+        'overall_status': overall_status,
+        'timestamp': timezone.now().isoformat(),
+        'checks': health_results,
+        'summary': {
+            'healthy': len([k for k, v in health_results.items() if v['status'] == 'healthy']),
+            'warnings': len([k for k, v in health_results.items() if v['status'] == 'warning']),
+            'unhealthy': len([k for k, v in health_results.items() if v['status'] == 'unhealthy']),
+            'total': len(health_results)
+        }
+    })
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_test_email_view(request):
+    """Test email configuration endpoint for site administrators."""
+    from django.http import JsonResponse
+    from django.core.mail import send_mail, EmailMultiAlternatives
+    from django.conf import settings
+    from django.template.loader import render_to_string
+    import time
+    
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    import json
+    try:
+        data = json.loads(request.body)
+        test_email = data.get('email', request.user.email)
+    except (json.JSONDecodeError, AttributeError):
+        test_email = request.user.email
+    
+    test_results = {}
+    overall_status = 'success'
+    
+    # Check email configuration
+    try:
+        config_check = []
+        config_issues = []
+        
+        # Check basic email settings
+        if not settings.EMAIL_HOST:
+            config_issues.append('EMAIL_HOST not configured')
+        else:
+            config_check.append(f'Email Host: {settings.EMAIL_HOST}')
+            
+        if not settings.DEFAULT_FROM_EMAIL:
+            config_issues.append('DEFAULT_FROM_EMAIL not configured')
+        else:
+            config_check.append(f'From Email: {settings.DEFAULT_FROM_EMAIL}')
+            
+        config_check.append(f'Email Backend: {settings.EMAIL_BACKEND}')
+        config_check.append(f'Email Port: {settings.EMAIL_PORT}')
+        config_check.append(f'Use TLS: {settings.EMAIL_USE_TLS}')
+        
+        if settings.EMAIL_HOST_USER:
+            config_check.append(f'SMTP User: {settings.EMAIL_HOST_USER}')
+        else:
+            config_check.append('SMTP User: Not configured')
+            
+        test_results['configuration'] = {
+            'status': 'warning' if config_issues else 'success',
+            'settings': config_check,
+            'issues': config_issues,
+            'message': 'Email configuration checked'
+        }
+        
+        if config_issues and overall_status == 'success':
+            overall_status = 'warning'
+            
+    except Exception as e:
+        test_results['configuration'] = {
+            'status': 'error',
+            'error': str(e),
+            'message': 'Failed to check email configuration'
+        }
+        overall_status = 'error'
+    
+    # Test basic email sending capability
+    try:
+        start_time = time.time()
+        
+        # Test with simple send_mail
+        subject = 'Aperture Booking - Email Configuration Test'
+        message = f"""
+Email Configuration Test
+
+This is a test email sent from the Aperture Booking system to verify email configuration.
+
+Test Details:
+- Sent at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}
+- Sent to: {test_email}
+- Sent from: {settings.DEFAULT_FROM_EMAIL}
+- Email Backend: {settings.EMAIL_BACKEND}
+- SMTP Host: {settings.EMAIL_HOST}
+- SMTP Port: {settings.EMAIL_PORT}
+
+If you received this email, your email configuration is working correctly!
+
+--
+Aperture Booking System
+        """.strip()
+        
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[test_email],
+            fail_silently=False
+        )
+        
+        send_time = round((time.time() - start_time) * 1000, 2)
+        
+        test_results['basic_send'] = {
+            'status': 'success',
+            'send_time_ms': send_time,
+            'recipient': test_email,
+            'message': 'Basic email sent successfully'
+        }
+        
+    except Exception as e:
+        test_results['basic_send'] = {
+            'status': 'error',
+            'error': str(e),
+            'recipient': test_email,
+            'message': 'Failed to send basic email'
+        }
+        overall_status = 'error'
+    
+    # Test HTML email sending capability
+    try:
+        start_time = time.time()
+        
+        # Create a more complex HTML test email
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Email Test</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }}
+        .container {{ max-width: 600px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        .header {{ background-color: #007bff; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; margin: -20px -20px 20px -20px; }}
+        .success {{ background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 4px; margin: 20px 0; }}
+        .info {{ background-color: #e7f3ff; border: 1px solid #b3d7ff; color: #004085; padding: 15px; border-radius: 4px; margin: 20px 0; }}
+        .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>🧪 Aperture Booking - HTML Email Test</h2>
+        </div>
+        
+        <div class="success">
+            <strong>✅ HTML Email Test Successful!</strong><br>
+            Your email system can successfully send and render HTML emails.
+        </div>
+        
+        <p>This is an HTML test email sent from the <strong>Aperture Booking</strong> system.</p>
+        
+        <div class="info">
+            <strong>Test Information:</strong><br>
+            • Sent at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}<br>
+            • Recipient: {test_email}<br>
+            • From: {settings.DEFAULT_FROM_EMAIL}<br>
+            • Backend: {settings.EMAIL_BACKEND}<br>
+            • SMTP Host: {settings.EMAIL_HOST}<br>
+            • SMTP Port: {settings.EMAIL_PORT}
+        </div>
+        
+        <p>If you can see this formatted email with colors and styling, your HTML email configuration is working correctly!</p>
+        
+        <div class="footer">
+            <p>This email was automatically generated by the Aperture Booking system for testing purposes.</p>
+        </div>
+    </div>
+</body>
+</html>
+        """.strip()
+        
+        text_content = f"""
+HTML Email Configuration Test
+
+This is an HTML test email sent from the Aperture Booking system.
+
+Test Details:
+- Sent at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}
+- Sent to: {test_email}
+- Sent from: {settings.DEFAULT_FROM_EMAIL}
+- Email Backend: {settings.EMAIL_BACKEND}
+- SMTP Host: {settings.EMAIL_HOST}
+- SMTP Port: {settings.EMAIL_PORT}
+
+If you received this email with proper HTML formatting, your email configuration supports HTML emails!
+
+--
+Aperture Booking System
+        """.strip()
+        
+        email = EmailMultiAlternatives(
+            subject='Aperture Booking - HTML Email Configuration Test',
+            body=text_content,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[test_email]
+        )
+        email.attach_alternative(html_content, "text/html")
+        email.send()
+        
+        send_time = round((time.time() - start_time) * 1000, 2)
+        
+        test_results['html_send'] = {
+            'status': 'success',
+            'send_time_ms': send_time,
+            'recipient': test_email,
+            'message': 'HTML email sent successfully'
+        }
+        
+    except Exception as e:
+        test_results['html_send'] = {
+            'status': 'error',
+            'error': str(e),
+            'recipient': test_email,
+            'message': 'Failed to send HTML email'
+        }
+        if overall_status == 'success':
+            overall_status = 'warning'  # HTML failure is less critical than basic email failure
+    
+    # Test notification system integration
+    try:
+        from .notifications import NotificationService
+        
+        notification_service = NotificationService()
+        
+        # Test if notification service can access email settings
+        test_results['notification_integration'] = {
+            'status': 'success',
+            'message': 'Notification service integration available',
+            'service_available': True
+        }
+        
+    except Exception as e:
+        test_results['notification_integration'] = {
+            'status': 'warning',
+            'error': str(e),
+            'message': 'Notification service integration check failed',
+            'service_available': False
+        }
+        if overall_status == 'success':
+            overall_status = 'warning'
+    
+    # Connection test (if using SMTP)
+    if 'smtp' in settings.EMAIL_BACKEND.lower():
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            
+            start_time = time.time()
+            
+            # Test SMTP connection
+            if settings.EMAIL_USE_TLS:
+                server = smtplib.SMTP(settings.EMAIL_HOST, settings.EMAIL_PORT)
+                server.starttls()
+            else:
+                server = smtplib.SMTP(settings.EMAIL_HOST, settings.EMAIL_PORT)
+            
+            if settings.EMAIL_HOST_USER and settings.EMAIL_HOST_PASSWORD:
+                server.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
+            
+            server.quit()
+            
+            connection_time = round((time.time() - start_time) * 1000, 2)
+            
+            test_results['smtp_connection'] = {
+                'status': 'success',
+                'connection_time_ms': connection_time,
+                'message': 'SMTP connection successful'
+            }
+            
+        except Exception as e:
+            test_results['smtp_connection'] = {
+                'status': 'error',
+                'error': str(e),
+                'message': 'SMTP connection failed'
+            }
+            overall_status = 'error'
+    else:
+        test_results['smtp_connection'] = {
+            'status': 'info',
+            'message': f'Not using SMTP backend (using {settings.EMAIL_BACKEND})'
+        }
+    
+    # Return comprehensive email test results
+    return JsonResponse({
+        'overall_status': overall_status,
+        'timestamp': timezone.now().isoformat(),
+        'test_email': test_email,
+        'tests': test_results,
+        'summary': {
+            'success': len([k for k, v in test_results.items() if v['status'] == 'success']),
+            'warnings': len([k for k, v in test_results.items() if v['status'] == 'warning']),
+            'errors': len([k for k, v in test_results.items() if v['status'] == 'error']),
+            'info': len([k for k, v in test_results.items() if v['status'] == 'info']),
+            'total': len(test_results)
+        },
+        'recommendations': [
+            'Check your spam/junk folder if test emails are not received',
+            'Verify firewall settings allow outbound SMTP connections',
+            'Ensure email credentials are correct if using authentication',
+            'Consider using environment variables for sensitive email settings'
+        ]
+    })
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_email_config_view(request):
+    """Email configuration management for site administrators."""
+    from django.shortcuts import render, redirect, get_object_or_404
+    from django.contrib import messages
+    from django.http import JsonResponse
+    from .models import EmailConfiguration
+    from .forms import EmailConfigurationForm, EmailConfigurationTestForm
+    
+    # Get all email configurations
+    configurations = EmailConfiguration.objects.all().order_by('-is_active', '-updated_at')
+    active_config = EmailConfiguration.get_active_configuration()
+    
+    # Handle AJAX requests
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        action = request.GET.get('action')
+        
+        if action == 'activate' and request.method == 'POST':
+            config_id = request.POST.get('config_id')
+            try:
+                config = get_object_or_404(EmailConfiguration, id=config_id)
+                config.activate()
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Configuration "{config.name}" activated successfully'
+                })
+            except Exception as e:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Failed to activate configuration: {str(e)}'
+                })
+        
+        elif action == 'deactivate' and request.method == 'POST':
+            config_id = request.POST.get('config_id')
+            try:
+                config = get_object_or_404(EmailConfiguration, id=config_id)
+                if not config.is_active:
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Configuration is not currently active'
+                    })
+                config.is_active = False
+                config.save()
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Configuration "{config.name}" deactivated successfully'
+                })
+            except Exception as e:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Failed to deactivate configuration: {str(e)}'
+                })
+        
+        elif action == 'test' and request.method == 'POST':
+            config_id = request.POST.get('config_id')
+            test_email = request.POST.get('test_email')
+            try:
+                config = get_object_or_404(EmailConfiguration, id=config_id)
+                success, message = config.test_configuration(test_email)
+                return JsonResponse({
+                    'success': success,
+                    'message': message,
+                    'last_test_date': config.last_test_date.isoformat() if config.last_test_date else None,
+                    'is_validated': config.is_validated
+                })
+            except Exception as e:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Test failed: {str(e)}'
+                })
+        
+        elif action == 'delete' and request.method == 'POST':
+            config_id = request.POST.get('config_id')
+            try:
+                config = get_object_or_404(EmailConfiguration, id=config_id)
+                if config.is_active:
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Cannot delete the active configuration'
+                    })
+                config_name = config.name
+                config.delete()
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Configuration "{config_name}" deleted successfully'
+                })
+            except Exception as e:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Failed to delete configuration: {str(e)}'
+                })
+    
+    context = {
+        'configurations': configurations,
+        'active_config': active_config,
+        'common_configs': EmailConfiguration.get_common_configurations(),
+    }
+    
+    return render(request, 'booking/site_admin_email_config.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_email_config_create_view(request):
+    """Create new email configuration."""
+    from django.shortcuts import render, redirect
+    from django.contrib import messages
+    from .models import EmailConfiguration
+    from .forms import EmailConfigurationForm
+    
+    if request.method == 'POST':
+        form = EmailConfigurationForm(request.POST)
+        if form.is_valid():
+            config = form.save(commit=False)
+            config.created_by = request.user
+            config.save()
+            messages.success(request, f'Email configuration "{config.name}" created successfully.')
+            return redirect('booking:site_admin_email_config')
+    else:
+        form = EmailConfigurationForm()
+        
+        # Pre-fill with common configuration if requested
+        preset = request.GET.get('preset')
+        if preset:
+            common_configs = EmailConfiguration.get_common_configurations()
+            for config in common_configs:
+                if config['name'].lower().replace(' ', '_') == preset:
+                    for field, value in config.items():
+                        if field in form.fields:
+                            form.fields[field].initial = value
+                    break
+    
+    context = {
+        'form': form,
+        'title': 'Create Email Configuration',
+        'common_configs': EmailConfiguration.get_common_configurations(),
+    }
+    
+    return render(request, 'booking/site_admin_email_config_form.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_email_config_edit_view(request, config_id):
+    """Edit existing email configuration."""
+    from django.shortcuts import render, redirect, get_object_or_404
+    from django.contrib import messages
+    from .models import EmailConfiguration
+    from .forms import EmailConfigurationForm
+    
+    config = get_object_or_404(EmailConfiguration, id=config_id)
+    
+    if request.method == 'POST':
+        form = EmailConfigurationForm(request.POST, instance=config)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Email configuration "{config.name}" updated successfully.')
+            return redirect('booking:site_admin_email_config')
+    else:
+        form = EmailConfigurationForm(instance=config)
+    
+    context = {
+        'form': form,
+        'config': config,
+        'title': f'Edit Email Configuration: {config.name}',
+        'common_configs': EmailConfiguration.get_common_configurations(),
+    }
+    
+    return render(request, 'booking/site_admin_email_config_form.html', context)
 

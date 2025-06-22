@@ -14,7 +14,8 @@ from .models import (
     AboutPage, UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate, 
     Faculty, College, Department, AccessRequest, RiskAssessment, UserRiskAssessment, 
     TrainingCourse, UserTraining, ResourceResponsible,
-    Maintenance, MaintenanceVendor, MaintenanceDocument, MaintenanceAlert
+    Maintenance, MaintenanceVendor, MaintenanceDocument, MaintenanceAlert, EmailConfiguration,
+    ChecklistItem, ResourceChecklistItem, ChecklistResponse
 )
 from .recurring import RecurringBookingPattern
 
@@ -211,6 +212,12 @@ class UserRegistrationForm(UserCreationForm):
     
     def send_verification_email(self, user, token):
         """Send email verification to the user."""
+        # Apply active email configuration before sending
+        from .models import EmailConfiguration
+        active_config = EmailConfiguration.get_active_configuration()
+        if active_config:
+            active_config.apply_to_settings()
+        
         subject = 'Verify your Aperture Booking account'
         
         # Render email template
@@ -388,6 +395,12 @@ class CustomPasswordResetForm(PasswordResetForm):
     
     def send_reset_email(self, user, token, request=None):
         """Send password reset email."""
+        # Apply active email configuration before sending
+        from .models import EmailConfiguration
+        active_config = EmailConfiguration.get_active_configuration()
+        if active_config:
+            active_config.apply_to_settings()
+        
         subject = 'Reset your Aperture Booking password'
         
         # Get domain from request or settings
@@ -1178,7 +1191,8 @@ class ResourceForm(forms.ModelForm):
         fields = [
             'name', 'resource_type', 'description', 'location', 'capacity',
             'required_training_level', 'requires_induction', 'max_booking_hours',
-            'is_active', 'image'
+            'is_active', 'image', 'requires_checkout_checklist', 
+            'checkout_checklist_title', 'checkout_checklist_description'
         ]
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
@@ -1190,7 +1204,10 @@ class ResourceForm(forms.ModelForm):
             'requires_induction': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'max_booking_hours': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'image': forms.FileInput(attrs={'class': 'form-control', 'accept': 'image/*'})
+            'image': forms.FileInput(attrs={'class': 'form-control', 'accept': 'image/*'}),
+            'requires_checkout_checklist': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'checkout_checklist_title': forms.TextInput(attrs={'class': 'form-control'}),
+            'checkout_checklist_description': forms.Textarea(attrs={'class': 'form-control', 'rows': 2})
         }
         help_texts = {
             'name': 'Enter a descriptive name for the resource',
@@ -1202,7 +1219,10 @@ class ResourceForm(forms.ModelForm):
             'requires_induction': 'Check if users need induction before using this resource',
             'max_booking_hours': 'Maximum duration (in hours) for a single booking. Leave blank for no limit',
             'is_active': 'Uncheck to temporarily disable bookings for this resource',
-            'image': 'Upload an image to help users identify this resource'
+            'image': 'Upload an image to help users identify this resource',
+            'requires_checkout_checklist': 'Require users to complete a checklist before checking out',
+            'checkout_checklist_title': 'Title displayed on the checkout checklist form',
+            'checkout_checklist_description': 'Instructions or description shown above the checklist'
         }
     
     def __init__(self, *args, **kwargs):
@@ -1715,3 +1735,343 @@ class MaintenanceFilterForm(forms.Form):
             'type': 'date'
         })
     )
+
+
+class EmailConfigurationForm(forms.ModelForm):
+    """Form for creating and editing email configurations."""
+    
+    class Meta:
+        model = EmailConfiguration
+        fields = [
+            'name', 'description', 'email_backend', 'email_host', 'email_port',
+            'email_use_tls', 'email_use_ssl', 'email_host_user', 'email_host_password',
+            'default_from_email', 'server_email', 'email_timeout', 'email_file_path',
+            'is_active'
+        ]
+        
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'e.g., Production Gmail SMTP'
+            }),
+            'description': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 3,
+                'placeholder': 'Optional description of this configuration'
+            }),
+            'email_backend': forms.Select(attrs={
+                'class': 'form-select'
+            }),
+            'email_host': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'e.g., smtp.gmail.com'
+            }),
+            'email_port': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'min': 1,
+                'max': 65535
+            }),
+            'email_use_tls': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'email_use_ssl': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'email_host_user': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'SMTP username (usually your email)'
+            }),
+            'email_host_password': forms.PasswordInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'SMTP password'
+            }),
+            'default_from_email': forms.EmailInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'noreply@yourdomain.com'
+            }),
+            'server_email': forms.EmailInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'server-errors@yourdomain.com'
+            }),
+            'email_timeout': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'min': 1,
+                'max': 300
+            }),
+            'email_file_path': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': '/tmp/app-messages'
+            }),
+            'is_active': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            })
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Add help text and required indicators
+        self.fields['name'].help_text = "A descriptive name for this email configuration"
+        self.fields['email_backend'].help_text = "Choose the email backend to use"
+        self.fields['email_host'].help_text = "SMTP server hostname (e.g., smtp.gmail.com)"
+        self.fields['email_port'].help_text = "Common ports: 587 (TLS), 465 (SSL), 25 (standard)"
+        self.fields['email_use_tls'].help_text = "Use TLS encryption (recommended for port 587)"
+        self.fields['email_use_ssl'].help_text = "Use SSL encryption (recommended for port 465)"
+        self.fields['email_host_user'].help_text = "SMTP username (usually your email address)"
+        self.fields['email_host_password'].help_text = "SMTP password or app-specific password"
+        self.fields['default_from_email'].help_text = "Default 'from' address for outgoing emails"
+        self.fields['server_email'].help_text = "Email address for Django server error messages"
+        self.fields['email_timeout'].help_text = "Connection timeout in seconds (default: 10)"
+        self.fields['email_file_path'].help_text = "Required for file-based email backend"
+        self.fields['is_active'].help_text = "Make this the active email configuration"
+        
+        # Make certain fields conditional based on backend
+        if self.instance.pk and self.instance.email_backend != 'django.core.mail.backends.smtp.EmailBackend':
+            # Hide SMTP-specific fields for non-SMTP backends
+            smtp_fields = ['email_host', 'email_port', 'email_use_tls', 'email_use_ssl', 
+                          'email_host_user', 'email_host_password', 'email_timeout']
+            for field in smtp_fields:
+                self.fields[field].required = False
+        
+        # Handle password field for existing configurations
+        if self.instance.pk and self.instance.email_host_password:
+            self.fields['email_host_password'].widget.attrs['placeholder'] = '••••••••'
+            self.fields['email_host_password'].help_text = "Leave blank to keep current password"
+            self.fields['email_host_password'].required = False
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        email_backend = cleaned_data.get('email_backend')
+        
+        # Validate SMTP-specific fields
+        if email_backend == 'django.core.mail.backends.smtp.EmailBackend':
+            email_host = cleaned_data.get('email_host')
+            if not email_host:
+                raise forms.ValidationError("Email host is required for SMTP backend.")
+            
+            email_use_tls = cleaned_data.get('email_use_tls')
+            email_use_ssl = cleaned_data.get('email_use_ssl')
+            if email_use_tls and email_use_ssl:
+                raise forms.ValidationError("Cannot use both TLS and SSL simultaneously.")
+        
+        # Validate file-based backend
+        elif email_backend == 'django.core.mail.backends.filebased.EmailBackend':
+            email_file_path = cleaned_data.get('email_file_path')
+            if not email_file_path:
+                raise forms.ValidationError("File path is required for file-based email backend.")
+        
+        return cleaned_data
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        
+        # Handle password field - only update if a new password was provided
+        if not self.cleaned_data.get('email_host_password') and self.instance.pk:
+            # Keep the existing password
+            instance.email_host_password = self.instance.email_host_password
+        
+        if commit:
+            instance.save()
+        
+        return instance
+
+
+class EmailConfigurationTestForm(forms.Form):
+    """Form for testing email configurations."""
+    
+    test_email = forms.EmailField(
+        label="Test Email Address",
+        help_text="Email address to send the test email to",
+        widget=forms.EmailInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'test@example.com'
+        })
+    )
+    
+    def __init__(self, *args, **kwargs):
+        self.configuration = kwargs.pop('configuration', None)
+        super().__init__(*args, **kwargs)
+        
+        if self.configuration:
+            self.fields['test_email'].initial = self.configuration.default_from_email
+
+
+class ChecklistItemForm(forms.ModelForm):
+    """Form for creating and editing checklist items."""
+    
+    class Meta:
+        model = ChecklistItem
+        fields = [
+            'title', 'description', 'category', 'item_type', 'is_required',
+            'options', 'min_value', 'max_value', 'max_length'
+        ]
+        widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
+            'category': forms.Select(attrs={'class': 'form-control'}),
+            'item_type': forms.Select(attrs={'class': 'form-control'}),
+            'is_required': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'options': forms.Textarea(attrs={
+                'class': 'form-control', 
+                'rows': 3,
+                'placeholder': 'For select items, enter each option on a new line'
+            }),
+            'min_value': forms.NumberInput(attrs={'class': 'form-control', 'step': 'any'}),
+            'max_value': forms.NumberInput(attrs={'class': 'form-control', 'step': 'any'}),
+            'max_length': forms.NumberInput(attrs={'class': 'form-control', 'min': 1})
+        }
+        help_texts = {
+            'title': 'The question or instruction text displayed to users',
+            'description': 'Additional guidance or explanation (optional)',
+            'category': 'Categorize this item for organization',
+            'item_type': 'Type of input field for user responses',
+            'is_required': 'Must be completed before users can check out',
+            'options': 'For select items: enter each option on a new line',
+            'min_value': 'Minimum allowed value for number inputs',
+            'max_value': 'Maximum allowed value for number inputs',
+            'max_length': 'Maximum character length for text inputs'
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Dynamic field visibility based on item type
+        if self.instance.pk and self.instance.item_type:
+            self._configure_fields_for_type(self.instance.item_type)
+    
+    def _configure_fields_for_type(self, item_type):
+        """Configure field visibility based on item type."""
+        # Hide fields that don't apply to this item type
+        if item_type != 'select':
+            self.fields['options'].widget = forms.HiddenInput()
+        
+        if item_type not in ['text', 'textarea']:
+            self.fields['max_length'].widget = forms.HiddenInput()
+            
+        if item_type != 'number':
+            self.fields['min_value'].widget = forms.HiddenInput()
+            self.fields['max_value'].widget = forms.HiddenInput()
+    
+    def clean_options(self):
+        """Parse and validate options for select items."""
+        options = self.cleaned_data.get('options', '')
+        item_type = self.cleaned_data.get('item_type')
+        
+        if item_type == 'select':
+            if not options:
+                raise forms.ValidationError("Select items must have at least one option")
+            
+            # Parse options from text (one per line)
+            option_list = [line.strip() for line in options.split('\n') if line.strip()]
+            if len(option_list) < 1:
+                raise forms.ValidationError("Select items must have at least one option")
+            
+            return option_list
+        
+        return None
+    
+    def clean(self):
+        """Cross-field validation."""
+        cleaned_data = super().clean()
+        item_type = cleaned_data.get('item_type')
+        min_value = cleaned_data.get('min_value')
+        max_value = cleaned_data.get('max_value')
+        
+        # Validate number constraints
+        if item_type == 'number' and min_value is not None and max_value is not None:
+            if min_value >= max_value:
+                raise forms.ValidationError("Minimum value must be less than maximum value")
+        
+        return cleaned_data
+
+
+class ResourceChecklistConfigForm(forms.Form):
+    """Form for configuring which checklist items are assigned to a resource."""
+    
+    def __init__(self, resource, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.resource = resource
+        
+        # Get all available checklist items
+        available_items = ChecklistItem.objects.all().order_by('category', 'title')
+        
+        # Get currently assigned items
+        assigned_items = ResourceChecklistItem.objects.filter(
+            resource=resource
+        ).select_related('checklist_item')
+        
+        assigned_dict = {item.checklist_item.id: item for item in assigned_items}
+        
+        # Create fields for each available item
+        for item in available_items:
+            field_name = f"item_{item.id}"
+            assignment = assigned_dict.get(item.id)
+            
+            # Checkbox to include/exclude item
+            self.fields[f"{field_name}_enabled"] = forms.BooleanField(
+                required=False,
+                initial=assignment is not None and assignment.is_active,
+                label=f"{item.get_category_display()}: {item.title}"
+            )
+            
+            # Order field
+            self.fields[f"{field_name}_order"] = forms.IntegerField(
+                required=False,
+                initial=assignment.order if assignment else 0,
+                widget=forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': 0}),
+                label="Order"
+            )
+            
+            # Required override
+            self.fields[f"{field_name}_required"] = forms.BooleanField(
+                required=False,
+                initial=assignment.is_required if assignment else item.is_required,
+                label="Required"
+            )
+    
+    def save(self):
+        """Save the checklist configuration for the resource."""
+        from django.utils import timezone
+        
+        # Get all existing assignments
+        existing_assignments = {
+            assignment.checklist_item.id: assignment 
+            for assignment in ResourceChecklistItem.objects.filter(resource=self.resource)
+        }
+        
+        # Process each item
+        for field_name, value in self.cleaned_data.items():
+            if field_name.endswith('_enabled'):
+                item_id = int(field_name.split('_')[1])
+                
+                # Get related field values
+                enabled = value
+                order = self.cleaned_data.get(f"item_{item_id}_order", 0)
+                required = self.cleaned_data.get(f"item_{item_id}_required", True)
+                
+                if enabled:
+                    # Create or update assignment
+                    assignment = existing_assignments.get(item_id)
+                    if assignment:
+                        assignment.is_active = True
+                        assignment.order = order
+                        assignment.is_required_override = required
+                        assignment.override_required = (required != assignment.checklist_item.is_required)
+                        assignment.save()
+                    else:
+                        # Create new assignment
+                        ResourceChecklistItem.objects.create(
+                            resource=self.resource,
+                            checklist_item_id=item_id,
+                            order=order,
+                            is_active=True,
+                            override_required=(required != ChecklistItem.objects.get(id=item_id).is_required),
+                            is_required_override=required,
+                            created_at=timezone.now()
+                        )
+                else:
+                    # Disable or remove assignment
+                    assignment = existing_assignments.get(item_id)
+                    if assignment:
+                        assignment.is_active = False
+                        assignment.save()
