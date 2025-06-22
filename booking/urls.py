@@ -148,21 +148,6 @@ urlpatterns = [
     path('booking/<int:booking_id>/invitation/', views.download_booking_invitation, name='download_booking_invitation'),
     path('maintenance/<int:maintenance_id>/invitation/', views.download_maintenance_invitation, name='download_maintenance_invitation'),
     
-    # Tutorial System URLs
-    path('tutorials/', views.tutorial_management_view, name='tutorial_management'),
-    path('tutorials/create/', views.tutorial_create_view, name='tutorial_create'),
-    path('tutorials/<int:tutorial_id>/edit/', views.tutorial_edit_view, name='tutorial_edit'),
-    path('tutorials/<int:tutorial_id>/preview/', views.tutorial_preview_view, name='tutorial_preview'),
-    path('tutorials/<int:tutorial_id>/analytics/', views.tutorial_analytics_view, name='tutorial_analytics'),
-    path('tutorials/categories/create/', views.tutorial_create_category_view, name='tutorial_create_category'),
-    path('tutorials/categories/<int:category_id>/edit/', views.tutorial_edit_category_view, name='tutorial_edit_category'),
-    
-    # Tutorial API URLs
-    path('api/tutorials/<int:tutorial_id>/', views.tutorial_api_detail, name='tutorial_api_detail'),
-    path('api/tutorials/progress/', views.tutorial_api_progress, name='tutorial_api_progress'),
-    path('api/tutorials/feedback/', views.tutorial_api_feedback, name='tutorial_api_feedback'),
-    path('api/tutorials/auto-start/', views.tutorial_api_auto_start, name='tutorial_api_auto_start'),
-    path('api/tutorials/available/', views.tutorial_api_available, name='tutorial_api_available'),
     
     # AJAX helper URLs
     path('ajax/load-colleges/', views.ajax_load_colleges, name='ajax_load_colleges'),
