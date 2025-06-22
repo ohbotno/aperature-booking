@@ -286,8 +286,8 @@
                         <li><a class="dropdown-item" href="{% url 'booking:approval_statistics' %}">
                             <i class="fas fa-chart-line me-2"></i>Statistics
                         </a></li>
-                        <li><a class="dropdown-item" href="/admin/">
-                            <i class="fas fa-tools me-2"></i>Advanced Admin
+                        <li><a class="dropdown-item" href="{% url 'booking:site_admin_dashboard' %}">
+                            <i class="fas fa-tools me-2"></i>Site Administration
                         </a></li>
                         {% else %}
                         {% if user.groups.all|length > 0 and 'Lab Admin' in user.groups.all|join:',' or user.userprofile.role in 'technician,sysadmin' %}

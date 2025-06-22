@@ -5273,3 +5273,174 @@ class CustomLoginView(LoginView):
             return '/about/'
 
 
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_dashboard_view(request):
+    """Site administration dashboard - replaces Django admin."""
+    from django.contrib.auth.models import User
+    from django.db.models import Count, Q
+    from django.utils import timezone
+    from datetime import timedelta
+    import sys
+    import platform
+    import django
+    
+    # System Information
+    system_info = {
+        'python_version': sys.version,
+        'django_version': django.get_version(),
+        'platform': f"{platform.system()} {platform.release()}",
+        'server_time': timezone.now(),
+    }
+    
+    # Database Statistics
+    total_users = User.objects.count()
+    total_resources = Resource.objects.count()
+    total_bookings = Booking.objects.count()
+    
+    # Recent Activity (last 30 days)
+    thirty_days_ago = timezone.now() - timedelta(days=30)
+    recent_users = User.objects.filter(date_joined__gte=thirty_days_ago).count()
+    recent_bookings = Booking.objects.filter(created_at__gte=thirty_days_ago).count()
+    
+    # User Role Distribution
+    user_roles = UserProfile.objects.values('role').annotate(count=Count('role')).order_by('-count')
+    
+    # Pending Approvals
+    pending_access_requests = AccessRequest.objects.filter(status='pending').count()
+    pending_training_requests = TrainingRequest.objects.filter(status='pending').count()
+    
+    # Resource Status
+    active_resources = Resource.objects.filter(is_active=True).count()
+    inactive_resources = Resource.objects.filter(is_active=False).count()
+    
+    # Maintenance Status
+    active_maintenance = Maintenance.objects.filter(
+        start_time__lte=timezone.now(),
+        end_time__gte=timezone.now()
+    ).count()
+    
+    upcoming_maintenance = Maintenance.objects.filter(
+        start_time__gt=timezone.now(),
+        start_time__lte=timezone.now() + timedelta(days=7)
+    ).count()
+    
+    # Recent Error Logs (if any)
+    # This would need to be implemented based on your logging system
+    
+    context = {
+        'system_info': system_info,
+        'stats': {
+            'total_users': total_users,
+            'total_resources': total_resources, 
+            'total_bookings': total_bookings,
+            'recent_users': recent_users,
+            'recent_bookings': recent_bookings,
+            'active_resources': active_resources,
+            'inactive_resources': inactive_resources,
+            'active_maintenance': active_maintenance,
+            'upcoming_maintenance': upcoming_maintenance,
+            'pending_access_requests': pending_access_requests,
+            'pending_training_requests': pending_training_requests,
+        },
+        'user_roles': user_roles,
+    }
+    
+    return render(request, 'booking/site_admin_dashboard.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_users_view(request):
+    """User management interface."""
+    users = User.objects.select_related('userprofile').order_by('-date_joined')
+    
+    # Search functionality
+    search_query = request.GET.get('search', '')
+    if search_query:
+        users = users.filter(
+            Q(username__icontains=search_query) |
+            Q(first_name__icontains=search_query) |
+            Q(last_name__icontains=search_query) |
+            Q(email__icontains=search_query)
+        )
+    
+    # Role filter
+    role_filter = request.GET.get('role', '')
+    if role_filter:
+        users = users.filter(userprofile__role=role_filter)
+    
+    # Status filter
+    status_filter = request.GET.get('status', '')
+    if status_filter == 'active':
+        users = users.filter(is_active=True)
+    elif status_filter == 'inactive':
+        users = users.filter(is_active=False)
+    
+    # Pagination
+    from django.core.paginator import Paginator
+    paginator = Paginator(users, 25)
+    page_number = request.GET.get('page')
+    users_page = paginator.get_page(page_number)
+    
+    context = {
+        'users': users_page,
+        'search_query': search_query,
+        'role_filter': role_filter,
+        'status_filter': status_filter,
+        'role_choices': UserProfile.ROLE_CHOICES,
+    }
+    
+    return render(request, 'booking/site_admin_users.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_system_config_view(request):
+    """System configuration interface."""
+    from django.conf import settings
+    
+    if request.method == 'POST':
+        # Handle configuration updates
+        # This would need to be implemented based on your configuration system
+        messages.success(request, 'Configuration updated successfully.')
+        return redirect('booking:site_admin_config')
+    
+    # Get current configuration
+    config_settings = {
+        'debug_mode': settings.DEBUG,
+        'time_zone': settings.TIME_ZONE,
+        'language_code': settings.LANGUAGE_CODE,
+        'email_backend': getattr(settings, 'EMAIL_BACKEND', 'Not configured'),
+        'database_engine': settings.DATABASES['default']['ENGINE'],
+        'static_url': settings.STATIC_URL,
+        'media_url': settings.MEDIA_URL,
+    }
+    
+    context = {
+        'config_settings': config_settings,
+    }
+    
+    return render(request, 'booking/site_admin_config.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_audit_logs_view(request):
+    """Audit logs and system monitoring."""
+    # This would show booking history, user actions, system events, etc.
+    
+    # Recent bookings with actions
+    recent_bookings = Booking.objects.select_related('user', 'resource').order_by('-created_at')[:50]
+    
+    # Recent user registrations
+    recent_users = User.objects.order_by('-date_joined')[:20]
+    
+    # Recent access requests
+    recent_access_requests = AccessRequest.objects.select_related('user', 'resource').order_by('-created_at')[:25]
+    
+    context = {
+        'recent_bookings': recent_bookings,
+        'recent_users': recent_users,
+        'recent_access_requests': recent_access_requests,
+    }
+    
+    return render(request, 'booking/site_admin_audit.html', context)
+
+

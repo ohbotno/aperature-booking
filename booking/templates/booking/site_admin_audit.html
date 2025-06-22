@@ -1,0 +1,325 @@
+{% extends 'booking/base.html' %}
+{% load static %}
+
+{% block title %}Audit Logs - Site Administration{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h2">
+                    <i class="fas fa-list-alt me-2"></i>
+                    Audit Logs & System Monitoring
+                </h1>
+                <a href="{% url 'booking:site_admin_dashboard' %}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>
+                    Back to Admin Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Activity Overview -->
+    <div class="row mb-4">
+        <div class="col-md-4 mb-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ recent_bookings|length }}</h4>
+                            <p class="mb-0">Recent Bookings</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-calendar-check fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ recent_users|length }}</h4>
+                            <p class="mb-0">New Users</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-user-plus fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4 mb-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ recent_access_requests|length }}</h4>
+                            <p class="mb-0">Access Requests</p>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-key fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Recent Bookings -->
+        <div class="col-lg-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-calendar-check me-2"></i>
+                        Recent Bookings (Last 50)
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>User</th>
+                                    <th>Resource</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for booking in recent_bookings %}
+                                <tr>
+                                    <td>
+                                        <small>
+                                            <strong>{{ booking.user.get_full_name|default:booking.user.username }}</strong><br>
+                                            <span class="text-muted">{{ booking.user.email }}</span>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <small>
+                                            {{ booking.resource.name }}<br>
+                                            <span class="text-muted">{{ booking.resource.location }}</span>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <small>
+                                            {{ booking.start_time|date:"M d, H:i" }}<br>
+                                            <span class="text-muted">Created: {{ booking.created_at|date:"M d, H:i" }}</span>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        {% if booking.status == 'confirmed' %}
+                                            <span class="badge bg-success">Confirmed</span>
+                                        {% elif booking.status == 'pending' %}
+                                            <span class="badge bg-warning">Pending</span>
+                                        {% elif booking.status == 'cancelled' %}
+                                            <span class="badge bg-danger">Cancelled</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ booking.status|title }}</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted py-3">
+                                        No recent bookings found
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent User Registrations -->
+        <div class="col-lg-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-user-plus me-2"></i>
+                        Recent User Registrations
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>User</th>
+                                    <th>Role</th>
+                                    <th>Registered</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in recent_users %}
+                                <tr>
+                                    <td>
+                                        <small>
+                                            <strong>{{ user.get_full_name|default:user.username }}</strong><br>
+                                            <span class="text-muted">{{ user.email }}</span>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        {% if user.userprofile %}
+                                            <span class="badge bg-{% if user.userprofile.role == 'sysadmin' %}danger{% elif user.userprofile.role == 'technician' %}warning{% elif user.userprofile.role == 'lecturer' %}info{% elif user.userprofile.role == 'researcher' %}success{% else %}secondary{% endif %}">
+                                                {{ user.userprofile.get_role_display }}
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-light text-dark">No Profile</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <small>
+                                            {{ user.date_joined|date:"M d, Y H:i" }}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        {% if user.is_active %}
+                                            <span class="badge bg-success">Active</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">Inactive</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="4" class="text-center text-muted py-3">
+                                        No recent user registrations
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Access Requests -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-key me-2"></i>
+                        Recent Access Requests
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>User</th>
+                                    <th>Resource</th>
+                                    <th>Requested</th>
+                                    <th>Justification</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for request in recent_access_requests %}
+                                <tr>
+                                    <td>
+                                        <small>
+                                            <strong>{{ request.user.get_full_name|default:request.user.username }}</strong><br>
+                                            <span class="text-muted">{{ request.user.email }}</span>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <small>
+                                            {{ request.resource.name }}<br>
+                                            <span class="text-muted">{{ request.resource.location }}</span>
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <small>{{ request.created_at|date:"M d, Y H:i" }}</small>
+                                    </td>
+                                    <td>
+                                        <small>{{ request.justification|truncatewords:10 }}</small>
+                                    </td>
+                                    <td>
+                                        {% if request.status == 'pending' %}
+                                            <span class="badge bg-warning">Pending</span>
+                                        {% elif request.status == 'approved' %}
+                                            <span class="badge bg-success">Approved</span>
+                                        {% elif request.status == 'rejected' %}
+                                            <span class="badge bg-danger">Rejected</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ request.status|title }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if request.status == 'pending' %}
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="{% url 'booking:access_request_detail' request.id %}" 
+                                                   class="btn btn-outline-primary btn-sm">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                            </div>
+                                        {% else %}
+                                            <small class="text-muted">
+                                                {{ request.reviewed_at|date:"M d" }}
+                                            </small>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-3">
+                                        No recent access requests found
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Events Log (Future Enhancement) -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-cog me-2"></i>
+                        System Events Log
+                    </h5>
+                </div>
+                <div class="card-body text-center py-5">
+                    <i class="fas fa-code text-muted fa-3x mb-3"></i>
+                    <h5 class="text-muted">System Events Logging</h5>
+                    <p class="text-muted">
+                        System events logging (login attempts, configuration changes, errors) would be implemented here.
+                        This would include integration with Django's logging framework and potentially external monitoring tools.
+                    </p>
+                    <div class="d-flex justify-content-center gap-2">
+                        <button class="btn btn-outline-primary btn-sm">
+                            <i class="fas fa-download me-2"></i>
+                            Export Logs
+                        </button>
+                        <button class="btn btn-outline-info btn-sm">
+                            <i class="fas fa-filter me-2"></i>
+                            Filter Events
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

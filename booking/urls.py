@@ -153,4 +153,10 @@ urlpatterns = [
     path('ajax/load-colleges/', views.ajax_load_colleges, name='ajax_load_colleges'),
     path('ajax/load-departments/', views.ajax_load_departments, name='ajax_load_departments'),
     
+    # Site Administration URLs (System Admin only)
+    path('site-admin/', views.site_admin_dashboard_view, name='site_admin_dashboard'),
+    path('site-admin/users/', views.site_admin_users_view, name='site_admin_users'),
+    path('site-admin/config/', views.site_admin_system_config_view, name='site_admin_config'),
+    path('site-admin/audit/', views.site_admin_audit_logs_view, name='site_admin_audit'),
+    
 ]

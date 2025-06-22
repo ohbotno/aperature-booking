@@ -1,0 +1,268 @@
+{% extends 'booking/base.html' %}
+{% load static %}
+
+{% block title %}Site Administration - Aperture Booking{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h2">
+                    <i class="fas fa-cogs me-2"></i>
+                    Site Administration
+                </h1>
+                <div class="text-muted">
+                    <i class="fas fa-clock me-1"></i>
+                    {{ system_info.server_time|date:"Y-m-d H:i:s T" }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Information Card -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-server me-2"></i>
+                        System Information
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <strong>Python Version:</strong><br>
+                            <code>{{ system_info.python_version|slice:":10" }}</code>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Django Version:</strong><br>
+                            <code>{{ system_info.django_version }}</code>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Platform:</strong><br>
+                            <code>{{ system_info.platform }}</code>
+                        </div>
+                        <div class="col-md-3">
+                            <strong>Server Time:</strong><br>
+                            <code>{{ system_info.server_time|date:"Y-m-d H:i:s T" }}</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Overview -->
+    <div class="row mb-4">
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.total_users }}</h4>
+                            <p class="mb-0">Total Users</p>
+                            <small>+{{ stats.recent_users }} this month</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-users fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.total_resources }}</h4>
+                            <p class="mb-0">Total Resources</p>
+                            <small>{{ stats.active_resources }} active</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-tools fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.total_bookings }}</h4>
+                            <p class="mb-0">Total Bookings</p>
+                            <small>+{{ stats.recent_bookings }} this month</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-calendar-check fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.pending_access_requests }}</h4>
+                            <p class="mb-0">Pending Requests</p>
+                            <small>{{ stats.pending_training_requests }} training</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-clock fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Quick Actions -->
+        <div class="col-lg-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-bolt me-2"></i>
+                        Quick Actions
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <a href="{% url 'booking:site_admin_users' %}" class="btn btn-outline-primary">
+                            <i class="fas fa-users me-2"></i>
+                            Manage Users
+                        </a>
+                        <a href="{% url 'booking:lab_admin_resources' %}" class="btn btn-outline-success">
+                            <i class="fas fa-tools me-2"></i>
+                            Manage Resources
+                        </a>
+                        <a href="{% url 'booking:lab_admin_access_requests' %}" class="btn btn-outline-warning">
+                            <i class="fas fa-key me-2"></i>
+                            Review Access Requests
+                            {% if stats.pending_access_requests > 0 %}
+                                <span class="badge bg-warning">{{ stats.pending_access_requests }}</span>
+                            {% endif %}
+                        </a>
+                        <a href="{% url 'booking:site_admin_config' %}" class="btn btn-outline-info">
+                            <i class="fas fa-cog me-2"></i>
+                            System Configuration
+                        </a>
+                        <a href="{% url 'booking:site_admin_audit' %}" class="btn btn-outline-secondary">
+                            <i class="fas fa-list-alt me-2"></i>
+                            Audit Logs
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Role Distribution -->
+        <div class="col-lg-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-chart-pie me-2"></i>
+                        User Role Distribution
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% for role in user_roles %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <strong>{{ role.role|title }}</strong>
+                        </div>
+                        <div>
+                            <span class="badge bg-primary">{{ role.count }}</span>
+                        </div>
+                    </div>
+                    <div class="progress mb-3" style="height: 8px;">
+                        <div class="progress-bar" role="progressbar" 
+                             style="width: {% widthratio role.count stats.total_users 100 %}%;">
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Status -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-heartbeat me-2"></i>
+                        System Status
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="text-center p-3">
+                                <div class="text-success mb-2">
+                                    <i class="fas fa-check-circle fa-2x"></i>
+                                </div>
+                                <h6>Database</h6>
+                                <small class="text-muted">Online</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center p-3">
+                                {% if stats.active_maintenance > 0 %}
+                                    <div class="text-warning mb-2">
+                                        <i class="fas fa-exclamation-triangle fa-2x"></i>
+                                    </div>
+                                    <h6>Maintenance</h6>
+                                    <small class="text-muted">{{ stats.active_maintenance }} active</small>
+                                {% else %}
+                                    <div class="text-success mb-2">
+                                        <i class="fas fa-wrench fa-2x"></i>
+                                    </div>
+                                    <h6>Maintenance</h6>
+                                    <small class="text-muted">None active</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center p-3">
+                                <div class="text-info mb-2">
+                                    <i class="fas fa-calendar-alt fa-2x"></i>
+                                </div>
+                                <h6>Upcoming Maintenance</h6>
+                                <small class="text-muted">{{ stats.upcoming_maintenance }} this week</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center p-3">
+                                {% if stats.inactive_resources > 0 %}
+                                    <div class="text-warning mb-2">
+                                        <i class="fas fa-pause-circle fa-2x"></i>
+                                    </div>
+                                    <h6>Inactive Resources</h6>
+                                    <small class="text-muted">{{ stats.inactive_resources }} offline</small>
+                                {% else %}
+                                    <div class="text-success mb-2">
+                                        <i class="fas fa-play-circle fa-2x"></i>
+                                    </div>
+                                    <h6>All Resources</h6>
+                                    <small class="text-muted">Active</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
