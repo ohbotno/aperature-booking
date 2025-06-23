@@ -71,6 +71,9 @@ coverage.xml
 *.bak
 *.backup
 
+# System backups directory
+backups/
+
 # Temporary files
 *.tmp
 *.temp

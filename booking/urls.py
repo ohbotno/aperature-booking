@@ -165,5 +165,9 @@ urlpatterns = [
     path('site-admin/email-config/', views.site_admin_email_config_view, name='site_admin_email_config'),
     path('site-admin/email-config/create/', views.site_admin_email_config_create_view, name='site_admin_email_config_create'),
     path('site-admin/email-config/edit/<int:config_id>/', views.site_admin_email_config_edit_view, name='site_admin_email_config_edit'),
+    path('site-admin/backup/', views.site_admin_backup_management_view, name='site_admin_backup_management'),
+    path('site-admin/backup/create/', views.site_admin_backup_create_ajax, name='site_admin_backup_create_ajax'),
+    path('site-admin/backup/status/', views.site_admin_backup_status_ajax, name='site_admin_backup_status_ajax'),
+    path('site-admin/backup/download/<str:backup_name>/', views.site_admin_backup_download_view, name='site_admin_backup_download'),
     
 ]

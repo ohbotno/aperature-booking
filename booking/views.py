@@ -6455,3 +6455,187 @@ def site_admin_email_config_edit_view(request, config_id):
     
     return render(request, 'booking/site_admin_email_config_form.html', context)
 
+
+# Backup Management Views
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_management_view(request):
+    """Backup management interface."""
+    from .backup_service import BackupService
+    import json
+    
+    backup_service = BackupService()
+    
+    # Handle POST requests for backup operations
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'create_backup':
+            include_media = request.POST.get('include_media') == 'on'
+            description = request.POST.get('description', '')
+            
+            try:
+                result = backup_service.create_full_backup(
+                    include_media=include_media,
+                    description=description
+                )
+                
+                if result['success']:
+                    messages.success(request, f"Backup created successfully: {result['backup_name']}")
+                else:
+                    messages.error(request, f"Backup failed: {', '.join(result['errors'])}")
+                    
+            except Exception as e:
+                messages.error(request, f"Backup creation failed: {str(e)}")
+        
+        elif action == 'delete_backup':
+            backup_name = request.POST.get('backup_name')
+            if backup_name:
+                try:
+                    result = backup_service.delete_backup(backup_name)
+                    if result['success']:
+                        messages.success(request, result['message'])
+                    else:
+                        messages.error(request, result['message'])
+                except Exception as e:
+                    messages.error(request, f"Failed to delete backup: {str(e)}")
+        
+        elif action == 'cleanup_old':
+            try:
+                result = backup_service.cleanup_old_backups()
+                if result['success']:
+                    messages.success(request, f"Cleanup completed. Deleted {result['deleted_count']} old backups.")
+                    if result['errors']:
+                        for error in result['errors']:
+                            messages.warning(request, error)
+                else:
+                    messages.error(request, f"Cleanup failed: {', '.join(result['errors'])}")
+            except Exception as e:
+                messages.error(request, f"Cleanup failed: {str(e)}")
+        
+        return redirect('booking:site_admin_backup_management')
+    
+    # Get backup information
+    try:
+        backups = backup_service.list_backups()
+        stats = backup_service.get_backup_statistics()
+    except Exception as e:
+        messages.error(request, f"Failed to load backup information: {str(e)}")
+        backups = []
+        stats = {}
+    
+    context = {
+        'backups': backups,
+        'stats': stats,
+        'title': 'Backup Management',
+    }
+    
+    return render(request, 'booking/site_admin_backup_management.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_create_ajax(request):
+    """AJAX endpoint for creating backups."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    from .backup_service import BackupService
+    import json
+    
+    try:
+        data = json.loads(request.body)
+        backup_service = BackupService()
+        
+        include_media = data.get('include_media', True)
+        description = data.get('description', '')
+        
+        result = backup_service.create_full_backup(
+            include_media=include_media,
+            description=description
+        )
+        
+        if result['success']:
+            # Convert datetime objects to strings for JSON serialization
+            if 'timestamp' in result:
+                result['timestamp'] = result['timestamp'].isoformat()
+            
+            return JsonResponse({
+                'success': True,
+                'backup_name': result['backup_name'],
+                'message': f"Backup created successfully: {result['backup_name']}",
+                'details': result
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': ', '.join(result['errors'])
+            })
+            
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON data'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_status_ajax(request):
+    """AJAX endpoint for getting backup status and statistics."""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    from .backup_service import BackupService
+    
+    try:
+        backup_service = BackupService()
+        
+        backups = backup_service.list_backups()
+        stats = backup_service.get_backup_statistics()
+        
+        # Convert datetime objects to strings for JSON serialization
+        for backup in backups:
+            if 'timestamp' in backup:
+                backup['timestamp'] = backup['timestamp']
+        
+        return JsonResponse({
+            'success': True,
+            'backups': backups,
+            'stats': stats
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_download_view(request, backup_name):
+    """Download a specific backup file."""
+    from .backup_service import BackupService
+    from django.http import FileResponse, Http404
+    import os
+    
+    try:
+        backup_service = BackupService()
+        backup_path = os.path.join(backup_service.backup_dir, backup_name)
+        compressed_path = f"{backup_path}.tar.gz"
+        
+        # Check for compressed backup first
+        if os.path.exists(compressed_path):
+            response = FileResponse(
+                open(compressed_path, 'rb'),
+                as_attachment=True,
+                filename=f"{backup_name}.tar.gz"
+            )
+            return response
+        elif os.path.exists(backup_path) and os.path.isfile(backup_path):
+            response = FileResponse(
+                open(backup_path, 'rb'),
+                as_attachment=True,
+                filename=backup_name
+            )
+            return response
+        else:
+            raise Http404("Backup file not found")
+            
+    except Exception as e:
+        messages.error(request, f"Failed to download backup: {str(e)}")
+        return redirect('booking:site_admin_backup_management')
+

@@ -1,0 +1,494 @@
+{% extends 'booking/base.html' %}
+{% load static %}
+
+{% block title %}Backup Management - Site Administration - Aperture Booking{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="h2">
+                    <i class="fas fa-database me-2"></i>
+                    Backup Management
+                </h1>
+                <div>
+                    <a href="{% url 'booking:site_admin_dashboard' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-2"></i>
+                        Back to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backup Statistics Overview -->
+    <div class="row mb-4">
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.total_backups|default:0 }}</h4>
+                            <p class="mb-0">Total Backups</p>
+                            <small>{{ stats.compressed_backups|default:0 }} compressed</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-archive fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">
+                                {% if stats.total_size %}
+                                    {% if stats.total_size > 1073741824 %}
+                                        {{ stats.total_size|floatformat:1|add:" GB" }}
+                                    {% elif stats.total_size > 1048576 %}
+                                        {{ stats.total_size|floatformat:1|add:" MB" }}
+                                    {% else %}
+                                        {{ stats.total_size|floatformat:1|add:" KB" }}
+                                    {% endif %}
+                                {% else %}
+                                    0 B
+                                {% endif %}
+                            </h4>
+                            <p class="mb-0">Total Size</p>
+                            <small>Backup storage used</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-hdd fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0">{{ stats.retention_days|default:30 }}</h4>
+                            <p class="mb-0">Retention Days</p>
+                            <small>Auto-cleanup period</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-calendar-alt fa-2x"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h4 class="mb-0" id="backupStatus">Ready</h4>
+                            <p class="mb-0">Backup Status</p>
+                            <small>Current operation</small>
+                        </div>
+                        <div class="align-self-center">
+                            <i class="fas fa-clock fa-2x" id="statusIcon"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Create New Backup -->
+        <div class="col-lg-4 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-plus me-2"></i>
+                        Create New Backup
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" id="createBackupForm">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_backup">
+                        
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Description (Optional)</label>
+                            <input type="text" class="form-control" name="description" id="description" 
+                                   placeholder="e.g., Before system update">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="include_media" 
+                                       id="includeMedia" checked>
+                                <label class="form-check-label" for="includeMedia">
+                                    Include Media Files
+                                    <small class="text-muted d-block">User uploads and media content</small>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <strong>Backup includes:</strong>
+                            <ul class="mb-0 mt-2">
+                                <li>Complete database dump</li>
+                                <li>Media files (if selected)</li>
+                                <li>Configuration settings</li>
+                                <li>System requirements</li>
+                            </ul>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary w-100" id="createBackupBtn">
+                            <i class="fas fa-plus me-2"></i>
+                            Create Backup
+                            <span class="spinner-border spinner-border-sm ms-2 d-none" id="createSpinner" 
+                                  role="status" aria-hidden="true"></span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="col-lg-8 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-bolt me-2"></i>
+                        Quick Actions
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="cleanup_old">
+                                <button type="submit" class="btn btn-outline-warning w-100" 
+                                        onclick="return confirm('Remove all backups older than {{ stats.retention_days|default:30 }} days?')">
+                                    <i class="fas fa-broom me-2"></i>
+                                    Cleanup Old Backups
+                                </button>
+                            </form>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <button class="btn btn-outline-info w-100" id="refreshStatusBtn">
+                                <i class="fas fa-sync me-2"></i>
+                                Refresh Status
+                                <span class="spinner-border spinner-border-sm ms-2 d-none" id="refreshSpinner" 
+                                      role="status" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="alert alert-light">
+                                <h6><i class="fas fa-info-circle me-2"></i>Backup Information</h6>
+                                <p class="mb-1"><strong>Storage Location:</strong> <code>{{ stats.backup_dir|default:"backups/" }}</code></p>
+                                <p class="mb-1"><strong>Retention Policy:</strong> {{ stats.retention_days|default:30 }} days</p>
+                                <p class="mb-0"><strong>Compression:</strong> Enabled (tar.gz format)</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Existing Backups -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-archive me-2"></i>
+                        Existing Backups
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if backups %}
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Backup Name</th>
+                                        <th>Created</th>
+                                        <th>Description</th>
+                                        <th>Size</th>
+                                        <th>Components</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for backup in backups %}
+                                    <tr>
+                                        <td>
+                                            <strong>{{ backup.backup_name }}</strong>
+                                            {% if backup.compressed %}
+                                                <span class="badge bg-success ms-2">Compressed</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if backup.timestamp %}
+                                                {{ backup.timestamp|date:"Y-m-d H:i:s" }}
+                                            {% else %}
+                                                Unknown
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {{ backup.description|default:"No description" }}
+                                        </td>
+                                        <td>
+                                            {% if backup.size %}
+                                                {% if backup.size > 1073741824 %}
+                                                    {{ backup.size|floatformat:1|add:" GB" }}
+                                                {% elif backup.size > 1048576 %}
+                                                    {{ backup.size|floatformat:1|add:" MB" }}
+                                                {% else %}
+                                                    {{ backup.size|floatformat:1|add:" KB" }}
+                                                {% endif %}
+                                            {% else %}
+                                                Unknown
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if backup.components %}
+                                                <small>
+                                                    {% if backup.components.database %}
+                                                        <span class="badge bg-primary">DB</span>
+                                                    {% endif %}
+                                                    {% if backup.components.media %}
+                                                        <span class="badge bg-success">Media</span>
+                                                    {% endif %}
+                                                    {% if backup.components.configuration %}
+                                                        <span class="badge bg-info">Config</span>
+                                                    {% endif %}
+                                                </small>
+                                            {% else %}
+                                                <small class="text-muted">Legacy</small>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm" role="group">
+                                                <a href="{% url 'booking:site_admin_backup_download' backup.backup_name %}" 
+                                                   class="btn btn-outline-primary" title="Download">
+                                                    <i class="fas fa-download"></i>
+                                                </a>
+                                                <form method="post" class="d-inline">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="action" value="delete_backup">
+                                                    <input type="hidden" name="backup_name" value="{{ backup.backup_name }}">
+                                                    <button type="submit" class="btn btn-outline-danger" 
+                                                            onclick="return confirm('Delete backup {{ backup.backup_name }}? This action cannot be undone.')"
+                                                            title="Delete">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-archive fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No Backups Found</h5>
+                            <p class="text-muted">Create your first backup using the form above.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Backup Progress Modal -->
+<div class="modal fade" id="backupProgressModal" tabindex="-1" aria-labelledby="backupProgressModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="backupProgressModalLabel">
+                    <i class="fas fa-cog fa-spin me-2"></i>
+                    Creating Backup
+                </h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mb-0">Please wait while your backup is being created...</p>
+                <small class="text-muted">This may take several minutes depending on the size of your data.</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSRF Token for AJAX -->
+{% csrf_token %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const createBackupForm = document.getElementById('createBackupForm');
+    const createBackupBtn = document.getElementById('createBackupBtn');
+    const createSpinner = document.getElementById('createSpinner');
+    const refreshStatusBtn = document.getElementById('refreshStatusBtn');
+    const refreshSpinner = document.getElementById('refreshSpinner');
+    const backupStatus = document.getElementById('backupStatus');
+    const statusIcon = document.getElementById('statusIcon');
+    const backupProgressModal = new bootstrap.Modal(document.getElementById('backupProgressModal'));
+    
+    // Handle backup creation with AJAX
+    createBackupForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const data = {
+            include_media: formData.get('include_media') ? true : false,
+            description: formData.get('description') || ''
+        };
+        
+        // Show progress modal
+        backupProgressModal.show();
+        
+        // Update UI
+        createBackupBtn.disabled = true;
+        createSpinner.classList.remove('d-none');
+        backupStatus.textContent = 'Creating...';
+        statusIcon.className = 'fas fa-cog fa-spin fa-2x';
+        
+        // Make AJAX request
+        fetch('{% url "booking:site_admin_backup_create_ajax" %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            backupProgressModal.hide();
+            
+            if (data.success) {
+                // Show success message
+                showAlert('success', `Backup created successfully: ${data.backup_name}`);
+                
+                // Reset form
+                createBackupForm.reset();
+                document.getElementById('includeMedia').checked = true;
+                
+                // Refresh the page to show new backup
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+                
+            } else {
+                showAlert('danger', `Backup failed: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            backupProgressModal.hide();
+            console.error('Backup creation failed:', error);
+            showAlert('danger', `Backup creation failed: ${error.message}`);
+        })
+        .finally(() => {
+            // Reset UI
+            createBackupBtn.disabled = false;
+            createSpinner.classList.add('d-none');
+            backupStatus.textContent = 'Ready';
+            statusIcon.className = 'fas fa-clock fa-2x';
+        });
+    });
+    
+    // Handle refresh status
+    refreshStatusBtn.addEventListener('click', function() {
+        refreshSpinner.classList.remove('d-none');
+        refreshStatusBtn.disabled = true;
+        
+        fetch('{% url "booking:site_admin_backup_status_ajax" %}', {
+            method: 'GET',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert('info', 'Status refreshed successfully');
+                // Optionally update the page with new data
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showAlert('warning', `Failed to refresh status: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            console.error('Status refresh failed:', error);
+            showAlert('warning', 'Failed to refresh status');
+        })
+        .finally(() => {
+            refreshSpinner.classList.add('d-none');
+            refreshStatusBtn.disabled = false;
+        });
+    });
+    
+    // Utility function to show alerts
+    function showAlert(type, message) {
+        const alertContainer = document.createElement('div');
+        alertContainer.className = `alert alert-${type} alert-dismissible fade show`;
+        alertContainer.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        
+        // Insert at the top of the container
+        const container = document.querySelector('.container-fluid');
+        container.insertBefore(alertContainer, container.firstChild);
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+            if (alertContainer && alertContainer.parentNode) {
+                alertContainer.remove();
+            }
+        }, 5000);
+    }
+    
+    // Auto-refresh status every 30 seconds
+    setInterval(function() {
+        // Only auto-refresh if not currently creating a backup
+        if (!createBackupBtn.disabled) {
+            fetch('{% url "booking:site_admin_backup_status_ajax" %}', {
+                method: 'GET',
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update status if needed (silent refresh)
+                    console.log('Status refreshed silently');
+                }
+            })
+            .catch(error => {
+                console.log('Silent status refresh failed:', error);
+            });
+        }
+    }, 30000); // 30 seconds
+});
+</script>
+
+{% endblock %}
