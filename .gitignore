@@ -78,3 +78,4 @@ coverage.xml
 # Documentation files (keep local, exclude from git)
 CLAUDE.md
 PROJECT.md
+TODO.md
