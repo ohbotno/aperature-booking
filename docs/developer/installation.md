@@ -97,7 +97,7 @@ choco install python3 postgresql redis nodejs git
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/aperture-booking.git
+git clone https://github.com/ohbotno/aperture-booking.git
 cd aperture-booking
 
 # Create virtual environment
@@ -234,7 +234,41 @@ npm run watch
 
 ## Production Deployment
 
-### Server Preparation
+Aperture Booking provides multiple production deployment options:
+
+1. **Automated Source Deployment** - Automated script handles complete setup
+2. **Docker Deployment** - Containerized production environment 
+3. **Manual Source Deployment** - Step-by-step manual installation
+
+Choose the method that best fits your infrastructure needs.
+
+### Automated Source Deployment (Recommended)
+
+The easiest way to deploy Aperture Booking in production:
+
+```bash
+# Download and run the automated installer
+curl -fsSL https://raw.githubusercontent.com/ohbotno/aperture-booking/main/deploy/install.sh | sudo bash
+
+# Follow the interactive prompts to configure:
+# - Domain name
+# - Database credentials
+# - SSL certificate setup
+# - Email configuration
+```
+
+The installer automatically handles:
+- System dependency installation
+- PostgreSQL and Redis setup
+- Application deployment and configuration
+- Nginx reverse proxy with SSL
+- SystemD service creation
+- Security hardening
+- Automated backup configuration
+
+### Manual Source Deployment
+
+For custom installations or when you need full control over the process.
 
 #### 1. Server Setup (Ubuntu 20.04 LTS)
 
@@ -288,7 +322,31 @@ sudo nano /etc/postgresql/12/main/pg_hba.conf
 sudo systemctl restart postgresql
 ```
 
-#### 3. Application Deployment
+#### 3. Source-Based Application Deployment
+
+Aperture Booking includes automated production deployment scripts.
+
+##### Option A: Automated Installation (Recommended)
+
+```bash
+# Download and run the installation script
+curl -fsSL https://raw.githubusercontent.com/ohbotno/aperture-booking/main/deploy/install.sh | sudo bash
+
+# Or download and review first:
+wget https://raw.githubusercontent.com/ohbotno/aperture-booking/main/deploy/install.sh
+chmod +x install.sh
+sudo ./install.sh
+```
+
+The automated installer will:
+- Install all system dependencies
+- Configure PostgreSQL and Redis
+- Set up the application environment
+- Configure Nginx and SSL
+- Create systemd services
+- Set up automated backups
+
+##### Option B: Manual Installation
 
 ```bash
 # Switch to application user
@@ -296,7 +354,7 @@ sudo -u aperture -i
 
 # Clone repository
 cd /opt/aperture
-git clone https://github.com/your-org/aperture-booking.git booking
+git clone https://github.com/ohbotno/aperture-booking.git booking
 cd booking
 
 # Create virtual environment
@@ -306,7 +364,7 @@ source venv/bin/activate
 # Install dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
-pip install gunicorn
+pip install gunicorn psycopg2-binary
 
 # Install Node.js dependencies
 npm install --production
@@ -387,154 +445,87 @@ python manage.py check --deploy
 
 ### Web Server Configuration
 
-#### 1. Gunicorn Configuration
+Aperture Booking includes pre-configured production files for easy deployment.
+
+#### SystemD Services (Recommended)
+
+The application includes optimized SystemD service files:
 
 ```bash
-# Create Gunicorn configuration
-sudo -u aperture nano /opt/aperture/booking/gunicorn.conf.py
+# Copy service files (included in deploy/ directory)
+sudo cp deploy/aperture-booking.service /etc/systemd/system/
+sudo cp deploy/aperture-booking.socket /etc/systemd/system/
+sudo cp deploy/aperture-booking-scheduler.service /etc/systemd/system/
+
+# Enable and start services
+sudo systemctl daemon-reload
+sudo systemctl enable aperture-booking.socket
+sudo systemctl enable aperture-booking-scheduler.service
+sudo systemctl start aperture-booking.socket
+sudo systemctl start aperture-booking-scheduler.service
+
+# Check service status
+sudo systemctl status aperture-booking.socket
+sudo systemctl status aperture-booking-scheduler.service
 ```
 
-```python
-# Gunicorn configuration file
-bind = "127.0.0.1:8000"
-workers = 4
-worker_class = "gevent"
-worker_connections = 1000
-max_requests = 5000
-max_requests_jitter = 500
-preload_app = True
-timeout = 120
-keepalive = 5
+#### Nginx Configuration
 
-# Logging
-accesslog = "/var/log/aperture/gunicorn-access.log"
-errorlog = "/var/log/aperture/gunicorn-error.log"
-loglevel = "info"
+Multiple Nginx configurations are provided for different deployment scenarios:
 
-# Process naming
-proc_name = "aperture-booking"
-
-# User and group
-user = "aperture"
-group = "aperture"
-
-# Security
-limit_request_line = 8190
-limit_request_fields = 200
-limit_request_field_size = 8190
-```
-
-#### 2. Supervisor Configuration
-
+##### Production with HTTPS (Recommended)
 ```bash
-# Create supervisor configuration
-sudo nano /etc/supervisor/conf.d/aperture-booking.conf
-```
+# Copy and enable the production configuration
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/aperture-booking
+sudo ln -s /etc/nginx/sites-available/aperture-booking /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
 
-```ini
-[program:aperture-booking]
-command=/opt/aperture/booking/venv/bin/gunicorn aperture_booking.wsgi:application -c /opt/aperture/booking/gunicorn.conf.py
-directory=/opt/aperture/booking
-user=aperture
-group=aperture
-autostart=true
-autorestart=true
-redirect_stderr=true
-stdout_logfile=/var/log/aperture/supervisor.log
-environment=PATH="/opt/aperture/booking/venv/bin"
-```
-
-```bash
-# Create log directory
-sudo mkdir -p /var/log/aperture
-sudo chown aperture:aperture /var/log/aperture
-
-# Update supervisor
-sudo supervisorctl reread
-sudo supervisorctl update
-sudo supervisorctl start aperture-booking
-```
-
-#### 3. Nginx Configuration
-
-```bash
-# Create nginx site configuration
+# Edit configuration for your domain
 sudo nano /etc/nginx/sites-available/aperture-booking
+# Update server_name to your domain
+
+# Test and restart
+sudo nginx -t
+sudo systemctl restart nginx
 ```
 
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com www.your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com www.your-domain.com;
-
-    # SSL Configuration
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
-    ssl_prefer_server_ciphers off;
-
-    # Security headers
-    add_header Strict-Transport-Security "max-age=63072000" always;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-Frame-Options DENY;
-    add_header X-XSS-Protection "1; mode=block";
-
-    # Main application
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_redirect off;
-    }
-
-    # Static files
-    location /static/ {
-        alias /opt/aperture/booking/static/;
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # Media files
-    location /media/ {
-        alias /opt/aperture/booking/media/;
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # Security.txt
-    location /.well-known/security.txt {
-        return 301 https://your-domain.com/security.txt;
-    }
-}
-```
-
+##### HTTP-Only Development/Testing
 ```bash
-# Enable site and restart nginx
+# For development or internal testing
+sudo cp deploy/nginx-http-only.conf /etc/nginx/sites-available/aperture-booking
 sudo ln -s /etc/nginx/sites-available/aperture-booking /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-#### 4. SSL Certificate Setup
+#### SSL Certificate Setup
+
+The included SSL setup script automates certificate installation:
 
 ```bash
-# Obtain SSL certificate using Let's Encrypt
-sudo certbot certonly --nginx -d your-domain.com -d www.your-domain.com
+# Run SSL setup script
+sudo bash deploy/setup_ssl.sh your-domain.com
 
-# Set up automatic renewal
-sudo crontab -e
+# Or manually with Certbot:
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com -d www.your-domain.com
 
-# Add this line:
-0 12 * * * /usr/bin/certbot renew --quiet
+# Automatic renewal is configured by default
+sudo systemctl status certbot.timer
+```
+
+#### Alternative: Supervisor Configuration
+
+If you prefer Supervisor over SystemD:
+
+```bash
+# Copy supervisor configuration
+sudo cp deploy/supervisor.conf /etc/supervisor/conf.d/aperture-booking.conf
+
+# Update supervisor
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start aperture-booking
 ```
 
 ### Database Optimization
@@ -616,133 +607,191 @@ sudo crontab -e
 
 ## Docker Deployment
 
-### Docker Configuration
+Aperture Booking includes comprehensive Docker support for both development and production environments.
 
-#### 1. Dockerfile
-
-```dockerfile
-FROM python:3.9-slim
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Install system dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        postgresql-client \
-        libpq-dev \
-        gcc \
-        curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs
-
-# Set work directory
-WORKDIR /app
-
-# Install Python dependencies
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install Node.js dependencies and build assets
-COPY package*.json /app/
-RUN npm ci --only=production
-
-# Copy project
-COPY . /app/
-
-# Build static assets
-RUN npm run build:prod
-
-# Collect static files
-RUN python manage.py collectstatic --noinput
-
-# Create non-root user
-RUN adduser --disabled-password --gecos '' appuser
-RUN chown -R appuser:appuser /app
-USER appuser
-
-# Expose port
-EXPOSE 8000
-
-# Start application
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "aperture_booking.wsgi:application"]
-```
-
-#### 2. Docker Compose Configuration
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  web:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://aperture:password@db:5432/aperture_booking
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - static_volume:/app/static
-      - media_volume:/app/media
-
-  db:
-    image: postgres:13
-    environment:
-      - POSTGRES_DB=aperture_booking
-      - POSTGRES_USER=aperture
-      - POSTGRES_PASSWORD=password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  redis:
-    image: redis:6-alpine
-    ports:
-      - "6379:6379"
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
-      - static_volume:/app/static
-      - media_volume:/app/media
-      - ./ssl:/etc/nginx/ssl
-    depends_on:
-      - web
-
-volumes:
-  postgres_data:
-  static_volume:
-  media_volume:
-```
-
-#### 3. Docker Deployment Commands
+### Quick Start with Docker
 
 ```bash
-# Build and start services
+# Clone the repository
+git clone https://github.com/ohbotno/aperture-booking.git
+cd aperture-booking
+
+# Copy environment template
+cp .env.example .env
+
+# Edit environment variables (especially DB_PASSWORD and SECRET_KEY)
+nano .env
+
+# Start the application stack
+docker-compose up -d
+
+# Run initial setup
+docker-compose exec app python manage.py migrate
+docker-compose exec app python manage.py createsuperuser
+
+# Access the application at http://localhost
+```
+
+### Production Docker Configuration
+
+The included Docker configuration provides a complete production-ready stack:
+
+#### Included Services
+- **Application**: Django app with Gunicorn + Nginx
+- **Database**: PostgreSQL 15 with automated backups
+- **Cache**: Redis 7 for sessions and caching
+- **Backup**: Optional automated database backup service
+
+#### Key Features
+- **Multi-stage build** for optimized image size
+- **Health checks** for all services with proper dependency management
+- **Volume management** for persistent data (database, static files, media, logs, backups)
+- **Security hardening** with non-root users and security headers
+- **Environment-based configuration** for easy deployment customization
+- **Automated initialization** with database setup and static file collection
+
+### Environment Configuration
+
+Create and configure your `.env` file with production values:
+
+```bash
+# Database settings
+DB_NAME=aperture_booking
+DB_USER=aperture_booking
+DB_PASSWORD=your-secure-database-password
+
+# Django settings
+SECRET_KEY=your-secret-key-here-generate-new-one
+DEBUG=False
+ALLOWED_HOSTS=your-domain.com,www.your-domain.com
+
+# HTTPS settings (set to True for production)
+USE_HTTPS=True
+
+# Email configuration
+EMAIL_HOST=smtp.your-provider.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=noreply@your-domain.com
+EMAIL_HOST_PASSWORD=your-email-password
+DEFAULT_FROM_EMAIL=noreply@your-domain.com
+
+# Admin settings
+ADMIN_EMAIL=admin@your-domain.com
+
+# Port configuration (optional)
+HTTP_PORT=80
+HTTPS_PORT=443
+```
+
+### Deployment Commands
+
+```bash
+# Production deployment
 docker-compose up -d --build
 
-# Run migrations
-docker-compose exec web python manage.py migrate
+# Run database migrations
+docker-compose exec app python manage.py migrate
 
-# Create superuser
-docker-compose exec web python manage.py createsuperuser
+# Create admin user
+docker-compose exec app python manage.py createsuperuser
 
-# View logs
-docker-compose logs -f web
+# Check application health
+docker-compose exec app curl -f http://localhost/health/
+
+# View application logs
+docker-compose logs -f app
+
+# View all service logs
+docker-compose logs -f
+
+# Update application (pull latest changes)
+git pull origin main
+docker-compose up -d --build
 
 # Stop services
 docker-compose down
+
+# Stop and remove all data (WARNING: destructive)
+docker-compose down -v
+```
+
+### SSL/HTTPS Configuration
+
+For production HTTPS deployment:
+
+1. **Domain Setup**: Point your domain to the server running Docker
+2. **Environment Variables**: Set `USE_HTTPS=True` and configure your domain in `ALLOWED_HOSTS`
+3. **SSL Certificates**: The Nginx configuration supports SSL certificates mounted at `/etc/nginx/ssl/`
+
+```bash
+# Example SSL certificate setup
+# Place your certificates in ./ssl/ directory
+mkdir -p ssl
+# Copy your SSL certificate files:
+# ssl/cert.pem (certificate)
+# ssl/key.pem (private key)
+
+# Update docker-compose.yml to mount SSL certificates
+# The ssl directory will be mounted to /etc/nginx/ssl/ in the container
+```
+
+### Backup Service
+
+Enable automated database backups:
+
+```bash
+# Start backup service (runs daily backups)
+docker-compose --profile backup up -d backup
+
+# Manual backup
+docker-compose run --rm backup
+
+# View backup files
+ls -la backups/db/
+```
+
+### Monitoring and Maintenance
+
+```bash
+# Check service health
+docker-compose ps
+
+# View resource usage
+docker stats
+
+# Check disk usage
+docker system df
+
+# Clean up unused resources
+docker system prune
+
+# Update to latest images
+docker-compose pull
+docker-compose up -d
+```
+
+### Development with Docker
+
+For development environments, use the same setup but with development-specific environment variables:
+
+```bash
+# Development environment
+DEBUG=True
+USE_HTTPS=False
+EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
+```
+
+### Scaling and Load Balancing
+
+The Docker configuration supports horizontal scaling:
+
+```bash
+# Scale application containers
+docker-compose up -d --scale app=3
+
+# Use external load balancer to distribute traffic
+# The application containers will be available on different ports
 ```
 
 ## Monitoring and Maintenance
@@ -809,7 +858,31 @@ echo "django-silk==5.0.1" >> requirements.txt
 
 ### Backup and Recovery
 
-#### Automated Backup Script
+Aperture Booking includes comprehensive backup automation through the web interface and command-line tools.
+
+#### Automated Backup System
+
+The application includes a built-in backup management system accessible via the Site Administrator dashboard:
+
+- **Scheduled Backups**: Configure automatic daily/weekly/monthly backups
+- **Manual Backups**: Create on-demand backups through the web interface
+- **Backup Monitoring**: View backup history and status
+- **Automated Cleanup**: Configurable retention policies
+
+#### Manual Backup Commands
+
+```bash
+# Create manual backup using Django command
+python manage.py create_backup
+
+# Run scheduled backups
+python manage.py run_scheduled_backups
+
+# Restore from backup
+python manage.py restore_backup /path/to/backup.tar.gz
+```
+
+#### Legacy Backup Script (Alternative)
 
 ```bash
 #!/bin/bash
@@ -948,8 +1021,59 @@ du -sh /opt/aperture/booking/*
 tail -f /var/log/aperture/booking.log
 ```
 
+## Update System
+
+Aperture Booking includes a built-in update system that integrates with GitHub releases.
+
+### Automatic Update Checking
+
+The system automatically checks for updates from the `ohbotno/aperture-booking` repository:
+
+- **Dashboard Integration**: View current and available versions in the Site Administrator dashboard
+- **Update Notifications**: Automatic notification of available updates
+- **Release Notes**: View changelog and release information before updating
+- **Background Checks**: Automatic checking for updates every 24 hours
+
+### Update Management
+
+Access update management through the Site Administrator interface:
+
+1. **Navigate to Site Administration** → **Updates** section
+2. **View Current Version**: See currently installed version and update status
+3. **Check for Updates**: Manual update checking with real-time status
+4. **Update Installation**: One-click update process with backup integration
+5. **Update History**: View previous updates and their status
+
+### Manual Update Process
+
+For command-line updates or automated deployments:
+
+```bash
+# Check for available updates
+python manage.py check_updates
+
+# View update status and information
+python manage.py update_status
+
+# For Docker deployments:
+git pull origin main
+docker-compose up -d --build
+
+# For source deployments:
+bash deploy/update.sh
+```
+
+### Update Configuration
+
+Configure update behavior in the Site Administrator dashboard:
+
+- **Update Source**: GitHub repository (default: ohbotno/aperture-booking)
+- **Update Channel**: Release branch or pre-release versions
+- **Backup Integration**: Automatic backup before updates
+- **Notification Settings**: Email notifications for available updates
+
 ---
 
-**Successfully deploying Aperture Booking requires careful attention to security, performance, and reliability.** Follow these guidelines to ensure a robust, scalable installation that meets your institution's needs.
+**Successfully deploying Aperture Booking requires careful attention to security, performance, and reliability.** The included deployment tools and automation features help ensure a robust, scalable installation that meets your institution's needs.
 
-*For ongoing maintenance and updates, see the [Administration Guide](../admin/) and [Troubleshooting](../troubleshooting/) sections.*
+*For ongoing maintenance, backup management, and system updates, see the [Administration Guide](../admin/) and [Site Administrator Dashboard](../admin/system-setup.md#site-administrator-dashboard) documentation.*
