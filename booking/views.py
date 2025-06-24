@@ -5491,8 +5491,20 @@ def site_admin_dashboard_view(request):
         start_time__lte=timezone.now() + timedelta(days=7)
     ).count()
     
-    # Recent Error Logs (if any)
-    # This would need to be implemented based on your logging system
+    # Update Information
+    try:
+        from .models import UpdateInfo
+        from .update_service import UpdateService
+        
+        update_info = UpdateInfo.objects.first()
+        if not update_info:
+            # Create default update info if none exists
+            update_service = UpdateService()
+            update_info = update_service.get_or_create_update_info()
+        
+    except Exception:
+        # If update system isn't available, create a basic placeholder
+        update_info = None
     
     context = {
         'system_info': system_info,
@@ -5510,6 +5522,7 @@ def site_admin_dashboard_view(request):
             'pending_training_requests': pending_training_requests,
         },
         'user_roles': user_roles,
+        'update_info': update_info,
     }
     
     return render(request, 'booking/site_admin_dashboard.html', context)
@@ -6512,20 +6525,113 @@ def site_admin_backup_management_view(request):
             except Exception as e:
                 messages.error(request, f"Cleanup failed: {str(e)}")
         
+        elif action == 'create_schedule':
+            try:
+                from .models import BackupSchedule
+                schedule = BackupSchedule(
+                    name=request.POST.get('name', 'Automated Backup'),
+                    enabled=request.POST.get('enabled') == 'on',
+                    frequency=request.POST.get('frequency', 'weekly'),
+                    backup_time=request.POST.get('backup_time', '02:00'),
+                    day_of_week=int(request.POST.get('day_of_week', 6)),
+                    day_of_month=int(request.POST.get('day_of_month', 1)),
+                    include_media=request.POST.get('include_media') == 'on',
+                    include_database=request.POST.get('include_database') == 'on',
+                    include_configuration=request.POST.get('include_configuration') == 'on',
+                    max_backups_to_keep=int(request.POST.get('max_backups_to_keep', 7)),
+                    retention_days=int(request.POST.get('retention_days', 30)),
+                    notification_email=request.POST.get('notification_email', ''),
+                    created_by=request.user
+                )
+                schedule.clean()
+                schedule.save()
+                messages.success(request, f"Backup schedule '{schedule.name}' created successfully")
+                
+            except Exception as e:
+                messages.error(request, f"Failed to create backup schedule: {str(e)}")
+        
+        elif action == 'update_schedule':
+            schedule_id = request.POST.get('schedule_id')
+            try:
+                from .models import BackupSchedule
+                schedule = BackupSchedule.objects.get(id=schedule_id)
+                schedule.name = request.POST.get('name', schedule.name)
+                schedule.enabled = request.POST.get('enabled') == 'on'
+                schedule.frequency = request.POST.get('frequency', schedule.frequency)
+                schedule.backup_time = request.POST.get('backup_time', schedule.backup_time)
+                schedule.day_of_week = int(request.POST.get('day_of_week', schedule.day_of_week))
+                schedule.day_of_month = int(request.POST.get('day_of_month', schedule.day_of_month))
+                schedule.include_media = request.POST.get('include_media') == 'on'
+                schedule.include_database = request.POST.get('include_database') == 'on'
+                schedule.include_configuration = request.POST.get('include_configuration') == 'on'
+                schedule.max_backups_to_keep = int(request.POST.get('max_backups_to_keep', schedule.max_backups_to_keep))
+                schedule.retention_days = int(request.POST.get('retention_days', schedule.retention_days))
+                schedule.notification_email = request.POST.get('notification_email', schedule.notification_email)
+                schedule.clean()
+                schedule.save()
+                messages.success(request, f"Backup schedule '{schedule.name}' updated successfully")
+                
+            except Exception as e:
+                messages.error(request, f"Failed to update backup schedule: {str(e)}")
+        
+        elif action == 'delete_schedule':
+            schedule_id = request.POST.get('schedule_id')
+            try:
+                from .models import BackupSchedule
+                schedule = BackupSchedule.objects.get(id=schedule_id)
+                schedule_name = schedule.name
+                schedule.delete()
+                messages.success(request, f"Backup schedule '{schedule_name}' deleted successfully")
+                
+            except Exception as e:
+                messages.error(request, f"Failed to delete backup schedule: {str(e)}")
+        
+        elif action == 'test_schedule':
+            schedule_id = request.POST.get('schedule_id')
+            try:
+                result = backup_service.test_scheduled_backup(int(schedule_id))
+                if result.get('success'):
+                    messages.success(request, f"Test backup completed successfully: {result.get('backup_name', 'Unknown')}")
+                else:
+                    error_msg = '; '.join(result.get('errors', ['Unknown error']))
+                    messages.error(request, f"Test backup failed: {error_msg}")
+                    
+            except Exception as e:
+                messages.error(request, f"Failed to test backup schedule: {str(e)}")
+        
         return redirect('booking:site_admin_backup_management')
     
     # Get backup information
     try:
         backups = backup_service.list_backups()
         stats = backup_service.get_backup_statistics()
+        automation_status = backup_service.get_backup_schedules_status()
     except Exception as e:
         messages.error(request, f"Failed to load backup information: {str(e)}")
         backups = []
         stats = {}
+        automation_status = {}
+    
+    # Get backup schedules for automation tab
+    try:
+        from .models import BackupSchedule
+        schedules = BackupSchedule.objects.all().order_by('-created_at')
+        
+        # Get form choices for templates
+        frequency_choices = BackupSchedule.FREQUENCY_CHOICES
+        day_of_week_choices = BackupSchedule.DAY_OF_WEEK_CHOICES
+    except Exception as e:
+        schedules = []
+        frequency_choices = []
+        day_of_week_choices = []
     
     context = {
         'backups': backups,
         'stats': stats,
+        'automation_status': automation_status,
+        'schedules': schedules,
+        'frequency_choices': frequency_choices,
+        'day_of_week_choices': day_of_week_choices,
         'title': 'Backup Management',
     }
     
@@ -6638,4 +6744,508 @@ def site_admin_backup_download_view(request, backup_name):
     except Exception as e:
         messages.error(request, f"Failed to download backup: {str(e)}")
         return redirect('booking:site_admin_backup_management')
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_restore_info_ajax(request, backup_name):
+    """AJAX endpoint for getting backup restoration information."""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    from .backup_service import BackupService
+    
+    try:
+        backup_service = BackupService()
+        result = backup_service.get_backup_restoration_info(backup_name)
+        
+        if result['success']:
+            # Convert datetime objects to strings for JSON serialization
+            if 'timestamp' in result.get('backup_info', {}):
+                result['backup_info']['timestamp'] = result['backup_info']['timestamp']
+            
+            return JsonResponse(result)
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': result.get('error', 'Unknown error')
+            })
+            
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_restore_ajax(request):
+    """AJAX endpoint for restoring backups."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    from .backup_service import BackupService
+    import json
+    import secrets
+    
+    try:
+        data = json.loads(request.body)
+        backup_service = BackupService()
+        
+        backup_name = data.get('backup_name')
+        restore_components = data.get('restore_components', {})
+        confirmation_token = data.get('confirmation_token')
+        
+        if not backup_name:
+            return JsonResponse({'success': False, 'error': 'Backup name is required'})
+        
+        # Generate a secure confirmation token if database restoration is requested
+        expected_token = None
+        if restore_components.get('database', False):
+            expected_token = f"RESTORE_{backup_name}_{secrets.token_hex(8)}"
+            
+            # Check if the provided token matches (for database restoration)
+            if not confirmation_token or confirmation_token != expected_token:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Database restoration requires confirmation',
+                    'confirmation_required': True,
+                    'confirmation_token': expected_token,
+                    'warning_message': f'This will PERMANENTLY OVERWRITE your current database with data from backup "{backup_name}". This action cannot be undone.'
+                })
+        
+        result = backup_service.restore_backup(
+            backup_name=backup_name,
+            restore_components=restore_components,
+            confirmation_token=confirmation_token
+        )
+        
+        if result['success']:
+            # Convert datetime objects to strings for JSON serialization
+            if 'timestamp' in result:
+                result['timestamp'] = result['timestamp'].isoformat()
+            
+            return JsonResponse({
+                'success': True,
+                'message': f"Backup '{backup_name}' restored successfully",
+                'details': result
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': ', '.join(result['errors']) if result['errors'] else 'Restoration failed'
+            })
+            
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON data'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_restore_view(request, backup_name):
+    """Backup restoration interface."""
+    from .backup_service import BackupService
+    
+    backup_service = BackupService()
+    
+    # Get backup restoration information
+    try:
+        restore_info = backup_service.get_backup_restoration_info(backup_name)
+        
+        if not restore_info['success']:
+            messages.error(request, restore_info.get('error', 'Failed to get backup information'))
+            return redirect('booking:site_admin_backup_management')
+            
+    except Exception as e:
+        messages.error(request, f"Failed to analyze backup: {str(e)}")
+        return redirect('booking:site_admin_backup_management')
+    
+    # Handle POST request for restoration
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'restore_backup':
+            restore_components = {
+                'database': request.POST.get('restore_database') == 'on',
+                'media': request.POST.get('restore_media') == 'on',
+                'configuration': request.POST.get('restore_configuration') == 'on'
+            }
+            
+            confirmation_token = request.POST.get('confirmation_token')
+            
+            try:
+                result = backup_service.restore_backup(
+                    backup_name=backup_name,
+                    restore_components=restore_components,
+                    confirmation_token=confirmation_token
+                )
+                
+                if result['success']:
+                    messages.success(request, f"Backup '{backup_name}' restored successfully!")
+                    
+                    # Show component-specific results
+                    for component, details in result.get('components_restored', {}).items():
+                        if details.get('success'):
+                            if component == 'database':
+                                if details.get('backup_created'):
+                                    messages.info(request, "Current database was backed up before restoration")
+                            elif component == 'media':
+                                count = details.get('restored_count', 0)
+                                messages.info(request, f"Restored {count} media files")
+                            elif component == 'configuration':
+                                files = details.get('files_found', [])
+                                messages.info(request, f"Configuration analysis complete: {len(files)} files found")
+                    
+                    # Show warnings
+                    for warning in result.get('warnings', []):
+                        messages.warning(request, warning)
+                        
+                else:
+                    messages.error(request, f"Restoration failed: {', '.join(result['errors'])}")
+                    
+            except Exception as e:
+                messages.error(request, f"Restoration failed: {str(e)}")
+        
+        return redirect('booking:site_admin_backup_management')
+    
+    context = {
+        'backup_name': backup_name,
+        'restore_info': restore_info,
+        'title': f'Restore Backup: {backup_name}',
+    }
+    
+    return render(request, 'booking/site_admin_backup_restore.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_automation_view(request):
+    """Backup automation management interface."""
+    from .models import BackupSchedule
+    from .backup_service import BackupService
+    
+    backup_service = BackupService()
+    
+    # Handle POST requests for schedule operations
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'create_schedule':
+            try:
+                schedule = BackupSchedule(
+                    name=request.POST.get('name', 'Automated Backup'),
+                    enabled=request.POST.get('enabled') == 'on',
+                    frequency=request.POST.get('frequency', 'weekly'),
+                    backup_time=request.POST.get('backup_time', '02:00'),
+                    day_of_week=int(request.POST.get('day_of_week', 6)),
+                    day_of_month=int(request.POST.get('day_of_month', 1)),
+                    include_media=request.POST.get('include_media') == 'on',
+                    include_database=request.POST.get('include_database') == 'on',
+                    include_configuration=request.POST.get('include_configuration') == 'on',
+                    max_backups_to_keep=int(request.POST.get('max_backups_to_keep', 7)),
+                    retention_days=int(request.POST.get('retention_days', 30)),
+                    notification_email=request.POST.get('notification_email', ''),
+                    created_by=request.user
+                )
+                schedule.clean()
+                schedule.save()
+                messages.success(request, f"Backup schedule '{schedule.name}' created successfully")
+                
+            except Exception as e:
+                messages.error(request, f"Failed to create backup schedule: {str(e)}")
+        
+        elif action == 'update_schedule':
+            schedule_id = request.POST.get('schedule_id')
+            try:
+                schedule = BackupSchedule.objects.get(id=schedule_id)
+                schedule.name = request.POST.get('name', schedule.name)
+                schedule.enabled = request.POST.get('enabled') == 'on'
+                schedule.frequency = request.POST.get('frequency', schedule.frequency)
+                schedule.backup_time = request.POST.get('backup_time', schedule.backup_time)
+                schedule.day_of_week = int(request.POST.get('day_of_week', schedule.day_of_week))
+                schedule.day_of_month = int(request.POST.get('day_of_month', schedule.day_of_month))
+                schedule.include_media = request.POST.get('include_media') == 'on'
+                schedule.include_database = request.POST.get('include_database') == 'on'
+                schedule.include_configuration = request.POST.get('include_configuration') == 'on'
+                schedule.max_backups_to_keep = int(request.POST.get('max_backups_to_keep', schedule.max_backups_to_keep))
+                schedule.retention_days = int(request.POST.get('retention_days', schedule.retention_days))
+                schedule.notification_email = request.POST.get('notification_email', schedule.notification_email)
+                schedule.clean()
+                schedule.save()
+                messages.success(request, f"Backup schedule '{schedule.name}' updated successfully")
+                
+            except BackupSchedule.DoesNotExist:
+                messages.error(request, "Backup schedule not found")
+            except Exception as e:
+                messages.error(request, f"Failed to update backup schedule: {str(e)}")
+        
+        elif action == 'delete_schedule':
+            schedule_id = request.POST.get('schedule_id')
+            try:
+                schedule = BackupSchedule.objects.get(id=schedule_id)
+                schedule_name = schedule.name
+                schedule.delete()
+                messages.success(request, f"Backup schedule '{schedule_name}' deleted successfully")
+                
+            except BackupSchedule.DoesNotExist:
+                messages.error(request, "Backup schedule not found")
+            except Exception as e:
+                messages.error(request, f"Failed to delete backup schedule: {str(e)}")
+        
+        elif action == 'test_schedule':
+            schedule_id = request.POST.get('schedule_id')
+            try:
+                result = backup_service.test_scheduled_backup(int(schedule_id))
+                if result.get('success'):
+                    messages.success(request, f"Test backup completed successfully: {result.get('backup_name', 'Unknown')}")
+                else:
+                    error_msg = '; '.join(result.get('errors', ['Unknown error']))
+                    messages.error(request, f"Test backup failed: {error_msg}")
+                    
+            except Exception as e:
+                messages.error(request, f"Failed to test backup schedule: {str(e)}")
+        
+        return redirect('booking:site_admin_backup_automation')
+    
+    # Get backup schedules and status
+    try:
+        schedules = BackupSchedule.objects.all().order_by('-created_at')
+        automation_status = backup_service.get_backup_schedules_status()
+        
+        # Get scheduler status
+        from .scheduler import get_scheduler
+        scheduler = get_scheduler()
+        scheduler_status = scheduler.get_status()
+        automation_status['scheduler'] = scheduler_status
+        
+    except Exception as e:
+        messages.error(request, f"Failed to load backup schedules: {str(e)}")
+        schedules = []
+        automation_status = {}
+    
+    context = {
+        'schedules': schedules,
+        'automation_status': automation_status,
+        'frequency_choices': BackupSchedule.FREQUENCY_CHOICES,
+        'day_of_week_choices': BackupSchedule.DAY_OF_WEEK_CHOICES,
+        'title': 'Backup Automation',
+    }
+    
+    return render(request, 'booking/site_admin_backup_automation.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_automation_ajax(request):
+    """AJAX endpoint for backup automation operations."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    from .models import BackupSchedule
+    from .backup_service import BackupService
+    import json
+    
+    try:
+        data = json.loads(request.body)
+        action = data.get('action')
+        backup_service = BackupService()
+        
+        if action == 'run_schedules':
+            # Run all scheduled backups
+            results = backup_service.run_scheduled_backups()
+            return JsonResponse({
+                'success': True,
+                'results': results
+            })
+        
+        elif action == 'test_schedule':
+            schedule_id = data.get('schedule_id')
+            result = backup_service.test_scheduled_backup(int(schedule_id))
+            return JsonResponse(result)
+        
+        elif action == 'get_status':
+            status = backup_service.get_backup_schedules_status()
+            return JsonResponse({
+                'success': True,
+                'status': status
+            })
+        
+        elif action == 'toggle_schedule':
+            schedule_id = data.get('schedule_id')
+            schedule = BackupSchedule.objects.get(id=schedule_id)
+            schedule.enabled = not schedule.enabled
+            schedule.save()
+            
+            return JsonResponse({
+                'success': True,
+                'enabled': schedule.enabled,
+                'message': f"Schedule '{schedule.name}' {'enabled' if schedule.enabled else 'disabled'}"
+            })
+        
+        else:
+            return JsonResponse({'success': False, 'error': 'Unknown action'})
+            
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_backup_schedule_detail_ajax(request, schedule_id):
+    """AJAX endpoint for getting backup schedule details."""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    try:
+        from .models import BackupSchedule
+        
+        schedule = BackupSchedule.objects.get(id=schedule_id)
+        
+        schedule_data = {
+            'id': schedule.id,
+            'name': schedule.name,
+            'enabled': schedule.enabled,
+            'frequency': schedule.frequency,
+            'backup_time': schedule.backup_time.strftime('%H:%M'),
+            'day_of_week': schedule.day_of_week,
+            'day_of_month': schedule.day_of_month,
+            'include_media': schedule.include_media,
+            'include_database': schedule.include_database,
+            'include_configuration': schedule.include_configuration,
+            'max_backups_to_keep': schedule.max_backups_to_keep,
+            'retention_days': schedule.retention_days,
+            'notification_email': schedule.notification_email,
+            'last_run': schedule.last_run.isoformat() if schedule.last_run else None,
+            'last_success': schedule.last_success.isoformat() if schedule.last_success else None,
+            'last_backup_name': schedule.last_backup_name,
+            'consecutive_failures': schedule.consecutive_failures,
+            'total_runs': schedule.total_runs,
+            'total_successes': schedule.total_successes,
+            'success_rate': schedule.success_rate,
+            'is_healthy': schedule.is_healthy,
+            'next_run': schedule.get_next_run_time().isoformat() if schedule.get_next_run_time() else None,
+            'last_error': schedule.last_error
+        }
+        
+        return JsonResponse({
+            'success': True,
+            'schedule': schedule_data
+        })
+        
+    except BackupSchedule.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Schedule not found'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@login_required
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin'])
+def site_admin_updates_view(request):
+    """Site admin view for managing application updates."""
+    from .update_service import UpdateService
+    from .models import UpdateInfo, UpdateHistory
+    
+    update_service = UpdateService()
+    
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'check_updates':
+            result = update_service.check_for_updates()
+            if result['success']:
+                if result['update_available']:
+                    messages.success(request, f"Update available: {result['latest_version']}")
+                else:
+                    messages.info(request, "You are running the latest version")
+            else:
+                messages.error(request, f"Failed to check for updates: {result['error']}")
+        
+        elif action == 'download_update':
+            result = update_service.download_update()
+            if result['success']:
+                messages.success(request, "Update downloaded successfully")
+            else:
+                messages.error(request, f"Failed to download update: {result['error']}")
+        
+        elif action == 'install_update':
+            backup_enabled = request.POST.get('create_backup') == 'on'
+            result = update_service.install_update(backup_before_update=backup_enabled)
+            if result['success']:
+                message = "Update installed successfully"
+                if result.get('backup_created'):
+                    message += f" (Backup created: {result['backup_path']})"
+                messages.success(request, message)
+            else:
+                messages.error(request, f"Failed to install update: {result['error']}")
+        
+        elif action == 'configure_repo':
+            repo = request.POST.get('github_repo', '').strip()
+            auto_check = request.POST.get('auto_check_enabled') == 'on'
+            
+            if repo:
+                update_info = UpdateInfo.get_instance()
+                update_info.github_repo = repo
+                update_info.auto_check_enabled = auto_check
+                update_info.save()
+                messages.success(request, "Update settings saved successfully")
+            else:
+                messages.error(request, "GitHub repository is required")
+        
+        return redirect('booking:site_admin_updates')
+    
+    # Get update status and history
+    update_status = update_service.get_update_status()
+    update_history = UpdateHistory.objects.all()[:10]  # Last 10 updates
+    
+    context = {
+        'update_status': update_status,
+        'update_history': update_history,
+    }
+    
+    return render(request, 'booking/site_admin_updates.html', context)
+
+
+@login_required
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin'])
+def site_admin_updates_ajax_view(request):
+    """AJAX endpoint for update operations."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'})
+    
+    from .update_service import UpdateService
+    import json
+    
+    try:
+        data = json.loads(request.body)
+        action = data.get('action')
+        
+        update_service = UpdateService()
+        
+        if action == 'check_updates':
+            result = update_service.check_for_updates()
+            return JsonResponse(result)
+        
+        elif action == 'download_update':
+            result = update_service.download_update()
+            return JsonResponse(result)
+        
+        elif action == 'install_update':
+            backup_enabled = data.get('create_backup', True)
+            result = update_service.install_update(backup_before_update=backup_enabled)
+            return JsonResponse(result)
+        
+        elif action == 'get_status':
+            status = update_service.get_update_status()
+            return JsonResponse({'success': True, 'status': status})
+        
+        elif action == 'rollback':
+            update_id = data.get('update_id')
+            if not update_id:
+                return JsonResponse({'success': False, 'error': 'Update ID required'})
+            
+            result = update_service.rollback_update(update_id)
+            return JsonResponse(result)
+        
+        else:
+            return JsonResponse({'success': False, 'error': 'Unknown action'})
+    
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON data'})
+    except Exception as e:
+        logger.error(f"Error in update AJAX view: {e}")
+        return JsonResponse({'success': False, 'error': str(e)})
 

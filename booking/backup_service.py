@@ -648,3 +648,887 @@ class BackupService:
             'compressed_backups': sum(1 for backup in backups if backup.get('compressed', False)),
             'recent_backups': [backup for backup in backups[:5]]  # Last 5 backups
         }
+    
+    def restore_backup(self, backup_name: str, restore_components: Dict[str, bool], 
+                      confirmation_token: str = None) -> Dict[str, Any]:
+        """
+        Restore a backup with specified components.
+        
+        Args:
+            backup_name: Name of the backup to restore
+            restore_components: Dict specifying which components to restore
+                - 'database': bool - Restore database
+                - 'media': bool - Restore media files  
+                - 'configuration': bool - Restore configuration
+            confirmation_token: Safety token to confirm destructive operation
+            
+        Returns:
+            Dictionary with restoration results and status
+        """
+        result = {
+            'success': True,
+            'backup_name': backup_name,
+            'timestamp': datetime.now(),
+            'components_restored': {},
+            'errors': [],
+            'warnings': []
+        }
+        
+        try:
+            # Safety check - require confirmation token for database restoration
+            if restore_components.get('database', False) and not confirmation_token:
+                result['success'] = False
+                result['errors'].append("Database restoration requires confirmation token")
+                return result
+            
+            # Find and validate backup
+            backup_info = self._find_backup(backup_name)
+            if not backup_info:
+                result['success'] = False
+                result['errors'].append(f"Backup '{backup_name}' not found")
+                return result
+            
+            # Extract backup if compressed
+            extraction_path = self._extract_backup(backup_info)
+            if not extraction_path:
+                result['success'] = False
+                result['errors'].append("Failed to extract backup")
+                return result
+            
+            try:
+                # Restore database if requested
+                if restore_components.get('database', False):
+                    logger.info("Starting database restoration...")
+                    db_result = self._restore_database(extraction_path, backup_info)
+                    result['components_restored']['database'] = db_result
+                    if not db_result['success']:
+                        result['errors'].extend(db_result.get('errors', []))
+                
+                # Restore media files if requested
+                if restore_components.get('media', False):
+                    logger.info("Starting media files restoration...")
+                    media_result = self._restore_media_files(extraction_path)
+                    result['components_restored']['media'] = media_result
+                    if not media_result['success']:
+                        result['errors'].extend(media_result.get('errors', []))
+                
+                # Restore configuration if requested (informational only)
+                if restore_components.get('configuration', False):
+                    logger.info("Analyzing configuration restoration...")
+                    config_result = self._analyze_configuration_restore(extraction_path)
+                    result['components_restored']['configuration'] = config_result
+                    if config_result.get('warnings'):
+                        result['warnings'].extend(config_result['warnings'])
+                
+                result['success'] = len(result['errors']) == 0
+                
+            finally:
+                # Cleanup extracted files if they were temporary
+                if extraction_path != backup_info['file_path']:
+                    shutil.rmtree(extraction_path, ignore_errors=True)
+            
+        except Exception as e:
+            logger.error(f"Backup restoration failed: {e}")
+            result['success'] = False
+            result['errors'].append(str(e))
+        
+        return result
+    
+    def _find_backup(self, backup_name: str) -> Optional[Dict[str, Any]]:
+        """Find backup information by name."""
+        backups = self.list_backups()
+        for backup in backups:
+            if backup['backup_name'] == backup_name:
+                return backup
+        return None
+    
+    def _extract_backup(self, backup_info: Dict[str, Any]) -> Optional[str]:
+        """Extract backup to temporary location if compressed."""
+        backup_path = backup_info['file_path']
+        
+        if backup_info.get('compressed', False) and backup_path.endswith('.tar.gz'):
+            # Extract to temporary directory
+            import tarfile
+            temp_dir = tempfile.mkdtemp(prefix='backup_restore_')
+            
+            try:
+                with tarfile.open(backup_path, 'r:gz') as tar:
+                    tar.extractall(temp_dir)
+                
+                # Find the extracted backup directory
+                extracted_dirs = [d for d in os.listdir(temp_dir) 
+                                if os.path.isdir(os.path.join(temp_dir, d))]
+                
+                if extracted_dirs:
+                    return os.path.join(temp_dir, extracted_dirs[0])
+                else:
+                    return temp_dir
+                    
+            except Exception as e:
+                logger.error(f"Failed to extract backup: {e}")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return None
+        else:
+            # Backup is already uncompressed
+            return backup_path
+    
+    def _restore_database(self, backup_path: str, backup_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Restore database from backup."""
+        result = {
+            'success': True,
+            'errors': [],
+            'restored_file': '',
+            'backup_created': False
+        }
+        
+        try:
+            # Create a backup of current database before restoration
+            current_backup_result = self._create_current_db_backup()
+            result['backup_created'] = current_backup_result['success']
+            
+            if not current_backup_result['success']:
+                result['warnings'] = [f"Could not backup current database: {current_backup_result.get('error', 'Unknown error')}"]
+            
+            db_config = settings.DATABASES['default']
+            engine = db_config['ENGINE']
+            
+            # Find database backup file in the extracted backup
+            db_files = []
+            for file in os.listdir(backup_path):
+                if file.startswith('database_') and (file.endswith('.sql') or file.endswith('.db') 
+                                                   or file.endswith('.json') or file.endswith('.gz')):
+                    db_files.append(file)
+            
+            if not db_files:
+                result['success'] = False
+                result['errors'].append("No database backup file found in backup")
+                return result
+            
+            # Use the most appropriate database file
+            db_file = db_files[0]  # Take the first one found
+            db_file_path = os.path.join(backup_path, db_file)
+            
+            if 'sqlite' in engine.lower():
+                result.update(self._restore_sqlite(db_file_path, db_config))
+            elif 'mysql' in engine.lower():
+                result.update(self._restore_mysql(db_file_path, db_config))
+            elif 'postgresql' in engine.lower():
+                result.update(self._restore_postgresql(db_file_path, db_config))
+            else:
+                result.update(self._restore_django_loaddata(db_file_path))
+            
+        except Exception as e:
+            logger.error(f"Database restoration failed: {e}")
+            result['success'] = False
+            result['errors'].append(str(e))
+        
+        return result
+    
+    def _create_current_db_backup(self) -> Dict[str, Any]:
+        """Create a backup of the current database before restoration."""
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_name = f"pre_restore_backup_{timestamp}"
+            
+            result = self.create_full_backup(
+                include_media=False,
+                description=f"Automatic backup before restoration - {timestamp}"
+            )
+            
+            return {
+                'success': result['success'],
+                'backup_name': backup_name,
+                'error': ', '.join(result.get('errors', []))
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _restore_sqlite(self, db_file_path: str, db_config: Dict) -> Dict[str, Any]:
+        """Restore SQLite database."""
+        try:
+            current_db = db_config['NAME']
+            
+            # Handle compressed file
+            if db_file_path.endswith('.gz'):
+                with gzip.open(db_file_path, 'rb') as f_in:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.db') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                        temp_db_path = f_out.name
+            else:
+                temp_db_path = db_file_path
+            
+            # Close all database connections
+            from django.db import connections
+            connections.close_all()
+            
+            # Replace current database
+            shutil.copy2(temp_db_path, current_db)
+            
+            # Cleanup temporary file if created
+            if temp_db_path != db_file_path:
+                os.unlink(temp_db_path)
+            
+            return {
+                'success': True,
+                'restored_file': db_file_path,
+                'errors': []
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'restored_file': '',
+                'errors': [str(e)]
+            }
+    
+    def _restore_mysql(self, db_file_path: str, db_config: Dict) -> Dict[str, Any]:
+        """Restore MySQL database."""
+        try:
+            # Handle compressed file
+            if db_file_path.endswith('.gz'):
+                import gzip
+                with gzip.open(db_file_path, 'rt') as f:
+                    sql_content = f.read()
+                
+                # Write to temporary file
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sql') as temp_file:
+                    temp_file.write(sql_content)
+                    temp_sql_path = temp_file.name
+            else:
+                temp_sql_path = db_file_path
+            
+            # Close Django database connections
+            from django.db import connections
+            connections.close_all()
+            
+            cmd = [
+                'mysql',
+                f"--host={db_config.get('HOST', 'localhost')}",
+                f"--port={db_config.get('PORT', 3306)}",
+                f"--user={db_config['USER']}",
+                f"--password={db_config['PASSWORD']}",
+                db_config['NAME']
+            ]
+            
+            with open(temp_sql_path, 'r') as f:
+                subprocess.run(cmd, stdin=f, check=True, stderr=subprocess.PIPE)
+            
+            # Cleanup temporary file if created
+            if temp_sql_path != db_file_path:
+                os.unlink(temp_sql_path)
+            
+            return {
+                'success': True,
+                'restored_file': db_file_path,
+                'errors': []
+            }
+            
+        except subprocess.CalledProcessError as e:
+            return {
+                'success': False,
+                'restored_file': '',
+                'errors': [f"mysql restore failed: {e.stderr.decode() if e.stderr else str(e)}"]
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'restored_file': '',
+                'errors': [str(e)]
+            }
+    
+    def _restore_postgresql(self, db_file_path: str, db_config: Dict) -> Dict[str, Any]:
+        """Restore PostgreSQL database."""
+        try:
+            # Handle compressed file
+            if db_file_path.endswith('.gz'):
+                import gzip
+                with gzip.open(db_file_path, 'rt') as f:
+                    sql_content = f.read()
+                
+                # Write to temporary file
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sql') as temp_file:
+                    temp_file.write(sql_content)
+                    temp_sql_path = temp_file.name
+            else:
+                temp_sql_path = db_file_path
+            
+            # Close Django database connections
+            from django.db import connections
+            connections.close_all()
+            
+            env = os.environ.copy()
+            env['PGPASSWORD'] = db_config['PASSWORD']
+            
+            cmd = [
+                'psql',
+                f"--host={db_config.get('HOST', 'localhost')}",
+                f"--port={db_config.get('PORT', 5432)}",
+                f"--username={db_config['USER']}",
+                '--no-password',
+                f"--dbname={db_config['NAME']}",
+                f"--file={temp_sql_path}"
+            ]
+            
+            subprocess.run(cmd, check=True, stderr=subprocess.PIPE, env=env)
+            
+            # Cleanup temporary file if created
+            if temp_sql_path != db_file_path:
+                os.unlink(temp_sql_path)
+            
+            return {
+                'success': True,
+                'restored_file': db_file_path,
+                'errors': []
+            }
+            
+        except subprocess.CalledProcessError as e:
+            return {
+                'success': False,
+                'restored_file': '',
+                'errors': [f"psql restore failed: {e.stderr.decode() if e.stderr else str(e)}"]
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'restored_file': '',
+                'errors': [str(e)]
+            }
+    
+    def _restore_django_loaddata(self, db_file_path: str) -> Dict[str, Any]:
+        """Restore using Django's loaddata command."""
+        try:
+            # Handle compressed file
+            if db_file_path.endswith('.gz'):
+                import gzip
+                with gzip.open(db_file_path, 'rt') as f:
+                    json_content = f.read()
+                
+                # Write to temporary file
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+                    temp_file.write(json_content)
+                    temp_json_path = temp_file.name
+            else:
+                temp_json_path = db_file_path
+            
+            # Close Django database connections and flush
+            from django.db import connections
+            from django.core.management import call_command
+            connections.close_all()
+            
+            # Flush existing data and load backup
+            call_command('flush', '--noinput')
+            call_command('loaddata', temp_json_path)
+            
+            # Cleanup temporary file if created
+            if temp_json_path != db_file_path:
+                os.unlink(temp_json_path)
+            
+            return {
+                'success': True,
+                'restored_file': db_file_path,
+                'errors': []
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'restored_file': '',
+                'errors': [str(e)]
+            }
+    
+    def _restore_media_files(self, backup_path: str) -> Dict[str, Any]:
+        """Restore media files from backup."""
+        result = {
+            'success': True,
+            'errors': [],
+            'restored_count': 0,
+            'backup_created': False
+        }
+        
+        try:
+            media_backup_path = os.path.join(backup_path, 'media')
+            
+            if not os.path.exists(media_backup_path):
+                result['success'] = False
+                result['errors'].append("No media files found in backup")
+                return result
+            
+            media_root = settings.MEDIA_ROOT
+            
+            # Create backup of current media before restoration
+            if os.path.exists(media_root):
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                media_backup_dir = f"{media_root}_backup_{timestamp}"
+                shutil.copytree(media_root, media_backup_dir)
+                result['backup_created'] = True
+            
+            # Remove existing media directory
+            if os.path.exists(media_root):
+                shutil.rmtree(media_root)
+            
+            # Restore media files
+            shutil.copytree(media_backup_path, media_root)
+            
+            # Count restored files
+            file_count = 0
+            for root, dirs, files in os.walk(media_root):
+                file_count += len(files)
+            
+            result['restored_count'] = file_count
+            
+        except Exception as e:
+            logger.error(f"Media files restoration failed: {e}")
+            result['success'] = False
+            result['errors'].append(str(e))
+        
+        return result
+    
+    def _analyze_configuration_restore(self, backup_path: str) -> Dict[str, Any]:
+        """Analyze configuration files in backup (informational only)."""
+        result = {
+            'success': True,
+            'files_found': [],
+            'warnings': [],
+            'recommendations': []
+        }
+        
+        try:
+            config_path = os.path.join(backup_path, 'configuration')
+            
+            if not os.path.exists(config_path):
+                result['warnings'].append("No configuration backup found")
+                return result
+            
+            # List configuration files found
+            for file in os.listdir(config_path):
+                result['files_found'].append(file)
+            
+            # Add warnings about manual restoration
+            result['warnings'].extend([
+                "Configuration files require manual review and restoration",
+                "Check environment.json for environment variables",
+                "Review django_settings.json for configuration changes",
+                "Sensitive values have been redacted for security"
+            ])
+            
+            result['recommendations'].extend([
+                "Compare backup configuration with current settings",
+                "Update environment variables manually if needed",
+                "Restart application after configuration changes",
+                "Verify all settings before going to production"
+            ])
+            
+        except Exception as e:
+            logger.error(f"Configuration analysis failed: {e}")
+            result['success'] = False
+            result['warnings'].append(f"Configuration analysis failed: {str(e)}")
+        
+        return result
+    
+    def get_backup_restoration_info(self, backup_name: str) -> Dict[str, Any]:
+        """Get detailed information about what can be restored from a backup."""
+        backup_info = self._find_backup(backup_name)
+        
+        if not backup_info:
+            return {
+                'success': False,
+                'error': f"Backup '{backup_name}' not found"
+            }
+        
+        # Extract or examine backup to see what components are available
+        extraction_path = self._extract_backup(backup_info)
+        
+        if not extraction_path:
+            return {
+                'success': False,
+                'error': "Failed to examine backup contents"
+            }
+        
+        try:
+            components = {
+                'database': False,
+                'media': False,
+                'configuration': False
+            }
+            
+            component_details = {}
+            
+            # Check for database files
+            db_files = [f for f in os.listdir(extraction_path) 
+                       if f.startswith('database_') and 
+                       (f.endswith('.sql') or f.endswith('.db') or f.endswith('.json') or f.endswith('.gz'))]
+            
+            if db_files:
+                components['database'] = True
+                component_details['database'] = {
+                    'files': db_files,
+                    'primary_file': db_files[0]
+                }
+            
+            # Check for media directory
+            media_path = os.path.join(extraction_path, 'media')
+            if os.path.exists(media_path):
+                components['media'] = True
+                file_count = sum(len(files) for _, _, files in os.walk(media_path))
+                component_details['media'] = {
+                    'file_count': file_count,
+                    'path': 'media/'
+                }
+            
+            # Check for configuration
+            config_path = os.path.join(extraction_path, 'configuration')
+            if os.path.exists(config_path):
+                components['configuration'] = True
+                config_files = os.listdir(config_path)
+                component_details['configuration'] = {
+                    'files': config_files
+                }
+            
+            # Cleanup if temporary extraction
+            if extraction_path != backup_info['file_path']:
+                shutil.rmtree(extraction_path, ignore_errors=True)
+            
+            return {
+                'success': True,
+                'backup_info': backup_info,
+                'available_components': components,
+                'component_details': component_details,
+                'warnings': [
+                    "Database restoration will overwrite current data",
+                    "Media restoration will replace current files",
+                    "Configuration requires manual review"
+                ]
+            }
+            
+        except Exception as e:
+            if extraction_path != backup_info['file_path']:
+                shutil.rmtree(extraction_path, ignore_errors=True)
+            
+            return {
+                'success': False,
+                'error': f"Failed to analyze backup: {str(e)}"
+            }
+    
+    def run_scheduled_backups(self) -> Dict[str, Any]:
+        """
+        Execute all scheduled backups that are due to run.
+        
+        Returns:
+            Dictionary with results of all scheduled backup runs
+        """
+        from .models import BackupSchedule
+        
+        results = {
+            'total_schedules': 0,
+            'executed': 0,
+            'successful': 0,
+            'failed': 0,
+            'skipped': 0,
+            'schedule_results': [],
+            'errors': []
+        }
+        
+        try:
+            # Get all enabled backup schedules
+            schedules = BackupSchedule.objects.filter(enabled=True).exclude(frequency='disabled')
+            results['total_schedules'] = schedules.count()
+            
+            for schedule in schedules:
+                schedule_result = self._execute_scheduled_backup(schedule)
+                results['schedule_results'].append(schedule_result)
+                
+                if schedule_result['executed']:
+                    results['executed'] += 1
+                    if schedule_result['success']:
+                        results['successful'] += 1
+                    else:
+                        results['failed'] += 1
+                        results['errors'].extend(schedule_result.get('errors', []))
+                else:
+                    results['skipped'] += 1
+            
+            logger.info(f"Scheduled backup run completed: {results['successful']}/{results['executed']} successful")
+            
+        except Exception as e:
+            error_msg = f"Failed to run scheduled backups: {str(e)}"
+            logger.error(error_msg)
+            results['errors'].append(error_msg)
+        
+        return results
+    
+    def _execute_scheduled_backup(self, schedule, force_run: bool = False) -> Dict[str, Any]:
+        """
+        Execute a single scheduled backup.
+        
+        Args:
+            schedule: BackupSchedule instance
+            force_run: If True, bypass schedule timing checks
+            
+        Returns:
+            Dictionary with execution results
+        """
+        result = {
+            'schedule_id': schedule.id,
+            'schedule_name': schedule.name,
+            'executed': False,
+            'success': False,
+            'backup_name': '',
+            'errors': [],
+            'skipped_reason': ''
+        }
+        
+        try:
+            # Check if backup should run now (unless forced)
+            if not force_run and not schedule.should_run_now():
+                result['skipped_reason'] = 'Not scheduled to run at this time'
+                return result
+            
+            result['executed'] = True
+            
+            # Determine backup components based on schedule settings
+            description = f"Automated backup - {schedule.name} ({schedule.frequency})"
+            
+            # Create the backup with the components specified in the schedule
+            if schedule.include_database and schedule.include_media:
+                # Full backup with media
+                backup_result = self.create_full_backup(
+                    include_media=True,
+                    description=description
+                )
+            elif schedule.include_database:
+                # Database-only backup
+                backup_result = self.create_database_backup(description=description)
+            else:
+                # Fallback to database backup if no database is selected but media is
+                # (media-only backups aren't supported by this service)
+                backup_result = self.create_database_backup(description=description)
+            
+            if backup_result['success']:
+                result['success'] = True
+                result['backup_name'] = backup_result['backup_name']
+                
+                # Record successful run
+                schedule.record_run(
+                    success=True,
+                    backup_name=backup_result['backup_name']
+                )
+                
+                # Clean up old automated backups
+                self._cleanup_automated_backups(schedule)
+                
+                logger.info(f"Automated backup '{backup_result['backup_name']}' created successfully for schedule '{schedule.name}'")
+                
+            else:
+                result['success'] = False
+                result['errors'] = backup_result.get('errors', [])
+                
+                # Record failed run
+                error_msg = '; '.join(backup_result.get('errors', ['Unknown error']))
+                schedule.record_run(
+                    success=False,
+                    error_message=error_msg
+                )
+                
+                logger.error(f"Automated backup failed for schedule '{schedule.name}': {error_msg}")
+                logger.error(f"Backup result details: {backup_result}")
+                
+                # Send notification email if configured (but not for test runs)
+                if not force_run:
+                    self._send_backup_failure_notification(schedule, error_msg)
+                
+        except Exception as e:
+            error_msg = f"Failed to execute scheduled backup '{schedule.name}': {str(e)}"
+            result['errors'].append(error_msg)
+            logger.error(error_msg)
+            
+            # Record the exception
+            schedule.record_run(
+                success=False,
+                error_message=str(e)
+            )
+        
+        return result
+    
+    def _cleanup_automated_backups(self, schedule) -> None:
+        """
+        Clean up old automated backups based on schedule settings.
+        
+        Args:
+            schedule: BackupSchedule instance
+        """
+        try:
+            backups = self.list_backups()
+            
+            # Filter for automated backups from this schedule
+            automated_backups = []
+            schedule_pattern = f"Automated backup - {schedule.name}"
+            
+            for backup in backups:
+                if backup.get('description', '').startswith(schedule_pattern):
+                    backup['timestamp_obj'] = datetime.fromisoformat(
+                        backup['timestamp'].replace('Z', '+00:00')
+                    ).replace(tzinfo=None)
+                    automated_backups.append(backup)
+            
+            # Sort by timestamp (newest first)
+            automated_backups.sort(key=lambda x: x['timestamp_obj'], reverse=True)
+            
+            # Remove backups exceeding max count
+            if len(automated_backups) > schedule.max_backups_to_keep:
+                excess_backups = automated_backups[schedule.max_backups_to_keep:]
+                for backup in excess_backups:
+                    self._delete_backup_files(backup['backup_name'])
+                    logger.info(f"Deleted excess automated backup: {backup['backup_name']}")
+            
+            # Remove backups older than retention period
+            cutoff_date = datetime.now() - timedelta(days=schedule.retention_days)
+            for backup in automated_backups:
+                if backup['timestamp_obj'] < cutoff_date:
+                    self._delete_backup_files(backup['backup_name'])
+                    logger.info(f"Deleted expired automated backup: {backup['backup_name']}")
+                    
+        except Exception as e:
+            logger.error(f"Failed to cleanup automated backups for schedule '{schedule.name}': {str(e)}")
+    
+    def _send_backup_failure_notification(self, schedule, error_message: str) -> None:
+        """
+        Send email notification for backup failures.
+        
+        Args:
+            schedule: BackupSchedule instance
+            error_message: Error message to include
+        """
+        if not schedule.notification_email:
+            return
+        
+        try:
+            from django.core.mail import send_mail
+            from django.conf import settings
+            
+            subject = f"Backup Failure Alert - {schedule.name}"
+            message = f"""
+Automated backup '{schedule.name}' has failed.
+
+Schedule Details:
+- Name: {schedule.name}
+- Frequency: {schedule.frequency}
+- Last Success: {schedule.last_success or 'Never'}
+- Consecutive Failures: {schedule.consecutive_failures}
+
+Error Details:
+{error_message}
+
+Please check the backup system and resolve any issues.
+
+This is an automated message from the Aperture Booking backup system.
+            """.strip()
+            
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@localhost'),
+                recipient_list=[schedule.notification_email],
+                fail_silently=True
+            )
+            
+            logger.info(f"Backup failure notification sent to {schedule.notification_email}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send backup failure notification: {str(e)}")
+    
+    def get_backup_schedules_status(self) -> Dict[str, Any]:
+        """
+        Get status information for all backup schedules.
+        
+        Returns:
+            Dictionary with schedule status information
+        """
+        from .models import BackupSchedule
+        
+        try:
+            schedules = BackupSchedule.objects.all()
+            
+            status = {
+                'total_schedules': schedules.count(),
+                'enabled_schedules': schedules.filter(enabled=True).exclude(frequency='disabled').count(),
+                'healthy_schedules': 0,
+                'schedules': [],
+                'next_run': None
+            }
+            
+            next_run_times = []
+            
+            for schedule in schedules:
+                schedule_info = {
+                    'id': schedule.id,
+                    'name': schedule.name,
+                    'enabled': schedule.enabled,
+                    'frequency': schedule.frequency,
+                    'next_run': schedule.get_next_run_time(),
+                    'last_run': schedule.last_run,
+                    'last_success': schedule.last_success,
+                    'success_rate': schedule.success_rate,
+                    'is_healthy': schedule.is_healthy,
+                    'consecutive_failures': schedule.consecutive_failures
+                }
+                
+                if schedule.is_healthy:
+                    status['healthy_schedules'] += 1
+                
+                if schedule_info['next_run']:
+                    next_run_times.append(schedule_info['next_run'])
+                
+                status['schedules'].append(schedule_info)
+            
+            # Find the next overall run time
+            if next_run_times:
+                status['next_run'] = min(next_run_times)
+            
+            return status
+            
+        except Exception as e:
+            logger.error(f"Failed to get backup schedules status: {str(e)}")
+            return {
+                'error': str(e),
+                'total_schedules': 0,
+                'enabled_schedules': 0,
+                'healthy_schedules': 0,
+                'schedules': [],
+                'next_run': None
+            }
+    
+    def test_scheduled_backup(self, schedule_id: int) -> Dict[str, Any]:
+        """
+        Test a scheduled backup without waiting for the scheduled time.
+        
+        Args:
+            schedule_id: ID of the BackupSchedule to test
+            
+        Returns:
+            Dictionary with test results
+        """
+        from .models import BackupSchedule
+        
+        try:
+            schedule = BackupSchedule.objects.get(id=schedule_id)
+            
+            # Execute the backup with force flag
+            result = self._execute_scheduled_backup(schedule, force_run=True)
+            result['test_mode'] = True
+            
+            return result
+            
+        except BackupSchedule.DoesNotExist:
+            return {
+                'success': False,
+                'error': f"Backup schedule with ID {schedule_id} not found"
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f"Failed to test scheduled backup: {str(e)}"
+            }

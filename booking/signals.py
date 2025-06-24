@@ -17,7 +17,7 @@ https://aperture-booking.org/commercial
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth.models import User
-from .models import UserProfile, Booking, BookingHistory, Maintenance, NotificationPreference
+from .models import UserProfile, Booking, BookingHistory, Maintenance, NotificationPreference, BackupSchedule
 from .notifications import booking_notifications, maintenance_notifications
 
 
@@ -122,3 +122,38 @@ def create_default_notification_preferences(user):
         )
     
     NotificationPreference.objects.bulk_create(preferences_to_create, ignore_conflicts=True)
+
+
+@receiver(post_save, sender=BackupSchedule)
+def backup_schedule_updated(sender, instance, created, **kwargs):
+    """Update scheduler when backup schedule is created or updated."""
+    try:
+        from .scheduler import get_scheduler
+        
+        scheduler = get_scheduler()
+        if scheduler.started:
+            # Remove old job and add new one
+            scheduler.remove_schedule_job(instance.id)
+            if instance.enabled and instance.frequency != 'disabled':
+                scheduler.add_schedule_job(instance)
+                
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error updating backup schedule in scheduler: {e}")
+
+
+@receiver(post_delete, sender=BackupSchedule)
+def backup_schedule_deleted(sender, instance, **kwargs):
+    """Remove scheduled job when backup schedule is deleted."""
+    try:
+        from .scheduler import get_scheduler
+        
+        scheduler = get_scheduler()
+        if scheduler.started:
+            scheduler.remove_schedule_job(instance.id)
+            
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error removing backup schedule from scheduler: {e}")

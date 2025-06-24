@@ -30,7 +30,8 @@ from .models import (
     TrainingCourse, ResourceTrainingRequirement, UserTraining,
     ApprovalStatistics, MaintenanceVendor, MaintenanceDocument,
     MaintenanceAlert, MaintenanceAnalytics, EmailConfiguration,
-    ChecklistItem, ResourceChecklistItem, ChecklistResponse
+    ChecklistItem, ResourceChecklistItem, ChecklistResponse,
+    BackupSchedule, UpdateInfo, UpdateHistory
 )
 
 
@@ -1987,4 +1988,342 @@ class ResourceAdmin(admin.ModelAdmin):
         return obj.checklist_items.filter(is_active=True).count()
     
     checklist_items_count.short_description = 'Checklist Items'
+
+
+@admin.register(BackupSchedule)
+class BackupScheduleAdmin(admin.ModelAdmin):
+    """Admin interface for backup schedule management."""
+    
+    list_display = [
+        'name', 'enabled', 'frequency', 'backup_time', 
+        'last_success', 'success_rate_display', 'is_healthy_display',
+        'consecutive_failures'
+    ]
+    
+    list_filter = [
+        'enabled', 'frequency', 'include_database', 
+        'include_media', 'include_configuration'
+    ]
+    
+    search_fields = ['name', 'notification_email']
+    
+    readonly_fields = [
+        'last_run', 'last_success', 'last_backup_name', 
+        'consecutive_failures', 'total_runs', 'total_successes',
+        'success_rate_display', 'is_healthy_display', 'next_run_display',
+        'created_at', 'updated_at'
+    ]
+    
+    fieldsets = (
+        ('Basic Settings', {
+            'fields': ('name', 'enabled', 'frequency')
+        }),
+        ('Schedule Settings', {
+            'fields': ('backup_time', 'day_of_week', 'day_of_month'),
+            'description': 'Configure when backups should run'
+        }),
+        ('Backup Components', {
+            'fields': ('include_database', 'include_media', 'include_configuration'),
+            'description': 'Select which components to include in automated backups'
+        }),
+        ('Retention Settings', {
+            'fields': ('max_backups_to_keep', 'retention_days'),
+            'description': 'Configure how long to keep automated backups'
+        }),
+        ('Notifications', {
+            'fields': ('notification_email',),
+            'description': 'Email notifications for backup failures'
+        }),
+        ('Status Information', {
+            'fields': (
+                'next_run_display', 'last_run', 'last_success', 'last_backup_name',
+                'success_rate_display', 'is_healthy_display', 
+                'consecutive_failures', 'total_runs', 'total_successes'
+            ),
+            'description': 'Current status and statistics'
+        }),
+        ('Metadata', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    actions = ['enable_schedules', 'disable_schedules', 'test_backup_schedules']
+    
+    def success_rate_display(self, obj):
+        """Display success rate with color coding."""
+        rate = obj.success_rate
+        if rate >= 95:
+            color = 'green'
+        elif rate >= 80:
+            color = 'orange'
+        else:
+            color = 'red'
+        return f'<span style="color: {color}; font-weight: bold;">{rate}%</span>'
+    
+    success_rate_display.short_description = 'Success Rate'
+    success_rate_display.allow_tags = True
+    
+    def is_healthy_display(self, obj):
+        """Display health status with visual indicator."""
+        if obj.is_healthy:
+            return '<span style="color: green;">🟢 Healthy</span>'
+        else:
+            return '<span style="color: red;">🔴 Unhealthy</span>'
+    
+    is_healthy_display.short_description = 'Health'
+    is_healthy_display.allow_tags = True
+    
+    def next_run_display(self, obj):
+        """Display next scheduled run time."""
+        next_run = obj.get_next_run_time()
+        if next_run:
+            return next_run.strftime('%Y-%m-%d %H:%M:%S')
+        return 'Not scheduled'
+    
+    next_run_display.short_description = 'Next Run'
+    
+    def enable_schedules(self, request, queryset):
+        """Admin action to enable selected backup schedules."""
+        updated = queryset.update(enabled=True)
+        self.message_user(
+            request,
+            f'{updated} backup schedule(s) were successfully enabled.'
+        )
+    
+    enable_schedules.short_description = 'Enable selected backup schedules'
+    
+    def disable_schedules(self, request, queryset):
+        """Admin action to disable selected backup schedules."""
+        updated = queryset.update(enabled=False)
+        self.message_user(
+            request,
+            f'{updated} backup schedule(s) were successfully disabled.'
+        )
+    
+    disable_schedules.short_description = 'Disable selected backup schedules'
+    
+    def test_backup_schedules(self, request, queryset):
+        """Admin action to test selected backup schedules."""
+        from booking.backup_service import BackupService
+        
+        backup_service = BackupService()
+        successful = 0
+        failed = 0
+        
+        for schedule in queryset:
+            result = backup_service.test_scheduled_backup(schedule.id)
+            if result.get('success'):
+                successful += 1
+            else:
+                failed += 1
+        
+        if failed == 0:
+            self.message_user(
+                request,
+                f'All {successful} backup schedule(s) tested successfully.'
+            )
+        else:
+            self.message_user(
+                request,
+                f'Backup test completed: {successful} successful, {failed} failed.',
+                level='WARNING'
+            )
+    
+    test_backup_schedules.short_description = 'Test selected backup schedules'
+    
+    def save_model(self, request, obj, form, change):
+        """Set created_by field when creating new backup schedules."""
+        if not change:  # Creating new object
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(UpdateInfo)
+class UpdateInfoAdmin(admin.ModelAdmin):
+    """Admin interface for update information."""
+    
+    list_display = [
+        'current_version', 'latest_version', 'status', 'github_repo',
+        'is_update_available', 'auto_check_enabled', 'last_check'
+    ]
+    
+    list_filter = [
+        'status', 'auto_check_enabled', 'last_check'
+    ]
+    
+    search_fields = [
+        'current_version', 'latest_version', 'github_repo', 'error_message'
+    ]
+    
+    readonly_fields = [
+        'current_version', 'latest_version', 'status', 'is_update_available',
+        'last_check', 'download_progress', 'error_message', 'can_install_update',
+        'release_notes', 'created_at', 'updated_at'
+    ]
+    
+    fieldsets = [
+        ('Version Information', {
+            'fields': ('current_version', 'latest_version', 'is_update_available')
+        }),
+        ('Update Status', {
+            'fields': ('status', 'download_progress', 'can_install_update', 'error_message')
+        }),
+        ('Configuration', {
+            'fields': ('github_repo', 'auto_check_enabled')
+        }),
+        ('Release Information', {
+            'fields': ('release_notes',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('last_check', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    ]
+    
+    actions = ['check_for_updates', 'reset_update_status', 'enable_auto_check']
+    
+    def has_add_permission(self, request):
+        """Prevent manual creation of UpdateInfo (singleton pattern)."""
+        return not UpdateInfo.objects.exists()
+    
+    def has_delete_permission(self, request, obj=None):
+        """Prevent deletion of UpdateInfo."""
+        return False
+    
+    def check_for_updates(self, request, queryset):
+        """Check for updates for selected instances."""
+        from .update_service import UpdateService
+        
+        update_service = UpdateService()
+        results = []
+        
+        for update_info in queryset:
+            result = update_service.check_for_updates()
+            if result['success']:
+                if result.get('update_available'):
+                    results.append(f"Update available: {result['current_version']} -> {result['latest_version']}")
+                else:
+                    results.append(f"Up to date: {result['current_version']}")
+            else:
+                results.append(f"Check failed: {result['error']}")
+        
+        message = '; '.join(results)
+        self.message_user(request, f'Update check completed: {message}')
+    
+    check_for_updates.short_description = 'Check for updates'
+    
+    def reset_update_status(self, request, queryset):
+        """Reset update status to allow retry."""
+        updated = queryset.update(
+            status='up_to_date',
+            error_message='',
+            download_progress=0
+        )
+        self.message_user(request, f'Reset update status for {updated} instance(s).')
+    
+    reset_update_status.short_description = 'Reset update status'
+    
+    def enable_auto_check(self, request, queryset):
+        """Enable automatic update checking."""
+        updated = queryset.update(auto_check_enabled=True)
+        self.message_user(request, f'Enabled auto-check for {updated} instance(s).')
+    
+    enable_auto_check.short_description = 'Enable automatic update checking'
+
+
+@admin.register(UpdateHistory)
+class UpdateHistoryAdmin(admin.ModelAdmin):
+    """Admin interface for update history."""
+    
+    list_display = [
+        'from_version', 'to_version', 'result', 'started_at', 
+        'duration_display', 'backup_created'
+    ]
+    
+    list_filter = [
+        'result', 'backup_created', 'started_at'
+    ]
+    
+    search_fields = [
+        'from_version', 'to_version', 'error_message', 'backup_path'
+    ]
+    
+    readonly_fields = [
+        'from_version', 'to_version', 'result', 'started_at', 'completed_at',
+        'duration', 'backup_created', 'backup_path', 'error_message', 'created_at'
+    ]
+    
+    date_hierarchy = 'started_at'
+    
+    fieldsets = [
+        ('Update Information', {
+            'fields': ('from_version', 'to_version', 'result')
+        }),
+        ('Timing', {
+            'fields': ('started_at', 'completed_at', 'duration')
+        }),
+        ('Backup Information', {
+            'fields': ('backup_created', 'backup_path'),
+            'classes': ('collapse',)
+        }),
+        ('Error Information', {
+            'fields': ('error_message',),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        })
+    ]
+    
+    def has_add_permission(self, request):
+        """Prevent manual creation of update history."""
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        """Prevent modification of update history."""
+        return False
+    
+    def duration_display(self, obj):
+        """Display duration in a human-readable format."""
+        if obj.duration:
+            return str(obj.duration)
+        return '-'
+    
+    duration_display.short_description = 'Duration'
+    
+    actions = ['export_update_history']
+    
+    def export_update_history(self, request, queryset):
+        """Export update history to CSV."""
+        import csv
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="update_history.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'From Version', 'To Version', 'Result', 'Started At', 'Completed At',
+            'Duration', 'Backup Created', 'Backup Path', 'Error Message'
+        ])
+        
+        for update in queryset.order_by('-started_at'):
+            writer.writerow([
+                update.from_version,
+                update.to_version,
+                update.get_result_display(),
+                update.started_at.strftime('%Y-%m-%d %H:%M:%S') if update.started_at else '',
+                update.completed_at.strftime('%Y-%m-%d %H:%M:%S') if update.completed_at else '',
+                str(update.duration) if update.duration else '',
+                'Yes' if update.backup_created else 'No',
+                update.backup_path or '',
+                update.error_message or '',
+            ])
+        
+        return response
+    
+    export_update_history.short_description = 'Export update history to CSV'
 

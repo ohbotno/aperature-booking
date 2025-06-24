@@ -1,0 +1,50 @@
+[Unit]
+Description=Aperture Booking Gunicorn daemon
+Requires=aperture-booking.socket
+After=network.target
+
+[Service]
+Type=notify
+# The specific user that our service will run as
+User=aperture-booking
+Group=aperture-booking
+# Another option for an unprivileged user
+# User=nobody
+# Group=nogroup
+# The location of our Django project
+WorkingDirectory=/opt/aperture-booking
+# The location of the Gunicorn executable (inside virtual environment)
+ExecStart=/opt/aperture-booking/venv/bin/gunicorn \
+          --access-logfile - \
+          --workers 3 \
+          --bind unix:/var/run/aperture-booking/gunicorn.sock \
+          --timeout 120 \
+          --max-requests 1000 \
+          --max-requests-jitter 100 \
+          --preload \
+          --user aperture-booking \
+          --group aperture-booking \
+          aperture_booking.wsgi:application
+
+# Restart service if it fails
+Restart=on-failure
+RestartSec=5
+
+# Environment variables
+Environment=DJANGO_SETTINGS_MODULE=aperture_booking.settings_production
+Environment=PYTHONPATH=/opt/aperture-booking
+Environment=PYTHONUNBUFFERED=1
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aperture-booking/media /opt/aperture-booking/logs /opt/aperture-booking/backups /var/run/aperture-booking
+
+# Process limits
+LimitNOFILE=65536
+LimitNPROC=32768
+
+[Install]
+WantedBy=multi-user.target

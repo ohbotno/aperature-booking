@@ -169,5 +169,13 @@ urlpatterns = [
     path('site-admin/backup/create/', views.site_admin_backup_create_ajax, name='site_admin_backup_create_ajax'),
     path('site-admin/backup/status/', views.site_admin_backup_status_ajax, name='site_admin_backup_status_ajax'),
     path('site-admin/backup/download/<str:backup_name>/', views.site_admin_backup_download_view, name='site_admin_backup_download'),
+    path('site-admin/backup/restore/<str:backup_name>/', views.site_admin_backup_restore_view, name='site_admin_backup_restore'),
+    path('site-admin/backup/restore-info/<str:backup_name>/', views.site_admin_backup_restore_info_ajax, name='site_admin_backup_restore_info_ajax'),
+    path('site-admin/backup/restore-execute/', views.site_admin_backup_restore_ajax, name='site_admin_backup_restore_ajax'),
+    path('site-admin/backup/automation/', views.site_admin_backup_automation_view, name='site_admin_backup_automation'),
+    path('site-admin/backup/automation/ajax/', views.site_admin_backup_automation_ajax, name='site_admin_backup_automation_ajax'),
+    path('site-admin/backup/schedule/<int:schedule_id>/', views.site_admin_backup_schedule_detail_ajax, name='site_admin_backup_schedule_detail_ajax'),
+    path('site-admin/updates/', views.site_admin_updates_view, name='site_admin_updates'),
+    path('site-admin/updates/ajax/', views.site_admin_updates_ajax_view, name='site_admin_updates_ajax'),
     
 ]
