@@ -81,3 +81,7 @@ backups/
 # Documentation files (keep local, exclude from git)
 CLAUDE.md
 PROJECT.md
+TODO.md
+
+# Development files (keep local, exclude from git)
+debug_urls.py
