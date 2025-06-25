@@ -79,3 +79,6 @@ coverage.xml
 CLAUDE.md
 PROJECT.md
 TODO.md
+
+# Backup files (keep local, exclude from git)
+backups/
