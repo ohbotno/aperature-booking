@@ -54,7 +54,6 @@ This branch contains comprehensive documentation for the Aperture Booking labora
 
 The following project files are maintained here for reference:
 - `PROJECT.md` - Complete project specification
-- `TODO.md` - Development roadmap and task tracking
 - `LICENSING.md` - Dual licensing information
 - `COMMERCIAL.md` - Commercial licensing details
 
