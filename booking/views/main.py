@@ -28,32 +28,32 @@ from django.db.models import Q, Count
 from datetime import datetime, timedelta
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
-from .models import (
+from ..models import (
     AboutPage, UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, 
     PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, 
     Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest,
     ResourceResponsible, RiskAssessment, UserRiskAssessment, TrainingCourse, 
     ResourceTrainingRequirement, UserTraining
 )
-from .forms import (
+from ..forms import (
     UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, 
     BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, 
     SaveAsTemplateForm, AccessRequestForm, AccessRequestReviewForm, RiskAssessmentForm, 
     UserRiskAssessmentForm, TrainingCourseForm, UserTrainingEnrollForm, ResourceResponsibleForm,
     ResourceForm, AboutPageEditForm
 )
-from .recurring import RecurringBookingGenerator, RecurringBookingManager
-from .conflicts import ConflictDetector, ConflictResolver, ConflictManager
-from .serializers import (
+from ..recurring import RecurringBookingGenerator, RecurringBookingManager
+from ..conflicts import ConflictDetector, ConflictResolver, ConflictManager
+from booking.serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
     ApprovalRuleSerializer, MaintenanceSerializer, WaitingListEntrySerializer,
     ResourceResponsibleSerializer, RiskAssessmentSerializer, UserRiskAssessmentSerializer,
     TrainingCourseSerializer, ResourceTrainingRequirementSerializer, UserTrainingSerializer,
     AccessRequestDetailSerializer
 )
-# from .notifications import notification_service  # TODO: Implement notification service
-# from .waiting_list import waiting_list_service  # TODO: Implement waiting list service  
-# from .checkin_service import checkin_service  # TODO: Implement checkin service
+# from booking.notifications import notification_service  # TODO: Implement notification service
+# from booking.waiting_list import waiting_list_service  # TODO: Implement waiting list service  
+# from booking.checkin_service import checkin_service  # TODO: Implement checkin service
 
 
 class IsOwnerOrManagerPermission(permissions.BasePermission):
@@ -383,7 +383,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking.save()
         
         # Create booking history entry
-        from .models import BookingHistory
+        from booking.models import BookingHistory
         BookingHistory.objects.create(
             booking=booking,
             user=request.user,
@@ -695,7 +695,7 @@ def register_view(request):
             user = form.save()
             
             # Get the verification token for development mode
-            from .models import EmailVerificationToken
+            from booking.models import EmailVerificationToken
             from django.conf import settings
             token = EmailVerificationToken.objects.filter(user=user, is_used=False).first()
             
@@ -872,7 +872,7 @@ def create_booking_view(request):
                     conflicts = form.get_conflicts()
                     
                     # Process each conflicting booking
-                    from .notifications import BookingNotifications
+                    from booking.notifications import BookingNotifications
                     notification_service = BookingNotifications()
                     
                     for conflicting_booking in conflicts:
@@ -1241,7 +1241,7 @@ def bulk_resolve_conflicts_view(request):
                 try:
                     booking1 = Booking.objects.get(pk=conflict_dict['booking1']['id'])
                     booking2 = Booking.objects.get(pk=conflict_dict['booking2']['id'])
-                    from .conflicts import BookingConflict
+                    from ..conflicts import BookingConflict
                     conflict_obj = BookingConflict(booking1, booking2)
                     all_conflicts.append(conflict_obj)
                 except Booking.DoesNotExist:
@@ -1282,7 +1282,7 @@ def bulk_resolve_conflicts_view(request):
 @login_required
 def notifications_list(request):
     """Display user's notifications."""
-    from .models import Notification
+    from booking.models import Notification
     
     # Get user's notifications, ordered by most recent first
     notifications = Notification.objects.filter(user=request.user).order_by('-created_at')[:50]
@@ -1829,7 +1829,7 @@ def request_resource_access_view(request, resource_id):
                     
                     # Send notifications
                     try:
-                        from .notifications import training_request_notifications
+                        from booking.notifications import training_request_notifications
                         training_request_notifications.training_request_submitted(training_request)
                     except Exception as e:
                         import logging
@@ -1853,7 +1853,7 @@ def request_resource_access_view(request, resource_id):
         
         # Send notifications
         try:
-            from .notifications import access_request_notifications
+            from booking.notifications import access_request_notifications
             access_request_notifications.access_request_submitted(access_request)
         except Exception as e:
             import logging
@@ -1870,7 +1870,7 @@ def request_resource_access_view(request, resource_id):
 @login_required
 def notification_preferences_view(request):
     """Notification preferences management view."""
-    from .models import NotificationPreference
+    from booking.models import NotificationPreference
     
     # Get all notification types
     notification_types = NotificationPreference.NOTIFICATION_TYPES
@@ -1923,7 +1923,7 @@ def notification_preferences_view(request):
         }
     
     # Add default values for missing preferences
-    from .notifications import notification_service
+    from booking.notifications import notification_service
     for notification_type, _ in notification_types:
         for delivery_method, _ in delivery_methods:
             key = f"{notification_type}_{delivery_method}"
@@ -3116,12 +3116,12 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
-from .serializers import (
+from booking.serializers import (
     ResourceResponsibleSerializer, RiskAssessmentSerializer, UserRiskAssessmentSerializer,
     TrainingCourseSerializer, ResourceTrainingRequirementSerializer, UserTrainingSerializer,
     AccessRequestDetailSerializer
 )
-from .models import (
+from ..models import (
     ResourceResponsible, RiskAssessment, UserRiskAssessment, TrainingCourse,
     ResourceTrainingRequirement, UserTraining, AccessRequest
 )
@@ -4151,7 +4151,7 @@ def is_lab_admin(user):
 @user_passes_test(is_lab_admin)
 def approval_statistics_view(request):
     """User-friendly approval statistics dashboard."""
-    from .models import ApprovalStatistics, AccessRequest, TrainingRequest
+    from booking.models import ApprovalStatistics, AccessRequest, TrainingRequest
     from django.db.models import Avg, Sum, Count
     from datetime import datetime, timedelta
     import json
@@ -4362,7 +4362,7 @@ def approval_statistics_view(request):
 @login_required
 def approval_rules_view(request):
     """User-friendly approval rules management interface."""
-    from .models import ApprovalRule
+    from booking.models import ApprovalRule
     import json
     
     # Only allow technicians and sysadmins to manage rules
@@ -4516,7 +4516,7 @@ def approval_rule_toggle_view(request, rule_id):
 @user_passes_test(is_lab_admin)
 def lab_admin_dashboard_view(request):
     """Lab Admin dashboard with overview of pending tasks."""
-    from .models import AccessRequest, TrainingRequest, UserTraining, UserProfile
+    from booking.models import AccessRequest, TrainingRequest, UserTraining, UserProfile
     from django.utils import timezone
     from datetime import timedelta
     
@@ -4561,7 +4561,7 @@ def lab_admin_dashboard_view(request):
 @user_passes_test(is_lab_admin)
 def lab_admin_access_requests_view(request):
     """Manage access requests."""
-    from .models import AccessRequest
+    from booking.models import AccessRequest
     
     # Handle status updates
     if request.method == 'POST':
@@ -4618,7 +4618,7 @@ def lab_admin_access_requests_view(request):
 @user_passes_test(is_lab_admin)
 def lab_admin_training_view(request):
     """Manage training requests and sessions."""
-    from .models import TrainingRequest, UserTraining, TrainingCourse
+    from booking.models import TrainingRequest, UserTraining, TrainingCourse
     
     # Handle training request approval
     if request.method == 'POST':
@@ -4669,7 +4669,7 @@ def lab_admin_training_view(request):
 @user_passes_test(is_lab_admin)
 def lab_admin_users_view(request):
     """Manage user profiles and access."""
-    from .models import UserProfile, ResourceAccess
+    from booking.models import UserProfile, ResourceAccess
     
     # Get users
     users = User.objects.select_related('userprofile').order_by('username')
@@ -4711,7 +4711,7 @@ def lab_admin_users_view(request):
 @user_passes_test(is_lab_admin)
 def lab_admin_resources_view(request):
     """Manage resources - list, add, edit, delete."""
-    from .models import Resource
+    from booking.models import Resource
     
     # Get resources
     resources = Resource.objects.all().order_by('name')
@@ -4759,8 +4759,8 @@ def lab_admin_resources_view(request):
 @user_passes_test(is_lab_admin)
 def lab_admin_add_resource_view(request):
     """Add a new resource."""
-    from .models import Resource
-    from .forms import ResourceForm
+    from booking.models import Resource
+    from ..forms import ResourceForm
     
     if request.method == 'POST':
         form = ResourceForm(request.POST, request.FILES)
@@ -4786,8 +4786,8 @@ def lab_admin_add_resource_view(request):
 @user_passes_test(is_lab_admin)
 def lab_admin_edit_resource_view(request, resource_id):
     """Edit an existing resource."""
-    from .models import Resource
-    from .forms import ResourceForm
+    from booking.models import Resource
+    from ..forms import ResourceForm
     
     resource = get_object_or_404(Resource, id=resource_id)
     
@@ -4816,7 +4816,7 @@ def lab_admin_edit_resource_view(request, resource_id):
 @user_passes_test(is_lab_admin)
 def lab_admin_delete_resource_view(request, resource_id):
     """Delete a resource with confirmation."""
-    from .models import Resource
+    from booking.models import Resource
     
     resource = get_object_or_404(Resource, id=resource_id)
     
@@ -4851,8 +4851,8 @@ def lab_admin_resource_checklist_view(request, resource_id):
     """Manage checklist items for a resource."""
     from django.shortcuts import render, redirect, get_object_or_404
     from django.contrib import messages
-    from .models import Resource, ChecklistItem, ResourceChecklistItem
-    from .forms import ResourceChecklistConfigForm
+    from booking.models import Resource, ChecklistItem, ResourceChecklistItem
+    from ..forms import ResourceChecklistConfigForm
     from django.utils import timezone
     
     resource = get_object_or_404(Resource, id=resource_id)
@@ -5100,8 +5100,8 @@ def lab_admin_delete_maintenance_view(request, maintenance_id):
 @login_required
 def download_booking_invitation(request, booking_id):
     """Download a calendar invitation for a specific booking."""
-    from .calendar_sync import ICSCalendarGenerator, create_ics_response
-    from .models import Booking
+    from booking.calendar_sync import ICSCalendarGenerator, create_ics_response
+    from booking.models import Booking
     
     booking = get_object_or_404(Booking, id=booking_id)
     
@@ -5127,8 +5127,8 @@ def download_booking_invitation(request, booking_id):
 @user_passes_test(is_lab_admin)
 def download_maintenance_invitation(request, maintenance_id):
     """Download a calendar invitation for a specific maintenance period."""
-    from .calendar_sync import ICSCalendarGenerator, create_ics_response
-    from .models import Maintenance
+    from booking.calendar_sync import ICSCalendarGenerator, create_ics_response
+    from booking.models import Maintenance
     
     maintenance = get_object_or_404(Maintenance, id=maintenance_id)
     
@@ -5149,7 +5149,7 @@ def lab_admin_inductions_view(request):
     """Manage lab induction status for users."""
     from django.db.models import Q
     from django.core.paginator import Paginator
-    from .models import UserProfile
+    from booking.models import UserProfile
     from django.contrib.auth.models import User
     
     # Get filter parameters
@@ -5190,7 +5190,7 @@ def lab_admin_inductions_view(request):
                 messages.success(request, f'Successfully marked {user.get_full_name() or user.username} as inducted.')
                 
                 # Send notification to user
-                from .models import Notification
+                from booking.models import Notification
                 Notification.objects.create(
                     user=user,
                     title='Lab Induction Completed',
@@ -5240,7 +5240,7 @@ def lab_admin_inductions_view(request):
 @login_required
 def export_my_calendar_view(request):
     """Export user's bookings as ICS file for download."""
-    from .calendar_sync import ICSCalendarGenerator, create_ics_response
+    from booking.calendar_sync import ICSCalendarGenerator, create_ics_response
     
     # Get parameters
     include_past = request.GET.get('include_past', 'false').lower() == 'true'
@@ -5264,7 +5264,7 @@ def export_my_calendar_view(request):
 @login_required
 def my_calendar_feed_view(request, token):
     """Provide ICS calendar feed for subscription (with token authentication)."""
-    from .calendar_sync import ICSCalendarGenerator, CalendarTokenGenerator, create_ics_feed_response
+    from booking.calendar_sync import ICSCalendarGenerator, CalendarTokenGenerator, create_ics_feed_response
     
     # Verify token
     if not CalendarTokenGenerator.verify_user_token(request.user, token):
@@ -5287,7 +5287,7 @@ def my_calendar_feed_view(request, token):
 
 def public_calendar_feed_view(request, token):
     """Provide public ICS calendar feed for subscription (token-based, no login required)."""
-    from .calendar_sync import ICSCalendarGenerator, CalendarTokenGenerator, create_ics_feed_response
+    from booking.calendar_sync import ICSCalendarGenerator, CalendarTokenGenerator, create_ics_feed_response
     from django.contrib.auth.models import User
     
     # Find user by token
@@ -5318,7 +5318,7 @@ def public_calendar_feed_view(request, token):
 @login_required
 def export_resource_calendar_view(request, resource_id):
     """Export resource bookings as ICS file for download."""
-    from .calendar_sync import ICSCalendarGenerator, create_ics_response
+    from booking.calendar_sync import ICSCalendarGenerator, create_ics_response
     
     resource = get_object_or_404(Resource, id=resource_id)
     
@@ -5347,7 +5347,7 @@ def export_resource_calendar_view(request, resource_id):
 @login_required
 def calendar_sync_settings_view(request):
     """Display calendar synchronization settings and subscription URLs."""
-    from .calendar_sync import CalendarTokenGenerator
+    from booking.calendar_sync import CalendarTokenGenerator
     
     # Generate user's calendar token
     user_token = CalendarTokenGenerator.generate_user_token(request.user)
@@ -5493,8 +5493,8 @@ def site_admin_dashboard_view(request):
     
     # Update Information
     try:
-        from .models import UpdateInfo
-        from .update_service import UpdateService
+        from booking.models import UpdateInfo
+        from booking.update_service import UpdateService
         
         update_info = UpdateInfo.objects.first()
         if not update_info:
@@ -5505,6 +5505,50 @@ def site_admin_dashboard_view(request):
     except Exception:
         # If update system isn't available, create a basic placeholder
         update_info = None
+    
+    # License Information
+    try:
+        from ..services.licensing import license_manager
+        from ..models import LicenseConfiguration, LicenseValidationLog
+        
+        license_info = license_manager.get_license_info()
+        license_config = license_manager.get_current_license()
+        
+        # Recent validation attempts
+        recent_validations = 0
+        validation_failures = 0
+        if license_config:
+            recent_validations = LicenseValidationLog.objects.filter(
+                license=license_config,
+                created_at__gte=thirty_days_ago
+            ).count()
+            validation_failures = LicenseValidationLog.objects.filter(
+                license=license_config,
+                result__in=['expired', 'invalid_key', 'domain_mismatch', 'usage_exceeded'],
+                created_at__gte=thirty_days_ago
+            ).count()
+        
+        license_stats = {
+            'license_type': license_info.get('type', 'open_source'),
+            'is_valid': license_info.get('is_valid', True),
+            'organization': license_info.get('organization', 'Open Source User'),
+            'expires_at': license_info.get('expires_at'),
+            'recent_validations': recent_validations,
+            'validation_failures': validation_failures,
+            'enabled_features': license_manager.get_enabled_features(),
+        }
+        
+    except Exception as e:
+        # Fallback to open source defaults
+        license_stats = {
+            'license_type': 'open_source',
+            'is_valid': True,
+            'organization': 'Open Source User',
+            'expires_at': None,
+            'recent_validations': 0,
+            'validation_failures': 0,
+            'enabled_features': {},
+        }
     
     context = {
         'system_info': system_info,
@@ -5523,9 +5567,304 @@ def site_admin_dashboard_view(request):
         },
         'user_roles': user_roles,
         'update_info': update_info,
+        'license_stats': license_stats,
     }
     
     return render(request, 'booking/site_admin_dashboard.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_license_management_view(request):
+    """Site admin license management page."""
+    try:
+        from ..services.licensing import license_manager
+        from ..models import LicenseConfiguration, BrandingConfiguration, LicenseValidationLog
+        
+        # Get current license information
+        license_info = license_manager.get_license_info()
+        license_config = license_manager.get_current_license()
+        
+        # Get branding configuration
+        branding_config = None
+        if license_config:
+            try:
+                branding_config = license_config.branding
+            except BrandingConfiguration.DoesNotExist:
+                pass
+        
+        # Get recent validation logs
+        validation_logs = []
+        if license_config:
+            validation_logs = LicenseValidationLog.objects.filter(
+                license=license_config
+            ).order_by('-created_at')[:10]
+        
+        # Get all license configurations (for enterprise setups)
+        all_licenses = LicenseConfiguration.objects.all().order_by('-created_at')
+        
+        context = {
+            'license_info': license_info,
+            'license_config': license_config,
+            'branding_config': branding_config,
+            'validation_logs': validation_logs,
+            'all_licenses': all_licenses,
+            'enabled_features': license_manager.get_enabled_features(),
+        }
+        
+    except Exception as e:
+        context = {
+            'error': f"Error loading license information: {e}",
+            'license_info': {'type': 'open_source', 'is_valid': True},
+            'enabled_features': {},
+        }
+    
+    return render(request, 'booking/site_admin_license_management.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_branding_config_view(request):
+    """Site admin branding configuration page."""
+    try:
+        from ..services.licensing import license_manager, get_branding_config
+        from ..models import LicenseConfiguration, BrandingConfiguration
+        from ..views.licensing import BrandingConfigurationForm
+        
+        license_config = license_manager.get_current_license()
+        
+        if not license_config:
+            messages.error(request, "No active license found. Please activate a license first.")
+            return redirect('booking:site_admin_license_management')
+        
+        # Check if branding is enabled
+        enabled_features = license_manager.get_enabled_features()
+        if not enabled_features.get('custom_branding', False):
+            messages.warning(request, "Custom branding is not available in your current license.")
+            return redirect('booking:site_admin_license_management')
+        
+        # Get or create branding configuration
+        try:
+            branding_config = license_config.branding
+        except BrandingConfiguration.DoesNotExist:
+            branding_config = BrandingConfiguration(license=license_config)
+        
+        if request.method == 'POST':
+            form = BrandingConfigurationForm(request.POST, request.FILES, instance=branding_config)
+            if form.is_valid():
+                form.save()
+                license_manager.clear_cache()
+                messages.success(request, "Branding configuration updated successfully")
+                return redirect('booking:site_admin_branding_config')
+        else:
+            form = BrandingConfigurationForm(instance=branding_config)
+        
+        context = {
+            'form': form,
+            'license_config': license_config,
+            'branding_config': branding_config,
+            'current_branding': get_branding_config(),
+        }
+        
+    except Exception as e:
+        messages.error(request, f"Error loading branding configuration: {e}")
+        return redirect('booking:site_admin_dashboard')
+    
+    return render(request, 'booking/site_admin_branding_config.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_license_activate_view(request):
+    """Site admin license activation page."""
+    try:
+        from ..views.licensing import LicenseActivationForm
+        from ..services.licensing import license_manager
+        from ..models import LicenseConfiguration, BrandingConfiguration
+        from django.db import transaction
+        
+        if request.method == 'POST':
+            form = LicenseActivationForm(request.POST)
+            if form.is_valid():
+                try:
+                    with transaction.atomic():
+                        # Deactivate any existing licenses
+                        LicenseConfiguration.objects.filter(is_active=True).update(is_active=False)
+                        
+                        # Create new license configuration
+                        license_config = LicenseConfiguration.objects.create(
+                            license_key=form.cleaned_data['license_key'],
+                            license_type='basic_commercial',  # Default for manual activation
+                            organization_name=form.cleaned_data['organization_name'],
+                            organization_slug=form.cleaned_data['organization_name'].lower().replace(' ', '-'),
+                            contact_email=form.cleaned_data['contact_email'],
+                            is_active=True
+                        )
+                        
+                        # Create default branding configuration
+                        BrandingConfiguration.objects.create(
+                            license=license_config,
+                            company_name=form.cleaned_data['organization_name'],
+                            email_from_name=form.cleaned_data['organization_name'],
+                        )
+                        
+                        # Clear license cache
+                        license_manager.clear_cache()
+                        
+                        messages.success(request, f"License activated successfully for {license_config.organization_name}")
+                        return redirect('booking:site_admin_license_management')
+                        
+                except Exception as e:
+                    messages.error(request, f"License activation failed: {e}")
+        else:
+            form = LicenseActivationForm()
+        
+        context = {
+            'form': form,
+        }
+        
+    except Exception as e:
+        messages.error(request, f"Error loading license activation: {e}")
+        return redirect('booking:site_admin_dashboard')
+    
+    return render(request, 'booking/site_admin_license_activate.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_license_validation_logs_view(request):
+    """Site admin license validation logs page."""
+    try:
+        from ..services.licensing import license_manager
+        from ..models import LicenseValidationLog
+        from django.core.paginator import Paginator
+        
+        license_config = license_manager.get_current_license()
+        
+        if not license_config:
+            messages.error(request, "No active license found.")
+            return redirect('booking:site_admin_license_management')
+        
+        # Get validation logs with pagination
+        logs = LicenseValidationLog.objects.filter(
+            license=license_config
+        ).order_by('-created_at')
+        
+        paginator = Paginator(logs, 50)
+        page_number = request.GET.get('page')
+        page_obj = paginator.get_page(page_number)
+        
+        # Summary statistics
+        total_validations = logs.count()
+        successful_validations = logs.filter(result='success').count()
+        failed_validations = logs.exclude(result='success').count()
+        
+        context = {
+            'license_config': license_config,
+            'page_obj': page_obj,
+            'logs': page_obj,
+            'total_validations': total_validations,
+            'successful_validations': successful_validations,
+            'failed_validations': failed_validations,
+        }
+        
+    except Exception as e:
+        messages.error(request, f"Error loading validation logs: {e}")
+        return redirect('booking:site_admin_dashboard')
+    
+    return render(request, 'booking/site_admin_license_logs.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_license_validate_ajax(request):
+    """AJAX endpoint for manual license validation."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
+    try:
+        from ..services.licensing import license_manager
+        
+        is_valid, error_msg = license_manager.validate_license(force_remote=True)
+        
+        return JsonResponse({
+            'success': True,
+            'valid': is_valid,
+            'message': 'License validation successful' if is_valid else error_msg,
+            'license_info': license_manager.get_license_info()
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_license_export_view(request):
+    """Export license information and validation logs to CSV."""
+    try:
+        from ..services.licensing import license_manager
+        from ..models import LicenseValidationLog
+        import csv
+        from django.http import HttpResponse
+        
+        license_config = license_manager.get_current_license()
+        
+        if not license_config:
+            messages.error(request, "No active license found.")
+            return redirect('booking:site_admin_license_management')
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="license_export_{license_config.organization_slug}.csv"'
+        
+        writer = csv.writer(response)
+        
+        # License Information Header
+        writer.writerow(['License Information'])
+        writer.writerow(['Organization', license_config.organization_name])
+        writer.writerow(['License Type', license_config.get_license_type_display()])
+        writer.writerow(['License Key', license_config.license_key])
+        writer.writerow(['Contact Email', license_config.contact_email])
+        writer.writerow(['Active', 'Yes' if license_config.is_active else 'No'])
+        writer.writerow(['Expires At', license_config.expires_at.strftime('%Y-%m-%d') if license_config.expires_at else 'Never'])
+        writer.writerow(['Support Expires At', license_config.support_expires_at.strftime('%Y-%m-%d') if license_config.support_expires_at else 'Never'])
+        writer.writerow(['Max Users', license_config.max_users or 'Unlimited'])
+        writer.writerow(['Max Resources', license_config.max_resources or 'Unlimited'])
+        writer.writerow(['Last Validation', license_config.last_validation.strftime('%Y-%m-%d %H:%M:%S') if license_config.last_validation else 'Never'])
+        writer.writerow(['Validation Failures', license_config.validation_failures])
+        writer.writerow([])  # Empty row
+        
+        # Enabled Features
+        writer.writerow(['Enabled Features'])
+        enabled_features = license_manager.get_enabled_features()
+        for feature, enabled in enabled_features.items():
+            writer.writerow([feature.replace('_', ' ').title(), 'Yes' if enabled else 'No'])
+        writer.writerow([])  # Empty row
+        
+        # Validation Logs Header
+        writer.writerow(['Validation Logs'])
+        writer.writerow([
+            'Date/Time', 'Validation Type', 'Result', 'Domain Checked', 
+            'Response Time (seconds)', 'Error Message'
+        ])
+        
+        # Export recent validation logs (last 100)
+        logs = LicenseValidationLog.objects.filter(
+            license=license_config
+        ).order_by('-created_at')[:100]
+        
+        for log in logs:
+            writer.writerow([
+                log.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                log.get_validation_type_display(),
+                log.get_result_display(),
+                log.domain_checked or '',
+                f"{log.response_time:.3f}" if log.response_time else '',
+                log.error_message or '',
+            ])
+        
+        return response
+        
+    except Exception as e:
+        messages.error(request, f"Error exporting license information: {e}")
+        return redirect('booking:site_admin_license_management')
 
 
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
@@ -6216,7 +6555,7 @@ Aperture Booking System
     
     # Test notification system integration
     try:
-        from .notifications import NotificationService
+        from booking.notifications import NotificationService
         
         notification_service = NotificationService()
         
@@ -6306,8 +6645,8 @@ def site_admin_email_config_view(request):
     from django.shortcuts import render, redirect, get_object_or_404
     from django.contrib import messages
     from django.http import JsonResponse
-    from .models import EmailConfiguration
-    from .forms import EmailConfigurationForm, EmailConfigurationTestForm
+    from booking.models import EmailConfiguration
+    from ..forms import EmailConfigurationForm, EmailConfigurationTestForm
     
     # Get all email configurations
     configurations = EmailConfiguration.objects.all().order_by('-is_active', '-updated_at')
@@ -6406,8 +6745,8 @@ def site_admin_email_config_create_view(request):
     """Create new email configuration."""
     from django.shortcuts import render, redirect
     from django.contrib import messages
-    from .models import EmailConfiguration
-    from .forms import EmailConfigurationForm
+    from booking.models import EmailConfiguration
+    from ..forms import EmailConfigurationForm
     
     if request.method == 'POST':
         form = EmailConfigurationForm(request.POST)
@@ -6445,8 +6784,8 @@ def site_admin_email_config_edit_view(request, config_id):
     """Edit existing email configuration."""
     from django.shortcuts import render, redirect, get_object_or_404
     from django.contrib import messages
-    from .models import EmailConfiguration
-    from .forms import EmailConfigurationForm
+    from booking.models import EmailConfiguration
+    from ..forms import EmailConfigurationForm
     
     config = get_object_or_404(EmailConfiguration, id=config_id)
     
@@ -6473,7 +6812,7 @@ def site_admin_email_config_edit_view(request, config_id):
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
 def site_admin_backup_management_view(request):
     """Backup management interface."""
-    from .backup_service import BackupService
+    from booking.backup_service import BackupService
     import json
     
     backup_service = BackupService()
@@ -6527,7 +6866,7 @@ def site_admin_backup_management_view(request):
         
         elif action == 'create_schedule':
             try:
-                from .models import BackupSchedule
+                from booking.models import BackupSchedule
                 schedule = BackupSchedule(
                     name=request.POST.get('name', 'Automated Backup'),
                     enabled=request.POST.get('enabled') == 'on',
@@ -6553,7 +6892,7 @@ def site_admin_backup_management_view(request):
         elif action == 'update_schedule':
             schedule_id = request.POST.get('schedule_id')
             try:
-                from .models import BackupSchedule
+                from booking.models import BackupSchedule
                 schedule = BackupSchedule.objects.get(id=schedule_id)
                 schedule.name = request.POST.get('name', schedule.name)
                 schedule.enabled = request.POST.get('enabled') == 'on'
@@ -6577,7 +6916,7 @@ def site_admin_backup_management_view(request):
         elif action == 'delete_schedule':
             schedule_id = request.POST.get('schedule_id')
             try:
-                from .models import BackupSchedule
+                from booking.models import BackupSchedule
                 schedule = BackupSchedule.objects.get(id=schedule_id)
                 schedule_name = schedule.name
                 schedule.delete()
@@ -6614,7 +6953,7 @@ def site_admin_backup_management_view(request):
     
     # Get backup schedules for automation tab
     try:
-        from .models import BackupSchedule
+        from booking.models import BackupSchedule
         schedules = BackupSchedule.objects.all().order_by('-created_at')
         
         # Get form choices for templates
@@ -6644,7 +6983,7 @@ def site_admin_backup_create_ajax(request):
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Invalid request method'})
     
-    from .backup_service import BackupService
+    from booking.backup_service import BackupService
     import json
     
     try:
@@ -6688,7 +7027,7 @@ def site_admin_backup_status_ajax(request):
     if request.method != 'GET':
         return JsonResponse({'success': False, 'error': 'Invalid request method'})
     
-    from .backup_service import BackupService
+    from booking.backup_service import BackupService
     
     try:
         backup_service = BackupService()
@@ -6714,7 +7053,7 @@ def site_admin_backup_status_ajax(request):
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
 def site_admin_backup_download_view(request, backup_name):
     """Download a specific backup file."""
-    from .backup_service import BackupService
+    from booking.backup_service import BackupService
     from django.http import FileResponse, Http404
     import os
     
@@ -6752,7 +7091,7 @@ def site_admin_backup_restore_info_ajax(request, backup_name):
     if request.method != 'GET':
         return JsonResponse({'success': False, 'error': 'Invalid request method'})
     
-    from .backup_service import BackupService
+    from booking.backup_service import BackupService
     
     try:
         backup_service = BackupService()
@@ -6780,7 +7119,7 @@ def site_admin_backup_restore_ajax(request):
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Invalid request method'})
     
-    from .backup_service import BackupService
+    from booking.backup_service import BackupService
     import json
     import secrets
     
@@ -6841,7 +7180,7 @@ def site_admin_backup_restore_ajax(request):
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
 def site_admin_backup_restore_view(request, backup_name):
     """Backup restoration interface."""
-    from .backup_service import BackupService
+    from booking.backup_service import BackupService
     
     backup_service = BackupService()
     
@@ -6917,8 +7256,8 @@ def site_admin_backup_restore_view(request, backup_name):
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
 def site_admin_backup_automation_view(request):
     """Backup automation management interface."""
-    from .models import BackupSchedule
-    from .backup_service import BackupService
+    from booking.models import BackupSchedule
+    from booking.backup_service import BackupService
     
     backup_service = BackupService()
     
@@ -7009,7 +7348,7 @@ def site_admin_backup_automation_view(request):
         automation_status = backup_service.get_backup_schedules_status()
         
         # Get scheduler status
-        from .scheduler import get_scheduler
+        from booking.scheduler import get_scheduler
         scheduler = get_scheduler()
         scheduler_status = scheduler.get_status()
         automation_status['scheduler'] = scheduler_status
@@ -7036,8 +7375,8 @@ def site_admin_backup_automation_ajax(request):
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Invalid request method'})
     
-    from .models import BackupSchedule
-    from .backup_service import BackupService
+    from booking.models import BackupSchedule
+    from booking.backup_service import BackupService
     import json
     
     try:
@@ -7091,7 +7430,7 @@ def site_admin_backup_schedule_detail_ajax(request, schedule_id):
         return JsonResponse({'success': False, 'error': 'Invalid request method'})
     
     try:
-        from .models import BackupSchedule
+        from booking.models import BackupSchedule
         
         schedule = BackupSchedule.objects.get(id=schedule_id)
         
@@ -7136,8 +7475,8 @@ def site_admin_backup_schedule_detail_ajax(request, schedule_id):
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin'])
 def site_admin_updates_view(request):
     """Site admin view for managing application updates."""
-    from .update_service import UpdateService
-    from .models import UpdateInfo, UpdateHistory
+    from booking.update_service import UpdateService
+    from booking.models import UpdateInfo, UpdateHistory
     
     update_service = UpdateService()
     
@@ -7206,7 +7545,7 @@ def site_admin_updates_ajax_view(request):
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Method not allowed'})
     
-    from .update_service import UpdateService
+    from booking.update_service import UpdateService
     import json
     
     try:

@@ -48,6 +48,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'booking.middleware.licensing.BrandingMiddleware',
+    # Note: LicenseValidationMiddleware is optional and can be enabled for strict licensing
+    # 'booking.middleware.licensing.LicenseValidationMiddleware',
 ]
 
 ROOT_URLCONF = 'aperture_booking.urls'
@@ -64,6 +67,8 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'booking.context_processors.notification_context',
+                'booking.context_processors.license_context',
+                'booking.context_processors.branding_context',
             ],
         },
     },

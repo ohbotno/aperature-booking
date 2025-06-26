@@ -178,4 +178,21 @@ urlpatterns = [
     path('site-admin/updates/', views.site_admin_updates_view, name='site_admin_updates'),
     path('site-admin/updates/ajax/', views.site_admin_updates_ajax_view, name='site_admin_updates_ajax'),
     
+    # Site Admin License Management URLs
+    path('site-admin/license/', views.site_admin_license_management_view, name='site_admin_license_management'),
+    path('site-admin/license/activate/', views.site_admin_license_activate_view, name='site_admin_license_activate'),
+    path('site-admin/license/branding/', views.site_admin_branding_config_view, name='site_admin_branding_config'),
+    path('site-admin/license/logs/', views.site_admin_license_validation_logs_view, name='site_admin_license_logs'),
+    path('site-admin/license/validate/ajax/', views.site_admin_license_validate_ajax, name='site_admin_license_validate_ajax'),
+    path('site-admin/license/export/', views.site_admin_license_export_view, name='site_admin_license_export'),
+    
+    # License Management URLs
+    path('license/', views.licensing.license_status, name='license_status'),
+    path('license/activate/', views.licensing.license_activate, name='license_activate'),
+    path('license/configure/', views.licensing.license_configure, name='license_configure'),
+    path('license/logs/', views.licensing.license_validation_logs, name='license_validation_logs'),
+    path('license/validate/', views.licensing.license_validate_now, name='license_validate_now'),
+    path('license/api/status/', views.licensing.license_api_status, name='license_api_status'),
+    path('license/generate-key/', views.licensing.generate_license_key_view, name='generate_license_key'),
+    
 ]

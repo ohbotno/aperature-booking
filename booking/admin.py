@@ -31,7 +31,8 @@ from .models import (
     ApprovalStatistics, MaintenanceVendor, MaintenanceDocument,
     MaintenanceAlert, MaintenanceAnalytics, EmailConfiguration,
     ChecklistItem, ResourceChecklistItem, ChecklistResponse,
-    BackupSchedule, UpdateInfo, UpdateHistory
+    BackupSchedule, UpdateInfo, UpdateHistory,
+    LicenseConfiguration, BrandingConfiguration, LicenseValidationLog
 )
 
 
@@ -2326,4 +2327,260 @@ class UpdateHistoryAdmin(admin.ModelAdmin):
         return response
     
     export_update_history.short_description = 'Export update history to CSV'
+
+
+# License Management Admin
+class BrandingConfigurationInline(admin.StackedInline):
+    """Inline admin for branding configuration."""
+    model = BrandingConfiguration
+    can_delete = False
+    verbose_name_plural = 'Branding Configuration'
+    fieldsets = (
+        ('Basic Branding', {
+            'fields': ('app_title', 'company_name')
+        }),
+        ('Visual Branding', {
+            'fields': ('logo_primary', 'logo_favicon', 'color_primary', 'color_secondary', 'color_accent')
+        }),
+        ('Content Customization', {
+            'fields': ('welcome_message', 'footer_text', 'custom_css')
+        }),
+        ('Contact Information', {
+            'fields': ('support_email', 'support_phone', 'website_url')
+        }),
+        ('Email Customization', {
+            'fields': ('email_from_name', 'email_signature')
+        }),
+        ('Feature Toggles', {
+            'fields': ('show_powered_by', 'enable_public_registration', 'enable_guest_booking')
+        }),
+    )
+
+
+@admin.register(LicenseConfiguration)
+class LicenseConfigurationAdmin(admin.ModelAdmin):
+    """Admin interface for license configuration."""
+    list_display = [
+        'organization_name', 'license_type', 'is_active', 'expires_at', 
+        'last_validation', 'validation_failures', 'created_at'
+    ]
+    list_filter = [
+        'license_type', 'is_active', 'expires_at', 'support_expires_at', 'created_at'
+    ]
+    search_fields = [
+        'organization_name', 'license_key', 'contact_email', 'organization_slug'
+    ]
+    readonly_fields = [
+        'license_key', 'last_validation', 'validation_failures', 'created_at', 'updated_at'
+    ]
+    inlines = [BrandingConfigurationInline]
+    
+    fieldsets = (
+        ('License Information', {
+            'fields': ('license_key', 'license_type', 'is_active')
+        }),
+        ('Organization Details', {
+            'fields': ('organization_name', 'organization_slug', 'contact_email')
+        }),
+        ('License Restrictions', {
+            'fields': ('allowed_domains', 'max_users', 'max_resources')
+        }),
+        ('Feature Configuration', {
+            'fields': ('features_enabled',),
+            'description': 'JSON object defining custom feature overrides'
+        }),
+        ('License Validity', {
+            'fields': ('expires_at', 'support_expires_at')
+        }),
+        ('Validation Tracking', {
+            'fields': ('last_validation', 'validation_failures'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    actions = ['validate_licenses', 'deactivate_licenses', 'export_license_info']
+    
+    def validate_licenses(self, request, queryset):
+        """Manually validate selected licenses."""
+        from booking.services.licensing import license_manager
+        
+        success_count = 0
+        for license_config in queryset:
+            try:
+                # Temporarily set as current license for validation
+                original_license = license_manager._current_license
+                license_manager._current_license = license_config
+                
+                is_valid, error_msg = license_manager.validate_license(force_remote=True)
+                if is_valid:
+                    success_count += 1
+                    
+                # Restore original license
+                license_manager._current_license = original_license
+                
+            except Exception as e:
+                self.message_user(request, f"Validation failed for {license_config.organization_name}: {e}")
+        
+        self.message_user(request, f"Successfully validated {success_count} licenses")
+    
+    validate_licenses.short_description = 'Validate selected licenses'
+    
+    def deactivate_licenses(self, request, queryset):
+        """Deactivate selected licenses."""
+        count = queryset.update(is_active=False)
+        self.message_user(request, f"Deactivated {count} licenses")
+    
+    deactivate_licenses.short_description = 'Deactivate selected licenses'
+    
+    def export_license_info(self, request, queryset):
+        """Export license information to CSV."""
+        import csv
+        from django.http import HttpResponse
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="license_info.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'Organization', 'License Type', 'License Key', 'Contact Email',
+            'Is Active', 'Expires At', 'Max Users', 'Max Resources',
+            'Last Validation', 'Validation Failures', 'Created At'
+        ])
+        
+        for license_config in queryset:
+            writer.writerow([
+                license_config.organization_name,
+                license_config.get_license_type_display(),
+                license_config.license_key,
+                license_config.contact_email,
+                'Yes' if license_config.is_active else 'No',
+                license_config.expires_at.strftime('%Y-%m-%d') if license_config.expires_at else '',
+                license_config.max_users or 'Unlimited',
+                license_config.max_resources or 'Unlimited',
+                license_config.last_validation.strftime('%Y-%m-%d %H:%M:%S') if license_config.last_validation else '',
+                license_config.validation_failures,
+                license_config.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            ])
+        
+        return response
+    
+    export_license_info.short_description = 'Export license information to CSV'
+    
+    def get_queryset(self, request):
+        """Only show licenses to superusers."""
+        qs = super().get_queryset(request)
+        if not request.user.is_superuser:
+            # Non-superusers can only see their own organization's license
+            qs = qs.filter(contact_email=request.user.email)
+        return qs
+
+
+@admin.register(BrandingConfiguration)
+class BrandingConfigurationAdmin(admin.ModelAdmin):
+    """Admin interface for branding configuration."""
+    list_display = [
+        'license', 'company_name', 'app_title', 'show_powered_by', 
+        'enable_public_registration', 'updated_at'
+    ]
+    list_filter = [
+        'show_powered_by', 'enable_public_registration', 'enable_guest_booking', 'updated_at'
+    ]
+    search_fields = [
+        'company_name', 'app_title', 'license__organization_name'
+    ]
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Basic Branding', {
+            'fields': ('license', 'app_title', 'company_name')
+        }),
+        ('Visual Branding', {
+            'fields': ('logo_primary', 'logo_favicon', 'color_primary', 'color_secondary', 'color_accent')
+        }),
+        ('Content Customization', {
+            'fields': ('welcome_message', 'footer_text', 'custom_css')
+        }),
+        ('Contact Information', {
+            'fields': ('support_email', 'support_phone', 'website_url')
+        }),
+        ('Email Customization', {
+            'fields': ('email_from_name', 'email_signature')
+        }),
+        ('Feature Toggles', {
+            'fields': ('show_powered_by', 'enable_public_registration', 'enable_guest_booking')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def get_queryset(self, request):
+        """Filter branding configurations based on user permissions."""
+        qs = super().get_queryset(request)
+        if not request.user.is_superuser:
+            # Non-superusers can only see their own organization's branding
+            qs = qs.filter(license__contact_email=request.user.email)
+        return qs
+
+
+@admin.register(LicenseValidationLog)
+class LicenseValidationLogAdmin(admin.ModelAdmin):
+    """Admin interface for license validation logs."""
+    list_display = [
+        'license', 'validation_type', 'result', 'domain_checked', 
+        'response_time', 'created_at'
+    ]
+    list_filter = [
+        'validation_type', 'result', 'created_at'
+    ]
+    search_fields = [
+        'license__organization_name', 'domain_checked', 'error_message'
+    ]
+    readonly_fields = [
+        'license', 'validation_type', 'result', 'domain_checked',
+        'user_agent', 'ip_address', 'error_message', 'response_time', 'created_at'
+    ]
+    
+    fieldsets = (
+        ('Validation Details', {
+            'fields': ('license', 'validation_type', 'result', 'domain_checked')
+        }),
+        ('Request Information', {
+            'fields': ('user_agent', 'ip_address')
+        }),
+        ('Error Information', {
+            'fields': ('error_message',)
+        }),
+        ('Performance', {
+            'fields': ('response_time',)
+        }),
+        ('Timestamp', {
+            'fields': ('created_at',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        """Prevent manual creation of validation logs."""
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        """Prevent editing of validation logs."""
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        """Allow deletion for cleanup purposes."""
+        return request.user.is_superuser
+    
+    def get_queryset(self, request):
+        """Filter validation logs based on user permissions."""
+        qs = super().get_queryset(request)
+        if not request.user.is_superuser:
+            # Non-superusers can only see their own organization's logs
+            qs = qs.filter(license__contact_email=request.user.email)
+        return qs
 
