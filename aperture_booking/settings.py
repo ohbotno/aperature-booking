@@ -105,6 +105,10 @@ else:  # Default to SQLite
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {
+                'timeout': 20,
+                'check_same_thread': False,
+            },
         }
     }
 
@@ -235,3 +239,23 @@ LOGGING = {
         },
     },
 }
+
+# APScheduler configuration to prevent database locking issues
+SCHEDULER_CONFIG = {
+    "apscheduler.jobstores.default": {
+        "class": "django_apscheduler.jobstores:DjangoJobStore"
+    },
+    "apscheduler.executors.processpool": {
+        "type": "threadpool"
+    },
+    "apscheduler.executors.default": {
+        "class": "apscheduler.executors.pool:ThreadPoolExecutor",
+        "max_workers": "20",
+    },
+    "apscheduler.job_defaults.coalesce": "false",
+    "apscheduler.job_defaults.max_instances": "3",
+    "apscheduler.timezone": 'UTC',
+}
+
+# Disable APScheduler for development to prevent database locking issues
+SCHEDULER_AUTOSTART = False

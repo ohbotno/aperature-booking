@@ -32,6 +32,13 @@ class BookingConfig(AppConfig):
         except ImportError:
             pass
         
+        # Check if scheduler should be started
+        from django.conf import settings
+        scheduler_autostart = getattr(settings, 'SCHEDULER_AUTOSTART', True)
+        
+        if not scheduler_autostart:
+            return
+            
         # Only start scheduler in main process, not in migrations or shell
         # Also avoid starting during migrations, makemigrations, or testing
         if (os.environ.get('RUN_MAIN') == 'true' or 

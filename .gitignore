@@ -85,3 +85,7 @@ TODO.md
 
 # Development files (keep local, exclude from git)
 debug_urls.py
+CHECKING.md
+
+# Testing files (keep local, exclude from git)
+test_backups/
