@@ -147,10 +147,21 @@ class BookingSerializer(serializers.ModelSerializer):
             if start_time >= end_time:
                 raise serializers.ValidationError("End time must be after start time.")
             
-            # Check booking window (9 AM - 6 PM)
-            if (start_time.hour < 9 or start_time.hour >= 18 or
-                end_time.hour < 9 or end_time.hour > 18):
-                raise serializers.ValidationError("Bookings must be between 09:00 and 18:00.")
+            # Check if user is sysadmin - they bypass time restrictions
+            is_sysadmin = False
+            request = self.context.get('request')
+            if request and request.user.is_authenticated:
+                try:
+                    if hasattr(request.user, 'userprofile') and request.user.userprofile.role == 'sysadmin':
+                        is_sysadmin = True
+                except:
+                    pass
+            
+            # Check booking window (9 AM - 6 PM) - only for non-sysadmin users
+            if not is_sysadmin:
+                if (start_time.hour < 9 or start_time.hour >= 18 or
+                    end_time.hour < 9 or end_time.hour > 18):
+                    raise serializers.ValidationError("Bookings must be between 09:00 and 18:00.")
             
             # Check resource availability and conflicts
             if resource_id:

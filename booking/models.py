@@ -702,6 +702,10 @@ class Resource(models.Model):
 
     def is_available_for_user(self, user_profile):
         """Check if resource is available for a specific user."""
+        # System administrators bypass all restrictions
+        if user_profile.role == 'sysadmin':
+            return self.is_active
+            
         if not self.is_active:
             return False
         if self.requires_induction and not user_profile.is_inducted:
@@ -714,6 +718,13 @@ class Resource(models.Model):
         """Check if user has explicit access to this resource."""
         from django.db.models import Q
         from django.utils import timezone
+        
+        # System administrators always have full access
+        try:
+            if hasattr(user, 'userprofile') and user.userprofile.role == 'sysadmin':
+                return True
+        except:
+            pass
         
         return ResourceAccess.objects.filter(
             resource=self,
@@ -745,6 +756,27 @@ class Resource(models.Model):
         try:
             user_profile = user.userprofile
         except:
+            return progress
+        
+        # System administrators have automatic access to all resources
+        if user_profile.role == 'sysadmin':
+            progress['has_access'] = True
+            progress['stages'] = [{
+                'name': 'System Administrator Access',
+                'key': 'sysadmin',
+                'required': True,
+                'completed': True,
+                'status': 'completed',
+                'icon': 'bi-shield-check',
+                'description': 'Full access granted as System Administrator'
+            }]
+            progress['overall'] = {
+                'total_stages': 1,
+                'completed_stages': 1,
+                'percentage': 100,
+                'all_completed': True
+            }
+            progress['next_step'] = None
             return progress
         
         # Stage 1: Lab Induction (one-time user requirement)
@@ -1421,22 +1453,36 @@ class Booking(models.Model):
             if self.start_time >= self.end_time:
                 raise ValidationError("End time must be after start time.")
             
-            # Allow booking up to 5 minutes in the past to account for form submission time
-            if self.start_time < timezone.now() - timedelta(minutes=5):
-                raise ValidationError("Cannot book in the past.")
+            # Skip time validation for existing bookings (updates/cancellations)
+            if self.pk is not None:
+                return
             
-            # Check booking window (9 AM - 6 PM) - more lenient check
-            if self.start_time.hour < 9 or self.start_time.hour >= 18:
-                raise ValidationError("Booking start time must be between 09:00 and 18:00.")
+            # Check if user is sysadmin - they bypass time restrictions
+            is_sysadmin = False
+            try:
+                if hasattr(self.user, 'userprofile') and self.user.userprofile.role == 'sysadmin':
+                    is_sysadmin = True
+            except:
+                pass
+            
+            # Only apply time restrictions for non-sysadmin users on new bookings
+            if not is_sysadmin:
+                # Allow booking up to 5 minutes in the past to account for form submission time
+                if self.start_time < timezone.now() - timedelta(minutes=5):
+                    raise ValidationError("Cannot book in the past.")
                 
-            if self.end_time.hour > 18 or (self.end_time.hour == 18 and self.end_time.minute > 0):
-                raise ValidationError("Booking must end by 18:00.")
-            
-            # Check max booking hours if set
-            if self.resource and self.resource.max_booking_hours:
-                duration_hours = (self.end_time - self.start_time).total_seconds() / 3600
-                if duration_hours > self.resource.max_booking_hours:
-                    raise ValidationError(f"Booking exceeds maximum allowed hours ({self.resource.max_booking_hours}h).")
+                # Check booking window (9 AM - 6 PM) - more lenient check
+                if self.start_time.hour < 9 or self.start_time.hour >= 18:
+                    raise ValidationError("Booking start time must be between 09:00 and 18:00.")
+                    
+                if self.end_time.hour > 18 or (self.end_time.hour == 18 and self.end_time.minute > 0):
+                    raise ValidationError("Booking must end by 18:00.")
+                
+                # Check max booking hours if set
+                if self.resource and self.resource.max_booking_hours:
+                    duration_hours = (self.end_time - self.start_time).total_seconds() / 3600
+                    if duration_hours > self.resource.max_booking_hours:
+                        raise ValidationError(f"Booking exceeds maximum allowed hours ({self.resource.max_booking_hours}h).")
 
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -5333,3 +5379,237 @@ class LicenseValidationLog(models.Model):
     
     def __str__(self):
         return f"{self.license.organization_name} - {self.get_result_display()} ({self.created_at})"
+
+
+class ResourceIssue(models.Model):
+    """Model for tracking issues reported by users for resources."""
+    
+    SEVERITY_CHOICES = [
+        ('low', 'Low - Minor issue, resource still usable'),
+        ('medium', 'Medium - Issue affects functionality'),
+        ('high', 'High - Resource partially unusable'),
+        ('critical', 'Critical - Resource completely unusable'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('in_progress', 'In Progress'),
+        ('waiting_parts', 'Waiting for Parts'),
+        ('resolved', 'Resolved'),
+        ('closed', 'Closed'),
+        ('duplicate', 'Duplicate'),
+    ]
+    
+    CATEGORY_CHOICES = [
+        ('mechanical', 'Mechanical Issue'),
+        ('electrical', 'Electrical Issue'),
+        ('software', 'Software Issue'),
+        ('safety', 'Safety Concern'),
+        ('calibration', 'Calibration Required'),
+        ('maintenance', 'Maintenance Required'),
+        ('damage', 'Physical Damage'),
+        ('other', 'Other'),
+    ]
+    
+    resource = models.ForeignKey(
+        Resource, 
+        on_delete=models.CASCADE, 
+        related_name='issues'
+    )
+    reported_by = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name='reported_issues'
+    )
+    title = models.CharField(
+        max_length=200, 
+        help_text="Brief description of the issue"
+    )
+    description = models.TextField(
+        help_text="Detailed description of the issue, including steps to reproduce if applicable"
+    )
+    severity = models.CharField(
+        max_length=20, 
+        choices=SEVERITY_CHOICES, 
+        default='medium'
+    )
+    category = models.CharField(
+        max_length=20, 
+        choices=CATEGORY_CHOICES, 
+        default='other'
+    )
+    status = models.CharField(
+        max_length=20, 
+        choices=STATUS_CHOICES, 
+        default='open'
+    )
+    
+    # Related booking if issue occurred during a specific booking
+    related_booking = models.ForeignKey(
+        Booking,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reported_issues',
+        help_text="Booking during which this issue was discovered"
+    )
+    
+    # Image upload for visual evidence
+    image = models.ImageField(
+        upload_to='issue_reports/',
+        blank=True,
+        null=True,
+        help_text="Photo of the issue (optional)"
+    )
+    
+    # Location details
+    specific_location = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Specific part or area of the resource affected"
+    )
+    
+    # Admin fields
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_issues',
+        limit_choices_to={'userprofile__role__in': ['technician', 'sysadmin']},
+        help_text="Technician assigned to resolve this issue"
+    )
+    
+    admin_notes = models.TextField(
+        blank=True,
+        help_text="Internal notes for tracking resolution progress"
+    )
+    
+    resolution_description = models.TextField(
+        blank=True,
+        help_text="Description of how the issue was resolved"
+    )
+    
+    estimated_repair_cost = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Estimated cost to repair (optional)"
+    )
+    
+    actual_repair_cost = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Actual cost of repair (optional)"
+    )
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the issue was marked as resolved"
+    )
+    closed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the issue was closed"
+    )
+    
+    # Priority and urgency flags
+    is_urgent = models.BooleanField(
+        default=False,
+        help_text="Requires immediate attention"
+    )
+    
+    blocks_resource_use = models.BooleanField(
+        default=False,
+        help_text="This issue prevents the resource from being used"
+    )
+    
+    class Meta:
+        db_table = 'booking_resourceissue'
+        verbose_name = "Resource Issue"
+        verbose_name_plural = "Resource Issues"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['resource', 'status']),
+            models.Index(fields=['status', '-created_at']),
+            models.Index(fields=['severity', '-created_at']),
+            models.Index(fields=['assigned_to', 'status']),
+        ]
+    
+    def __str__(self):
+        return f"{self.resource.name} - {self.title} ({self.get_status_display()})"
+    
+    def save(self, *args, **kwargs):
+        # Set timestamps based on status changes
+        if self.status == 'resolved' and not self.resolved_at:
+            self.resolved_at = timezone.now()
+        elif self.status == 'closed' and not self.closed_at:
+            self.closed_at = timezone.now()
+        
+        super().save(*args, **kwargs)
+    
+    @property
+    def age_in_days(self):
+        """How many days since the issue was reported."""
+        return (timezone.now() - self.created_at).days
+    
+    @property
+    def is_overdue(self):
+        """Check if issue is overdue based on severity."""
+        age = self.age_in_days
+        if self.severity == 'critical':
+            return age > 1  # Critical issues should be resolved within 1 day
+        elif self.severity == 'high':
+            return age > 3  # High severity within 3 days
+        elif self.severity == 'medium':
+            return age > 7  # Medium severity within 1 week
+        else:
+            return age > 14  # Low severity within 2 weeks
+    
+    @property
+    def time_to_resolution(self):
+        """Time taken to resolve the issue."""
+        if self.resolved_at:
+            return self.resolved_at - self.created_at
+        return None
+    
+    def can_be_edited_by(self, user):
+        """Check if user can edit this issue."""
+        # Reporters can edit their own issues if they're still open
+        if self.reported_by == user and self.status == 'open':
+            return True
+        
+        # Technicians and sysadmins can always edit
+        try:
+            return user.userprofile.role in ['technician', 'sysadmin']
+        except:
+            return False
+    
+    def get_status_color(self):
+        """Get Bootstrap color class for status."""
+        status_colors = {
+            'open': 'danger',
+            'in_progress': 'warning',
+            'waiting_parts': 'info',
+            'resolved': 'success',
+            'closed': 'secondary',
+            'duplicate': 'secondary',
+        }
+        return status_colors.get(self.status, 'secondary')
+    
+    def get_severity_color(self):
+        """Get Bootstrap color class for severity."""
+        severity_colors = {
+            'low': 'success',
+            'medium': 'warning',
+            'high': 'danger',
+            'critical': 'danger',
+        }
+        return severity_colors.get(self.severity, 'secondary')

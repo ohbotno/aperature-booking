@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from .models import (
     AboutPage, UserProfile, EmailVerificationToken, PasswordResetToken, Booking, Resource, BookingTemplate, 
     Faculty, College, Department, AccessRequest, RiskAssessment, UserRiskAssessment, 
-    TrainingCourse, UserTraining, ResourceResponsible,
+    TrainingCourse, UserTraining, ResourceResponsible, ResourceIssue,
     Maintenance, MaintenanceVendor, MaintenanceDocument, MaintenanceAlert, EmailConfiguration,
     ChecklistItem, ResourceChecklistItem, ChecklistResponse
 )
@@ -2075,3 +2075,181 @@ class ResourceChecklistConfigForm(forms.Form):
                     if assignment:
                         assignment.is_active = False
                         assignment.save()
+
+
+class ResourceIssueReportForm(forms.ModelForm):
+    """Form for users to report issues with resources."""
+    
+    class Meta:
+        model = ResourceIssue
+        fields = [
+            'title', 'description', 'severity', 'category', 
+            'specific_location', 'image', 'blocks_resource_use'
+        ]
+        widgets = {
+            'title': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Brief description of the issue'
+            }),
+            'description': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 5,
+                'placeholder': 'Please provide as much detail as possible, including when the issue occurred, what you were doing, and any error messages.'
+            }),
+            'severity': forms.Select(attrs={'class': 'form-select'}),
+            'category': forms.Select(attrs={'class': 'form-select'}),
+            'specific_location': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'e.g., "Left arm motor", "Control panel", "Safety switch"'
+            }),
+            'image': forms.FileInput(attrs={
+                'class': 'form-control',
+                'accept': 'image/*'
+            }),
+            'blocks_resource_use': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            })
+        }
+    
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        self.resource = kwargs.pop('resource', None)
+        self.booking = kwargs.pop('booking', None)
+        super().__init__(*args, **kwargs)
+        
+        # Customize help text
+        self.fields['severity'].help_text = "How severely does this issue affect the resource's functionality?"
+        self.fields['category'].help_text = "What type of issue is this?"
+        self.fields['blocks_resource_use'].help_text = "Check this if the resource cannot be used safely due to this issue"
+        
+        # Make some fields required
+        self.fields['title'].required = True
+        self.fields['description'].required = True
+    
+    def save(self, commit=True):
+        issue = super().save(commit=False)
+        if self.user:
+            issue.reported_by = self.user
+        if self.resource:
+            issue.resource = self.resource
+        if self.booking:
+            issue.related_booking = self.booking
+        
+        if commit:
+            issue.save()
+        return issue
+
+
+class ResourceIssueUpdateForm(forms.ModelForm):
+    """Form for technicians/admins to update issue status and details."""
+    
+    class Meta:
+        model = ResourceIssue
+        fields = [
+            'status', 'assigned_to', 'admin_notes', 'resolution_description',
+            'estimated_repair_cost', 'actual_repair_cost', 'is_urgent'
+        ]
+        widgets = {
+            'status': forms.Select(attrs={'class': 'form-select'}),
+            'assigned_to': forms.Select(attrs={'class': 'form-select'}),
+            'admin_notes': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 4,
+                'placeholder': 'Internal notes for tracking progress...'
+            }),
+            'resolution_description': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 4,
+                'placeholder': 'Describe how the issue was resolved...'
+            }),
+            'estimated_repair_cost': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'step': '0.01',
+                'min': '0'
+            }),
+            'actual_repair_cost': forms.NumberInput(attrs={
+                'class': 'form-control',
+                'step': '0.01',
+                'min': '0'
+            }),
+            'is_urgent': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            })
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Limit assigned_to to technicians and sysadmins
+        self.fields['assigned_to'].queryset = User.objects.filter(
+            userprofile__role__in=['technician', 'sysadmin']
+        ).order_by('first_name', 'last_name')
+        
+        # Add empty option
+        self.fields['assigned_to'].empty_label = "Unassigned"
+        
+        # Customize help text
+        self.fields['is_urgent'].help_text = "Mark as urgent for immediate attention"
+        self.fields['estimated_repair_cost'].help_text = "Estimated cost in local currency"
+        self.fields['actual_repair_cost'].help_text = "Actual cost after completion"
+
+
+class IssueFilterForm(forms.Form):
+    """Form for filtering issues in the admin interface."""
+    
+    STATUS_CHOICES = [('', 'All Statuses')] + ResourceIssue.STATUS_CHOICES
+    SEVERITY_CHOICES = [('', 'All Severities')] + ResourceIssue.SEVERITY_CHOICES
+    CATEGORY_CHOICES = [('', 'All Categories')] + ResourceIssue.CATEGORY_CHOICES
+    
+    resource = forms.ModelChoiceField(
+        queryset=Resource.objects.all(),
+        empty_label="All Resources",
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    
+    status = forms.ChoiceField(
+        choices=STATUS_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    
+    severity = forms.ChoiceField(
+        choices=SEVERITY_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    
+    category = forms.ChoiceField(
+        choices=CATEGORY_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    
+    assigned_to = forms.ModelChoiceField(
+        queryset=User.objects.filter(userprofile__role__in=['technician', 'sysadmin']),
+        empty_label="All Assignees",
+        required=False,
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+    
+    is_overdue = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
+    )
+    
+    date_from = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={
+            'type': 'date',
+            'class': 'form-control'
+        })
+    )
+    
+    date_to = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={
+            'type': 'date',
+            'class': 'form-control'
+        })
+    )

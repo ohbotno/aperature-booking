@@ -33,14 +33,14 @@ from ..models import (
     PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, 
     Faculty, College, Department, ResourceAccess, AccessRequest, TrainingRequest,
     ResourceResponsible, RiskAssessment, UserRiskAssessment, TrainingCourse, 
-    ResourceTrainingRequirement, UserTraining
+    ResourceTrainingRequirement, UserTraining, ResourceIssue
 )
 from ..forms import (
     UserRegistrationForm, UserProfileForm, CustomPasswordResetForm, CustomSetPasswordForm, 
     BookingForm, RecurringBookingForm, BookingTemplateForm, CreateBookingFromTemplateForm, 
     SaveAsTemplateForm, AccessRequestForm, AccessRequestReviewForm, RiskAssessmentForm, 
     UserRiskAssessmentForm, TrainingCourseForm, UserTrainingEnrollForm, ResourceResponsibleForm,
-    ResourceForm, AboutPageEditForm
+    ResourceForm, AboutPageEditForm, ResourceIssueReportForm, ResourceIssueUpdateForm, IssueFilterForm
 )
 from ..recurring import RecurringBookingGenerator, RecurringBookingManager
 from ..conflicts import ConflictDetector, ConflictResolver, ConflictManager
@@ -1967,9 +1967,15 @@ def profile_view(request):
 @login_required
 def calendar_view(request):
     """Main calendar view."""
+    # System administrators can see all resources, including inactive ones
+    if hasattr(request.user, 'userprofile') and request.user.userprofile.role == 'sysadmin':
+        resources = Resource.objects.all()
+    else:
+        resources = Resource.objects.filter(is_active=True)
+    
     return render(request, 'booking/calendar.html', {
         'user': request.user,
-        'resources': Resource.objects.filter(is_active=True),
+        'resources': resources,
     })
 
 
@@ -4975,6 +4981,13 @@ def lab_admin_add_maintenance_view(request):
             description = request.POST.get('description', '')
             start_time = parse_datetime(request.POST.get('start_time'))
             end_time = parse_datetime(request.POST.get('end_time'))
+            
+            # Make datetimes timezone-aware if they're not already
+            if start_time and timezone.is_naive(start_time):
+                start_time = timezone.make_aware(start_time)
+            if end_time and timezone.is_naive(end_time):
+                end_time = timezone.make_aware(end_time)
+            
             maintenance_type = request.POST.get('maintenance_type')
             blocks_booking = request.POST.get('blocks_booking') == 'on'
             is_recurring = request.POST.get('is_recurring') == 'on'
@@ -5056,8 +5069,18 @@ def lab_admin_edit_maintenance_view(request, maintenance_id):
             
             maintenance.title = request.POST.get('title')
             maintenance.description = request.POST.get('description', '')
-            maintenance.start_time = parse_datetime(request.POST.get('start_time'))
-            maintenance.end_time = parse_datetime(request.POST.get('end_time'))
+            
+            # Parse and make datetimes timezone-aware
+            start_time = parse_datetime(request.POST.get('start_time'))
+            end_time = parse_datetime(request.POST.get('end_time'))
+            
+            if start_time and timezone.is_naive(start_time):
+                start_time = timezone.make_aware(start_time)
+            if end_time and timezone.is_naive(end_time):
+                end_time = timezone.make_aware(end_time)
+            
+            maintenance.start_time = start_time
+            maintenance.end_time = end_time
             maintenance.maintenance_type = request.POST.get('maintenance_type')
             maintenance.blocks_booking = request.POST.get('blocks_booking') == 'on'
             
@@ -7587,4 +7610,135 @@ def site_admin_updates_ajax_view(request):
     except Exception as e:
         logger.error(f"Error in update AJAX view: {e}")
         return JsonResponse({'success': False, 'error': str(e)})
+
+
+# ============= RESOURCE ISSUE REPORTING VIEWS =============
+
+@login_required
+def report_resource_issue(request, resource_id):
+    """Allow users to report issues with a resource."""
+    resource = get_object_or_404(Resource, id=resource_id)
+    booking_id = request.GET.get('booking')
+    booking = None
+    
+    if booking_id:
+        booking = get_object_or_404(Booking, id=booking_id, user=request.user)
+    
+    if request.method == 'POST':
+        form = ResourceIssueReportForm(
+            request.POST, 
+            request.FILES,
+            user=request.user,
+            resource=resource,
+            booking=booking
+        )
+        if form.is_valid():
+            issue = form.save()
+            messages.success(
+                request, 
+                f'Issue reported successfully. Reference #: {issue.id}'
+            )
+            return redirect('booking:resource_detail', resource_id=resource.id)
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = ResourceIssueReportForm(
+            user=request.user,
+            resource=resource,
+            booking=booking
+        )
+    
+    return render(request, 'booking/report_issue.html', {
+        'form': form,
+        'resource': resource,
+        'booking': booking,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin'])
+def issues_dashboard(request):
+    """Dashboard for managing resource issues."""
+    filter_form = IssueFilterForm(request.GET)
+    issues = ResourceIssue.objects.select_related('resource', 'reported_by', 'assigned_to').all()
+    
+    # Apply filters
+    if filter_form.is_valid():
+        if filter_form.cleaned_data['resource']:
+            issues = issues.filter(resource=filter_form.cleaned_data['resource'])
+        if filter_form.cleaned_data['status']:
+            issues = issues.filter(status=filter_form.cleaned_data['status'])
+        if filter_form.cleaned_data['severity']:
+            issues = issues.filter(severity=filter_form.cleaned_data['severity'])
+        if filter_form.cleaned_data['category']:
+            issues = issues.filter(category=filter_form.cleaned_data['category'])
+        if filter_form.cleaned_data['assigned_to']:
+            issues = issues.filter(assigned_to=filter_form.cleaned_data['assigned_to'])
+        if filter_form.cleaned_data['is_overdue']:
+            # Filter for overdue issues (this would need a more complex query)
+            pass
+        if filter_form.cleaned_data['date_from']:
+            issues = issues.filter(created_at__gte=filter_form.cleaned_data['date_from'])
+        if filter_form.cleaned_data['date_to']:
+            issues = issues.filter(created_at__lte=filter_form.cleaned_data['date_to'])
+    
+    # Statistics
+    stats = {
+        'total': issues.count(),
+        'open': issues.filter(status='open').count(),
+        'in_progress': issues.filter(status='in_progress').count(),
+        'critical': issues.filter(severity='critical').count(),
+        'overdue': sum(1 for issue in issues if issue.is_overdue),
+    }
+    
+    # Pagination
+    paginator = Paginator(issues, 25)
+    page = request.GET.get('page')
+    issues = paginator.get_page(page)
+    
+    return render(request, 'booking/issues_dashboard.html', {
+        'issues': issues,
+        'filter_form': filter_form,
+        'stats': stats,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role in ['technician', 'sysadmin'])
+def issue_detail(request, issue_id):
+    """View and update a specific issue."""
+    issue = get_object_or_404(ResourceIssue, id=issue_id)
+    
+    if request.method == 'POST':
+        form = ResourceIssueUpdateForm(request.POST, instance=issue)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Issue updated successfully.')
+            return redirect('booking:issue_detail', issue_id=issue.id)
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = ResourceIssueUpdateForm(instance=issue)
+    
+    return render(request, 'booking/issue_detail.html', {
+        'issue': issue,
+        'form': form,
+    })
+
+
+@login_required
+def my_reported_issues(request):
+    """View issues reported by the current user."""
+    issues = ResourceIssue.objects.filter(
+        reported_by=request.user
+    ).select_related('resource', 'assigned_to').order_by('-created_at')
+    
+    # Pagination
+    paginator = Paginator(issues, 20)
+    page = request.GET.get('page')
+    issues = paginator.get_page(page)
+    
+    return render(request, 'booking/my_issues.html', {
+        'issues': issues,
+    })
 

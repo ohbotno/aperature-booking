@@ -333,6 +333,9 @@
                 <button type="button" class="btn btn-danger" id="cancel-booking" style="display: none;">
                     <i class="bi bi-trash"></i> Cancel
                 </button>
+                <a href="#" class="btn btn-outline-warning" id="report-issue" style="display: none;">
+                    <i class="bi bi-exclamation-triangle"></i> Report Issue
+                </a>
             </div>
         </div>
     </div>
@@ -677,6 +680,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const userSettings = {
         timezone: '{{ user.userprofile.timezone|default:"UTC" }}',
         dateFormat: '{{ user.userprofile.date_format|default:"DD/MM/YYYY" }}',
+        role: '{{ user.userprofile.role|default:"" }}',
         timeFormat: '{{ user.userprofile.time_format|default:"24h" }}'
     };
     calendarTimezone = new CalendarTimezone(calendar, userSettings);
@@ -780,6 +784,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
+    // Helper function to get CSRF token from cookie
+    function getCSRFToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
     function saveBooking() {
         const form = document.getElementById('booking-form');
         const formData = new FormData(form);
@@ -792,10 +812,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const endTime = new Date(document.getElementById('end_time').value);
         const now = new Date();
         
-        // Check if booking is in the past (with 5 minute buffer)
-        if (startTime < new Date(now.getTime() - 5 * 60 * 1000)) {
-            showModalError('Cannot book in the past. Please select a future date and time.');
-            return;
+        // Check if booking is in the past (with 5 minute buffer) - only for non-sysadmin users
+        if (userSettings.role !== 'sysadmin') {
+            if (startTime < new Date(now.getTime() - 5 * 60 * 1000)) {
+                showModalError('Cannot book in the past. Please select a future date and time.');
+                return;
+            }
         }
         
         // Check if end time is before start time
@@ -804,19 +826,21 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Check business hours
-        if (startTime.getHours() < 9 || startTime.getHours() >= 18) {
-            showModalError('Booking start time must be between 09:00 and 18:00.');
-            return;
-        }
-        
-        if (endTime.getHours() > 18 || (endTime.getHours() === 18 && endTime.getMinutes() > 0)) {
-            showModalError('Booking must end by 18:00.');
-            return;
+        // Check business hours (only for non-sysadmin users)
+        if (userSettings.role !== 'sysadmin') {
+            if (startTime.getHours() < 9 || startTime.getHours() >= 18) {
+                showModalError('Booking start time must be between 09:00 and 18:00.');
+                return;
+            }
+            
+            if (endTime.getHours() > 18 || (endTime.getHours() === 18 && endTime.getMinutes() > 0)) {
+                showModalError('Booking must end by 18:00.');
+                return;
+            }
         }
         
         // Check for maintenance conflicts
-        const resourceId = document.getElementById('resource').value;
+        const resourceId = document.getElementById('resource_id').value;
         if (resourceId && checkMaintenanceConflict(startTime, endTime, resourceId)) {
             showModalError('Cannot book during scheduled maintenance period. Please select a different time.');
             return;
@@ -935,6 +959,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const duplicateBtn = document.getElementById('duplicate-booking');
                 const cancelBtn = document.getElementById('cancel-booking');
                 const invitationBtn = document.getElementById('download-booking-invitation');
+                const reportIssueBtn = document.getElementById('report-issue');
                 
                 // Always show view, duplicate, and invitation buttons
                 viewBtn.style.display = 'inline-block';
@@ -962,6 +987,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     cancelBtn.style.display = 'none';
                 }
+                
+                // Always show report issue button for authenticated users
+                reportIssueBtn.style.display = 'inline-block';
+                reportIssueBtn.href = `/resources/${data.resource_id}/report-issue/?booking=${bookingId}`;
                 
                 const modal = new bootstrap.Modal(document.getElementById('bookingDetailsModal'));
                 modal.show();
@@ -1100,7 +1129,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // If resource filter is set, only check maintenance for that resource
                 if (resourceId) {
                     // Get resource name from the select element
-                    const resourceSelect = document.getElementById('resource');
+                    const resourceSelect = document.getElementById('resource_id');
                     const selectedOption = resourceSelect.options[resourceSelect.selectedIndex];
                     const selectedResourceName = selectedOption.text.split(' (')[0]; // Remove type suffix
                     

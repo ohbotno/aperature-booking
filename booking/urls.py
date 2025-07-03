@@ -195,4 +195,10 @@ urlpatterns = [
     path('license/api/status/', views.licensing.license_api_status, name='license_api_status'),
     path('license/generate-key/', views.licensing.generate_license_key_view, name='generate_license_key'),
     
+    # Resource Issue Reporting URLs
+    path('resources/<int:resource_id>/report-issue/', views.report_resource_issue, name='report_resource_issue'),
+    path('issues/', views.issues_dashboard, name='issues_dashboard'),
+    path('issues/<int:issue_id>/', views.issue_detail, name='issue_detail'),
+    path('my-issues/', views.my_reported_issues, name='my_reported_issues'),
+    
 ]
