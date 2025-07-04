@@ -1,5 +1,0 @@
-username,email,first_name,last_name,role,group,faculty_code,college_code,department_code,student_id,staff_number,training_level,phone
-jsmith,john.smith@university.edu,John,Smith,student,Physics Group 1,SCI,PHYS,PHYS101,20230001,,1,+44-123-456-7890
-agarcia,anna.garcia@university.edu,Anna,Garcia,researcher,Chemistry Lab A,SCI,CHEM,CHEM201,,STF001,3,+44-123-456-7891
-mwilson,mike.wilson@university.edu,Mike,Wilson,academic,Engineering Faculty,ENG,MECH,MECH301,,STF002,4,+44-123-456-7892
-sadmin,sarah.admin@university.edu,Sarah,Administrator,technician,IT Support,ADMIN,IT,IT001,,STF003,5,+44-123-456-7893
