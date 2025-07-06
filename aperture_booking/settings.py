@@ -69,6 +69,7 @@ TEMPLATES = [
                 'booking.context_processors.notification_context',
                 'booking.context_processors.license_context',
                 'booking.context_processors.branding_context',
+                'booking.context_processors.lab_settings_context',
             ],
         },
     },

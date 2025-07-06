@@ -78,6 +78,46 @@ class AboutPage(models.Model):
         return cls.objects.filter(is_active=True).first()
 
 
+class LabSettings(models.Model):
+    """Lab customization settings for the free version."""
+    
+    lab_name = models.CharField(
+        max_length=100, 
+        default="Aperture Booking",
+        help_text="Name of your lab or facility (displayed throughout the application)"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Only one LabSettings instance can be active at a time"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Lab Settings"
+        verbose_name_plural = "Lab Settings"
+        db_table = "booking_labsettings"
+    
+    def __str__(self):
+        return f"Lab Settings: {self.lab_name}"
+    
+    def save(self, *args, **kwargs):
+        if self.is_active:
+            LabSettings.objects.filter(is_active=True).update(is_active=False)
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def get_active(cls):
+        """Get the currently active lab settings."""
+        return cls.objects.filter(is_active=True).first()
+    
+    @classmethod
+    def get_lab_name(cls):
+        """Get the current lab name, with fallback to default."""
+        settings = cls.get_active()
+        return settings.lab_name if settings else "Aperture Booking"
+
+
 class NotificationPreference(models.Model):
     """User notification preferences."""
     NOTIFICATION_TYPES = [

@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Aperture Booking{% endblock %}</title>
+    <title>{% block title %}{{ lab_name }}{% endblock %}</title>
     
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}">
@@ -178,9 +178,9 @@
     <nav class="navbar navbar-dark bg-dark fixed-top">
         <div class="container-fluid">
             <a class="navbar-brand" href="{% url 'booking:calendar' %}">
-                <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" style="height: 32px; width: auto; margin-right: 8px;">
-                <span class="fw-bold">Aperture Booking</span>
-                <small class="text-muted ms-2" style="font-size: 0.7em;">A Lab booking system v1.0.2</small>
+                <img src="{% static 'images/logo.png' %}" alt="{{ lab_name }}" style="height: 32px; width: auto; margin-right: 8px;">
+                <span class="fw-bold">{{ lab_name }}</span>
+                <small class="text-muted ms-2" style="font-size: 0.7em;">A Lab booking system v1.0.3</small>
             </a>
             
             <div class="navbar-nav ms-auto d-flex flex-row align-items-center">
@@ -485,14 +485,14 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="d-flex align-items-center mb-2">
-                                    <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" height="24" class="me-2">
-                                    <strong>Aperture Booking</strong>&nbsp;v1.0.2
+                                    <img src="{% static 'images/logo.png' %}" alt="{{ lab_name }}" height="24" class="me-2">
+                                    <strong>{{ lab_name }}</strong>&nbsp;v1.0.3
                                 </div>
                                 <p class="text-muted small mb-2">
                                     Laboratory resource booking and management system
                                 </p>
                                 <p class="text-muted small mb-0">
-                                    &copy; 2025 Aperture Booking Contributors. 
+                                    &copy; 2025 {{ lab_name }}. 
                                     <a href="https://github.com/aperture-booking/aperture-booking/blob/main/LICENSE" class="text-decoration-none">GPL-3.0</a> / 
                                     <a href="{% url 'booking:about' %}" class="text-decoration-none">Commercial License</a>
                                 </p>

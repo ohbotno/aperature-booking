@@ -14,7 +14,7 @@ https://aperture-booking.org/commercial
 """
 
 from django.db.models import Q
-from .models import Notification, AccessRequest, TrainingRequest
+from .models import Notification, AccessRequest, TrainingRequest, LabSettings
 
 
 def has_model(model_name):
@@ -148,4 +148,17 @@ def branding_context(request):
             'accent_color': '#28a745',
             'show_powered_by': True,
             'custom_css_variables': {},
+        }
+
+
+def lab_settings_context(request):
+    """Add lab settings to template context."""
+    try:
+        return {
+            'lab_name': LabSettings.get_lab_name(),
+        }
+    except Exception:
+        # Fallback to default
+        return {
+            'lab_name': 'Aperture Booking',
         }

@@ -113,18 +113,14 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
-### 6. Load Sample Data (Optional)
-```bash
-python manage.py loaddata fixtures/sample_data.json
-```
 
-### 7. Set Up Notification System
+### 6. Set Up Notification System
 ```bash
 # Create default email templates
 python manage.py create_email_templates
 ```
 
-### 8. Run Development Server
+### 7. Run Development Server
 ```bash
 python manage.py runserver
 ```

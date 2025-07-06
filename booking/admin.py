@@ -18,7 +18,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 from .models import (
-    AboutPage, UserProfile, Resource, Booking, BookingAttendee, 
+    AboutPage, LabSettings, UserProfile, Resource, Booking, BookingAttendee, 
     ApprovalRule, Maintenance, BookingHistory,
     Notification, NotificationPreference, EmailTemplate, PushSubscription,
     WaitingListEntry,
@@ -80,6 +80,29 @@ class AboutPageAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         if obj and obj.is_active and AboutPage.objects.filter(is_active=True).count() == 1:
+            return False
+        return super().has_delete_permission(request, obj)
+
+
+@admin.register(LabSettings)
+class LabSettingsAdmin(admin.ModelAdmin):
+    list_display = ('lab_name', 'is_active', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('lab_name',)
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('Lab Customization', {
+            'fields': ('lab_name', 'is_active'),
+            'description': 'Customize your lab name to be displayed throughout the application.'
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.is_active and LabSettings.objects.filter(is_active=True).count() == 1:
             return False
         return super().has_delete_permission(request, obj)
 
