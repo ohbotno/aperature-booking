@@ -4973,10 +4973,11 @@ class UpdateInfo(models.Model):
     @classmethod
     def get_instance(cls):
         """Get or create the singleton update info instance."""
+        from aperture_booking import __version__
         instance, created = cls.objects.get_or_create(
             id=1,
             defaults={
-                'current_version': '1.0.1',  # Default current version
+                'current_version': __version__,  # Use version from __init__.py
                 'github_repo': 'your-username/aperture-booking'
             }
         )

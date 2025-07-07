@@ -6113,6 +6113,39 @@ def site_admin_system_config_view(request):
     return render(request, 'booking/site_admin_config.html', context)
 
 
+@login_required
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_lab_settings_view(request):
+    """Lab settings management interface."""
+    from django.contrib import messages
+    from ..models import LabSettings
+    
+    # Get or create lab settings
+    lab_settings = LabSettings.get_active()
+    if not lab_settings:
+        lab_settings = LabSettings.objects.create(
+            lab_name="Aperture Booking",
+            is_active=True
+        )
+    
+    if request.method == 'POST':
+        lab_name = request.POST.get('lab_name', '').strip()
+        
+        if lab_name:
+            lab_settings.lab_name = lab_name
+            lab_settings.save()
+            messages.success(request, 'Lab settings updated successfully.')
+            return redirect('booking:site_admin_lab_settings')
+        else:
+            messages.error(request, 'Lab name cannot be empty.')
+    
+    context = {
+        'lab_settings': lab_settings,
+    }
+    
+    return render(request, 'booking/site_admin_lab_settings.html', context)
+
+
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
 def site_admin_audit_logs_view(request):
     """Audit logs and system monitoring."""

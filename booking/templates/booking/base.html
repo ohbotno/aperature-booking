@@ -180,7 +180,7 @@
             <a class="navbar-brand" href="{% url 'booking:calendar' %}">
                 <img src="{% static 'images/logo.png' %}" alt="{{ lab_name }}" style="height: 32px; width: auto; margin-right: 8px;">
                 <span class="fw-bold">{{ lab_name }}</span>
-                <small class="text-muted ms-2" style="font-size: 0.7em;">A Lab booking system v1.0.3</small>
+                <small class="text-muted ms-2" style="font-size: 0.7em;">A Lab booking system v{{ version }}</small>
             </a>
             
             <div class="navbar-nav ms-auto d-flex flex-row align-items-center">
@@ -485,14 +485,14 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="d-flex align-items-center mb-2">
-                                    <img src="{% static 'images/logo.png' %}" alt="{{ lab_name }}" height="24" class="me-2">
-                                    <strong>{{ lab_name }}</strong>&nbsp;v1.0.3
+                                    <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" height="24" class="me-2">
+                                    <strong>Aperture Booking</strong>&nbsp;v{{ version }}
                                 </div>
                                 <p class="text-muted small mb-2">
                                     Laboratory resource booking and management system
                                 </p>
                                 <p class="text-muted small mb-0">
-                                    &copy; 2025 {{ lab_name }}. 
+                                    &copy; 2025 Aperture Booking. 
                                     <a href="https://github.com/aperture-booking/aperture-booking/blob/main/LICENSE" class="text-decoration-none">GPL-3.0</a> / 
                                     <a href="{% url 'booking:about' %}" class="text-decoration-none">Commercial License</a>
                                 </p>
@@ -667,8 +667,8 @@
                 }
             });
             
-            // Auto-dismiss non-success messages after 8 seconds
-            const otherAlerts = document.querySelectorAll('.alert:not(.alert-success)');
+            // Auto-dismiss non-success messages after 8 seconds (except persistent alerts)
+            const otherAlerts = document.querySelectorAll('.alert:not(.alert-success):not(.persistent-alert)');
             otherAlerts.forEach(function(alert) {
                 setTimeout(function() {
                     if (alert.parentNode) {

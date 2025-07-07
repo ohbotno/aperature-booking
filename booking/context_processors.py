@@ -162,3 +162,17 @@ def lab_settings_context(request):
         return {
             'lab_name': 'Aperture Booking',
         }
+
+
+def version_context(request):
+    """Add application version to template context."""
+    try:
+        from aperture_booking import __version__
+        return {
+            'version': __version__,
+        }
+    except Exception:
+        # Fallback to current version
+        return {
+            'version': '1.1.2',
+        }

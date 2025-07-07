@@ -353,6 +353,12 @@ class UpdateService:
     
     def get_update_status(self) -> Dict:
         """Get current update status and information."""
+        # Always sync current version with the actual version
+        from aperture_booking import __version__
+        if self.update_info.current_version != __version__:
+            self.update_info.current_version = __version__
+            self.update_info.save()
+        
         return {
             'current_version': self.update_info.current_version,
             'latest_version': self.update_info.latest_version,
@@ -363,5 +369,6 @@ class UpdateService:
             'download_progress': self.update_info.download_progress,
             'error_message': self.update_info.error_message,
             'release_notes': self.update_info.release_notes,
-            'auto_check_enabled': self.update_info.auto_check_enabled
+            'auto_check_enabled': self.update_info.auto_check_enabled,
+            'github_repo': self.update_info.github_repo
         }

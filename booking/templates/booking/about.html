@@ -16,7 +16,7 @@
                     </div>
                     <div class="card-body">
                         {% if about_page.facility_name %}
-                            <div class="alert alert-light border-start border-primary border-4 mb-4">
+                            <div class="alert alert-light border-start border-primary border-4 mb-4 persistent-alert">
                                 <h2 class="alert-heading h4 mb-0">
                                     <i class="fas fa-building me-2"></i>{{ about_page.facility_name }}
                                 </h2>
@@ -48,7 +48,7 @@
                                 </div>
 
                                 {% if about_page.safety_information %}
-                                    <div class="alert alert-warning border-start border-warning border-4 mt-4">
+                                    <div class="alert alert-warning border-start border-warning border-4 mt-4 persistent-alert">
                                         <h5 class="alert-heading">
                                             <i class="fas fa-exclamation-triangle me-2"></i>Safety Information
                                         </h5>
@@ -98,7 +98,7 @@
                                         {% endif %}
 
                                         {% if about_page.emergency_contact %}
-                                            <div class="alert alert-danger py-2">
+                                            <div class="alert alert-danger py-2 persistent-alert">
                                                 <i class="fas fa-exclamation-circle me-2"></i>
                                                 <strong>Emergency:</strong><br>
                                                 {{ about_page.emergency_contact }}
@@ -147,7 +147,7 @@
                     </div>
                 </div>
             {% else %}
-                <div class="alert alert-info text-center py-5">
+                <div class="alert alert-info text-center py-5 persistent-alert">
                     <i class="fas fa-info-circle fa-3x mb-3"></i>
                     <h4>Welcome to Aperture Booking</h4>
                     <p class="mb-4">The about page content is not yet configured.</p>
