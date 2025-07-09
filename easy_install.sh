@@ -77,27 +77,52 @@ get_configuration() {
     echo -e "${YELLOW}Configuration Setup${NC}"
     echo "==================="
     
-    # Domain name
-    read -p "Enter your domain name (e.g., booking.university.edu): " DOMAIN
-    if [[ -z "$DOMAIN" ]]; then
-        DOMAIN="localhost"
-        warning "No domain provided, using localhost"
-    fi
-    
-    # Admin email
-    read -p "Enter admin email address: " EMAIL
-    if [[ -z "$EMAIL" ]]; then
-        EMAIL="admin@$DOMAIN"
-        warning "No email provided, using $EMAIL"
-    fi
-    
-    # SSL Certificate
-    if [[ "$DOMAIN" != "localhost" ]]; then
-        read -p "Install SSL certificate? (y/n): " -n 1 -r
-        echo
-        INSTALL_SSL=$REPLY
+    # Check if running interactively
+    if [ -t 0 ]; then
+        # Interactive mode - get user input
+        read -p "Enter your domain name (e.g., booking.university.edu): " DOMAIN
+        if [[ -z "$DOMAIN" ]]; then
+            DOMAIN="localhost"
+            warning "No domain provided, using localhost"
+        fi
+        
+        # Admin email
+        read -p "Enter admin email address: " EMAIL
+        if [[ -z "$EMAIL" ]]; then
+            EMAIL="admin@$DOMAIN"
+            warning "No email provided, using $EMAIL"
+        fi
+        
+        # SSL Certificate
+        if [[ "$DOMAIN" != "localhost" ]]; then
+            read -p "Install SSL certificate? (y/n): " -n 1 -r
+            echo
+            INSTALL_SSL=$REPLY
+        else
+            INSTALL_SSL="n"
+        fi
     else
-        INSTALL_SSL="n"
+        # Non-interactive mode - use defaults or environment variables
+        DOMAIN="${APERTURE_DOMAIN:-localhost}"
+        EMAIL="${APERTURE_EMAIL:-admin@$DOMAIN}"
+        INSTALL_SSL="${APERTURE_SSL:-n}"
+        
+        warning "Running in non-interactive mode. Using defaults:"
+        warning "  Domain: $DOMAIN"
+        warning "  Email: $EMAIL"
+        warning "  SSL: $([ "$INSTALL_SSL" == "y" ] && echo "Yes" || echo "No")"
+        warning ""
+        warning "To customize, set environment variables:"
+        warning "  APERTURE_DOMAIN=yourdomain.com"
+        warning "  APERTURE_EMAIL=admin@yourdomain.com"
+        warning "  APERTURE_SSL=y"
+        warning ""
+        warning "Or download and run the script directly:"
+        warning "  wget https://raw.githubusercontent.com/ohbotno/aperture-booking/main/easy_install.sh"
+        warning "  chmod +x easy_install.sh"
+        warning "  sudo ./easy_install.sh"
+        echo
+        sleep 5
     fi
     
     echo
@@ -107,10 +132,15 @@ get_configuration() {
     log "  SSL: $([ "$INSTALL_SSL" == "y" ] && echo "Yes" || echo "No")"
     echo
     
-    read -p "Continue with installation? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 0
+    if [ -t 0 ]; then
+        read -p "Continue with installation? (y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 0
+        fi
+    else
+        log "Starting installation in 5 seconds... (Ctrl+C to cancel)"
+        sleep 5
     fi
 }
 
@@ -385,12 +415,32 @@ setup_ssl() {
 create_admin() {
     log "Creating admin user..."
     
-    echo
-    echo "Create a superuser account for Django admin:"
     cd "$APP_DIR"
-    sudo -u "$APP_USER" ./venv/bin/python manage.py createsuperuser
-    
-    success "Admin user created"
+    if [ -t 0 ]; then
+        # Interactive mode
+        echo
+        echo "Create a superuser account for Django admin:"
+        sudo -u "$APP_USER" ./venv/bin/python manage.py createsuperuser
+        success "Admin user created"
+    else
+        # Non-interactive mode - create default admin user
+        warning "Creating default admin user in non-interactive mode..."
+        warning "Username: admin"
+        warning "Password: admin123"
+        warning "Email: $EMAIL"
+        warning "IMPORTANT: Change this password immediately after login!"
+        
+        sudo -u "$APP_USER" ./venv/bin/python manage.py shell << 'EOF'
+from django.contrib.auth.models import User
+import os
+if not User.objects.filter(username='admin').exists():
+    User.objects.create_superuser('admin', os.environ.get('ADMIN_EMAIL', 'admin@localhost'), 'admin123')
+    print("Default admin user created")
+else:
+    print("Admin user already exists")
+EOF
+        success "Default admin user created (username: admin, password: admin123)"
+    fi
 }
 
 # Setup firewall
@@ -476,7 +526,12 @@ show_summary() {
     echo
     echo -e "${BLUE}Credentials:${NC}"
     echo -e "  Database Password: ${YELLOW}$DB_PASSWORD${NC}"
-    echo -e "  Admin Username: ${YELLOW}(as created)${NC}"
+    if [ -t 0 ]; then
+        echo -e "  Admin Username: ${YELLOW}(as created)${NC}"
+    else
+        echo -e "  Admin Username: ${YELLOW}admin${NC}"
+        echo -e "  Admin Password: ${YELLOW}admin123${NC} ${RED}(CHANGE IMMEDIATELY!)${NC}"
+    fi
     echo
     echo -e "${BLUE}Configuration Files:${NC}"
     echo -e "  Application: ${YELLOW}$APP_DIR/.env${NC}"
