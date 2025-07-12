@@ -326,9 +326,12 @@ EOF
     chmod 600 "$APP_DIR/.env"
     
     # Fix any Django 4.2 compatibility issues
-    if [[ -f "$APP_DIR/fix_migrations.py" ]]; then
-        log "Fixing Django 4.2 compatibility..."
-        sudo -u "$APP_USER" "$APP_DIR/venv/bin/python" "$APP_DIR/fix_migrations.py"
+    log "Fixing Django 4.2 compatibility..."
+    if [[ -f "$APP_DIR/apply_migration_fix.sh" ]]; then
+        sudo -u "$APP_USER" bash "$APP_DIR/apply_migration_fix.sh"
+    else
+        # Direct fix if script not found
+        sudo -u "$APP_USER" sed -i 's/condition=models\.Q/check=models.Q/g' "$APP_DIR/booking/migrations/0001_initial.py"
     fi
     
     # Run Django setup
