@@ -274,7 +274,7 @@ setup_python() {
     
     # Install remaining requirements
     sudo -u "$APP_USER" ./venv/bin/pip install -r requirements.txt
-    sudo -u "$APP_USER" ./venv/bin/pip install gunicorn psycopg2-binary redis
+    sudo -u "$APP_USER" ./venv/bin/pip install gunicorn psycopg2-binary redis django-apscheduler
     
     success "Python environment ready"
 }
