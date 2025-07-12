@@ -288,7 +288,7 @@ configure_app() {
 # Aperture Booking Configuration
 SECRET_KEY=$SECRET_KEY
 DEBUG=False
-ALLOWED_HOSTS=$DOMAIN,www.$DOMAIN,localhost,127.0.0.1
+ALLOWED_HOSTS=$DOMAIN,www.$DOMAIN,localhost,127.0.0.1,$(hostname -I | awk '{print $1}')
 
 # Database
 DB_ENGINE=postgresql
@@ -553,6 +553,9 @@ show_summary() {
     echo
     echo -e "${BLUE}Access URLs:${NC}"
     echo -e "  Main Site:  ${GREEN}http$([ "$INSTALL_SSL" == "y" ] && echo "s")://$DOMAIN${NC}"
+    if [[ "$DOMAIN" == "localhost" ]]; then
+        echo -e "  IP Access:  ${GREEN}http://$(hostname -I | awk '{print $1}')${NC}"
+    fi
     echo -e "  Admin Panel: ${GREEN}http$([ "$INSTALL_SSL" == "y" ] && echo "s")://$DOMAIN/admin/${NC}"
     echo
     echo -e "${BLUE}Credentials:${NC}"
