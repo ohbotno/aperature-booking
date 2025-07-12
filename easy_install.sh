@@ -347,11 +347,17 @@ EOF
 setup_services() {
     log "Setting up system services..."
     
+    # Determine Redis service name
+    REDIS_SERVICE="redis-server.service"
+    if systemctl list-unit-files | grep -q "^redis.service"; then
+        REDIS_SERVICE="redis.service"
+    fi
+    
     # Gunicorn service
     cat > /etc/systemd/system/$APP_NAME.service << EOF
 [Unit]
 Description=Aperture Booking Gunicorn
-After=network.target postgresql.service redis.service
+After=network.target postgresql.service $REDIS_SERVICE
 
 [Service]
 Type=notify
