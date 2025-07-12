@@ -180,6 +180,9 @@ install_dependencies() {
             postgresql postgresql-contrib \
             nginx redis-server \
             build-essential libpq-dev \
+            pkg-config \
+            default-libmysqlclient-dev \
+            libssl-dev \
             git curl wget unzip \
             certbot python3-certbot-nginx \
             supervisor ufw fail2ban
@@ -190,6 +193,9 @@ install_dependencies() {
             postgresql postgresql-server postgresql-contrib \
             nginx redis \
             gcc postgresql-devel \
+            pkgconfig \
+            mysql-devel \
+            openssl-devel \
             git curl wget unzip \
             certbot python3-certbot-nginx \
             supervisor firewalld fail2ban
