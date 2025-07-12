@@ -390,7 +390,14 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable --now redis postgresql
+    systemctl enable --now postgresql
+    
+    # Enable Redis with correct service name
+    if systemctl list-unit-files | grep -q "redis-server.service"; then
+        systemctl enable --now redis-server
+    elif systemctl list-unit-files | grep -q "redis.service"; then
+        systemctl enable --now redis
+    fi
     systemctl enable $APP_NAME.service $APP_NAME-scheduler.service
     
     success "Services configured"
