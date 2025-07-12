@@ -185,7 +185,7 @@ install_dependencies() {
             libssl-dev \
             git curl wget unzip \
             certbot python3-certbot-nginx \
-            supervisor ufw fail2ban
+            supervisor
     elif [[ "$PKG_MANAGER" == "yum" ]]; then
         yum install -y epel-release
         yum install -y \
@@ -198,7 +198,7 @@ install_dependencies() {
             openssl-devel \
             git curl wget unzip \
             certbot python3-certbot-nginx \
-            supervisor firewalld fail2ban
+            supervisor
         
         # Initialize PostgreSQL on RHEL/CentOS
         postgresql-setup initdb
@@ -493,25 +493,6 @@ EOF
     fi
 }
 
-# Setup firewall
-setup_firewall() {
-    log "Configuring firewall..."
-    
-    if command -v ufw &> /dev/null; then
-        ufw --force enable
-        ufw allow 22/tcp
-        ufw allow 80/tcp
-        ufw allow 443/tcp
-        success "Firewall configured (UFW)"
-    elif command -v firewall-cmd &> /dev/null; then
-        systemctl enable --now firewalld
-        firewall-cmd --permanent --add-service=ssh
-        firewall-cmd --permanent --add-service=http
-        firewall-cmd --permanent --add-service=https
-        firewall-cmd --reload
-        success "Firewall configured (firewalld)"
-    fi
-}
 
 # Setup automatic backups
 setup_backups() {
@@ -660,7 +641,6 @@ main() {
     setup_services
     setup_nginx
     setup_ssl
-    setup_firewall
     setup_backups
     start_services
     create_admin
