@@ -249,13 +249,41 @@ setup_database() {
     systemctl start postgresql
     systemctl enable postgresql
     
+    # Create user and database, handling existing resources gracefully
     sudo -u postgres psql << EOF
+-- Drop existing database and user if they exist (for clean reinstalls)
+DROP DATABASE IF EXISTS $APP_NAME;
+DROP USER IF EXISTS $APP_USER;
+
+-- Create user with password
 CREATE USER $APP_USER WITH PASSWORD '$DB_PASSWORD';
-CREATE DATABASE $APP_NAME OWNER $APP_USER;
+
+-- Create database with proper encoding
+CREATE DATABASE $APP_NAME 
+    OWNER $APP_USER 
+    ENCODING 'UTF8' 
+    LC_COLLATE='en_US.UTF-8' 
+    LC_CTYPE='en_US.UTF-8';
+
+-- Grant all privileges
 GRANT ALL PRIVILEGES ON DATABASE $APP_NAME TO $APP_USER;
+
+-- Grant schema privileges (needed for Django)
+\c $APP_NAME
+GRANT ALL ON SCHEMA public TO $APP_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $APP_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $APP_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $APP_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $APP_USER;
 EOF
     
-    success "Database configured"
+    # Test database connection
+    log "Testing database connection..."
+    if sudo -u postgres psql -d "$APP_NAME" -c "SELECT version();" > /dev/null 2>&1; then
+        success "Database configured and connection tested"
+    else
+        error "Database connection test failed"
+    fi
 }
 
 # Python setup
@@ -294,6 +322,7 @@ DEBUG=False
 ALLOWED_HOSTS=$DOMAIN,www.$DOMAIN,localhost,127.0.0.1,$(hostname -I | awk '{print $1}')
 
 # Database
+DATABASE_URL=postgresql://$APP_USER:$DB_PASSWORD@localhost:5432/$APP_NAME
 DB_ENGINE=postgresql
 DB_NAME=$APP_NAME
 DB_USER=$APP_USER
@@ -337,8 +366,16 @@ EOF
         sudo -u "$APP_USER" sed -i 's/condition=models\.Q/check=models.Q/g' "$APP_DIR/booking/migrations/0001_initial.py"
     fi
     
-    # Run Django setup
+    # Test Django database connection
+    log "Testing Django database connection..."
     cd "$APP_DIR"
+    if sudo -u "$APP_USER" ./venv/bin/python manage.py dbshell --command="\q" 2>/dev/null; then
+        success "Django database connection successful"
+    else
+        error "Django cannot connect to database. Check database configuration."
+    fi
+    
+    # Run Django setup
     sudo -u "$APP_USER" ./venv/bin/python manage.py migrate
     sudo -u "$APP_USER" ./venv/bin/python manage.py collectstatic --noinput
     sudo -u "$APP_USER" ./venv/bin/python manage.py create_email_templates || true
