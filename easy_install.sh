@@ -325,6 +325,12 @@ EOF
     chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
     chmod 600 "$APP_DIR/.env"
     
+    # Fix any Django 4.2 compatibility issues
+    if [[ -f "$APP_DIR/fix_migrations.py" ]]; then
+        log "Fixing Django 4.2 compatibility..."
+        sudo -u "$APP_USER" "$APP_DIR/venv/bin/python" "$APP_DIR/fix_migrations.py"
+    fi
+    
     # Run Django setup
     cd "$APP_DIR"
     sudo -u "$APP_USER" ./venv/bin/python manage.py migrate
