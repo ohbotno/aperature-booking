@@ -212,7 +212,12 @@ quick_setup() {
     
     log "Cloning repository..."
     if [[ -d "$APP_DIR/.git" ]]; then
-        cd "$APP_DIR" && git pull origin "$BRANCH"
+        log "Repository already exists, updating..."
+        cd "$APP_DIR" && git fetch origin && git reset --hard origin/"$BRANCH" && git pull origin "$BRANCH"
+    elif [[ -d "$APP_DIR" ]]; then
+        warning "Directory exists but is not a git repository. Backing up and cloning fresh..."
+        mv "$APP_DIR" "$APP_DIR.backup.$(date +%Y%m%d_%H%M%S)"
+        git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
     else
         git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
     fi
@@ -557,6 +562,43 @@ show_summary() {
 
 # Main installation
 main() {
+    # Check for cleanup flag
+    if [[ "$1" == "--cleanup" ]] || [[ "$1" == "-c" ]]; then
+        check_root
+        echo -e "${YELLOW}Cleanup Mode${NC}"
+        echo "This will remove the existing Aperture Booking installation."
+        echo "Directories to be removed:"
+        echo "  - $APP_DIR"
+        echo "  - /var/run/$APP_NAME"
+        echo "  - /var/log/$APP_NAME"
+        echo
+        if [ -t 0 ]; then
+            read -p "Are you sure you want to continue? (y/n): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                exit 0
+            fi
+        fi
+        
+        log "Stopping services..."
+        systemctl stop $APP_NAME.service $APP_NAME-scheduler.service 2>/dev/null || true
+        systemctl disable $APP_NAME.service $APP_NAME-scheduler.service 2>/dev/null || true
+        
+        log "Removing installation..."
+        rm -rf "$APP_DIR"
+        rm -rf /var/run/$APP_NAME
+        rm -rf /var/log/$APP_NAME
+        rm -f /etc/systemd/system/$APP_NAME*.service
+        rm -f /etc/nginx/sites-enabled/$APP_NAME
+        rm -f /etc/nginx/sites-available/$APP_NAME
+        
+        systemctl daemon-reload
+        systemctl reload nginx 2>/dev/null || true
+        
+        success "Cleanup complete. You can now run the installer again."
+        exit 0
+    fi
+    
     show_banner
     check_root
     get_configuration
