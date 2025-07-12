@@ -432,11 +432,11 @@ Type=notify
 User=$APP_USER
 Group=$APP_USER
 WorkingDirectory=$APP_DIR
-RuntimeDirectory=$APP_NAME
-RuntimeDirectoryMode=0755
 Environment="PATH=$APP_DIR/venv/bin"
 Environment="DJANGO_SETTINGS_MODULE=aperture_booking.settings"
 EnvironmentFile=$APP_DIR/.env
+ExecStartPre=/bin/mkdir -p /var/run/$APP_NAME
+ExecStartPre=/bin/chown $APP_USER:$APP_USER /var/run/$APP_NAME
 ExecStart=$APP_DIR/venv/bin/gunicorn \\
     --workers 3 \\
     --bind unix:/var/run/$APP_NAME/gunicorn.sock \\
