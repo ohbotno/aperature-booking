@@ -432,6 +432,8 @@ Type=notify
 User=$APP_USER
 Group=$APP_USER
 WorkingDirectory=$APP_DIR
+RuntimeDirectory=$APP_NAME
+RuntimeDirectoryMode=0755
 Environment="PATH=$APP_DIR/venv/bin"
 Environment="DJANGO_SETTINGS_MODULE=aperture_booking.settings"
 EnvironmentFile=$APP_DIR/.env
@@ -476,6 +478,12 @@ EOF
     elif systemctl list-unit-files | grep -q "redis.service"; then
         systemctl enable --now redis
     fi
+    # Create systemd tmpfiles configuration to recreate runtime directory on boot
+    cat > /etc/tmpfiles.d/$APP_NAME.conf << EOF
+# Create runtime directory for Aperture Booking
+d /var/run/$APP_NAME 0755 $APP_USER $APP_USER -
+EOF
+    
     # Ensure run directory exists with correct ownership before starting services
     mkdir -p /var/run/$APP_NAME
     chown "$APP_USER:$APP_USER" /var/run/$APP_NAME
