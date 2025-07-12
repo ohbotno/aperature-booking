@@ -23,6 +23,8 @@ REPO_URL="https://github.com/ohbotno/aperture-booking.git"
 BRANCH="main"
 APP_NAME="aperture-booking"
 APP_USER="aperture"
+DB_NAME="aperture_booking"
+DB_USER="aperture_booking"
 APP_DIR="/opt/aperture-booking"
 DOMAIN=""
 EMAIL=""
@@ -252,34 +254,34 @@ setup_database() {
     # Create user and database, handling existing resources gracefully
     sudo -u postgres psql << EOF
 -- Drop existing database and user if they exist (for clean reinstalls)
-DROP DATABASE IF EXISTS $APP_NAME;
-DROP USER IF EXISTS $APP_USER;
+DROP DATABASE IF EXISTS $DB_NAME;
+DROP USER IF EXISTS $DB_USER;
 
 -- Create user with password
-CREATE USER $APP_USER WITH PASSWORD '$DB_PASSWORD';
+CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';
 
 -- Create database with proper encoding
-CREATE DATABASE $APP_NAME 
-    OWNER $APP_USER 
+CREATE DATABASE $DB_NAME 
+    OWNER $DB_USER 
     ENCODING 'UTF8' 
     LC_COLLATE='en_US.UTF-8' 
     LC_CTYPE='en_US.UTF-8';
 
 -- Grant all privileges
-GRANT ALL PRIVILEGES ON DATABASE $APP_NAME TO $APP_USER;
+GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 
 -- Grant schema privileges (needed for Django)
-\c $APP_NAME
-GRANT ALL ON SCHEMA public TO $APP_USER;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $APP_USER;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $APP_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $APP_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $APP_USER;
+\c $DB_NAME
+GRANT ALL ON SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
 EOF
     
     # Test database connection
     log "Testing database connection..."
-    if sudo -u postgres psql -d "$APP_NAME" -c "SELECT version();" > /dev/null 2>&1; then
+    if sudo -u postgres psql -d "$DB_NAME" -c "SELECT version();" > /dev/null 2>&1; then
         success "Database configured and connection tested"
     else
         error "Database connection test failed"
@@ -322,10 +324,10 @@ DEBUG=False
 ALLOWED_HOSTS=$DOMAIN,www.$DOMAIN,localhost,127.0.0.1,$(hostname -I | awk '{print $1}')
 
 # Database
-DATABASE_URL=postgresql://$APP_USER:$DB_PASSWORD@localhost:5432/$APP_NAME
+DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME
 DB_ENGINE=postgresql
-DB_NAME=$APP_NAME
-DB_USER=$APP_USER
+DB_NAME=$DB_NAME
+DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 DB_HOST=localhost
 DB_PORT=5432
