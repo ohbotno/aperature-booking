@@ -222,6 +222,9 @@ quick_setup() {
     mkdir -p "$APP_DIR"/{logs,media,static,backups}
     mkdir -p /var/{run,log}/$APP_NAME
     
+    # Ensure directories have correct permissions
+    chmod 755 /var/run/$APP_NAME /var/log/$APP_NAME
+    
     log "Cloning repository..."
     if [[ -d "$APP_DIR/.git" ]]; then
         log "Repository already exists, updating..."
@@ -365,12 +368,16 @@ User=$APP_USER
 Group=$APP_USER
 WorkingDirectory=$APP_DIR
 Environment="PATH=$APP_DIR/venv/bin"
+Environment="DJANGO_SETTINGS_MODULE=aperture_booking.settings"
+EnvironmentFile=$APP_DIR/.env
 ExecStart=$APP_DIR/venv/bin/gunicorn \\
     --workers 3 \\
     --bind unix:/var/run/$APP_NAME/gunicorn.sock \\
     --access-logfile /var/log/$APP_NAME/access.log \\
     --error-logfile /var/log/$APP_NAME/error.log \\
     aperture_booking.wsgi:application
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -404,6 +411,9 @@ EOF
     elif systemctl list-unit-files | grep -q "redis.service"; then
         systemctl enable --now redis
     fi
+    # Clean up any existing socket files
+    rm -f /var/run/$APP_NAME/gunicorn.sock
+    
     systemctl enable --now $APP_NAME.service $APP_NAME-scheduler.service
     systemctl enable nginx
     
