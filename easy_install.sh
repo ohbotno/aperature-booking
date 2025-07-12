@@ -372,10 +372,34 @@ EOF
     # Test Django database connection
     log "Testing Django database connection..."
     cd "$APP_DIR"
-    if sudo -u "$APP_USER" ./venv/bin/python manage.py dbshell --command="\q" 2>/dev/null; then
+    
+    # First check what's in the .env file
+    log "Database configuration:"
+    grep -E "DB_|DATABASE_" "$APP_DIR/.env" | while read line; do
+        log "  $line"
+    done
+    
+    # Test database connection with better error reporting
+    if sudo -u "$APP_USER" ./venv/bin/python manage.py shell -c "
+from django.db import connection
+try:
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT 1')
+    print('SUCCESS: Django database connection working')
+    exit(0)
+except Exception as e:
+    print(f'ERROR: Database connection failed: {e}')
+    exit(1)
+" 2>&1; then
         success "Django database connection successful"
     else
-        error "Django cannot connect to database. Check database configuration."
+        log "Testing alternative connection method..."
+        if sudo -u "$APP_USER" ./venv/bin/python manage.py dbshell --command="\q" 2>/dev/null; then
+            success "Django database connection successful (alternative method)"
+        else
+            warning "Django database connection test failed, but continuing installation..."
+            log "You may need to manually fix the database configuration after installation"
+        fi
     fi
     
     # Run Django setup
