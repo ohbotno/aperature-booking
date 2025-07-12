@@ -260,18 +260,19 @@ DROP USER IF EXISTS $DB_USER;
 -- Create user with password
 CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';
 
--- Create database with proper encoding
+-- Create database with proper encoding (using template0 for custom collation)
 CREATE DATABASE $DB_NAME 
     OWNER $DB_USER 
     ENCODING 'UTF8' 
-    LC_COLLATE='en_US.UTF-8' 
-    LC_CTYPE='en_US.UTF-8';
+    TEMPLATE template0;
 
 -- Grant all privileges
 GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 
--- Grant schema privileges (needed for Django)
-\c $DB_NAME
+EOF
+
+    # Grant schema privileges in a separate command after database is created
+    sudo -u postgres psql -d "$DB_NAME" << EOF
 GRANT ALL ON SCHEMA public TO $DB_USER;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
