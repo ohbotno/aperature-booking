@@ -4642,7 +4642,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="maintenance",
             constraint=models.CheckConstraint(
-                condition=models.Q(("end_time__gt", models.F("start_time"))),
+                check=models.Q(("end_time__gt", models.F("start_time"))),
                 name="maintenance_end_after_start",
             ),
         ),
@@ -4653,7 +4653,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="booking",
             constraint=models.CheckConstraint(
-                condition=models.Q(("end_time__gt", models.F("start_time"))),
+                check=models.Q(("end_time__gt", models.F("start_time"))),
                 name="booking_end_after_start",
             ),
         ),
