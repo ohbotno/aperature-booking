@@ -204,6 +204,12 @@ install_dependencies() {
         postgresql-setup initdb
     fi
     
+    # Verify critical dependencies
+    log "Verifying dependencies..."
+    if ! command -v pkg-config &> /dev/null; then
+        error "pkg-config installation failed. Please install manually: sudo apt-get install pkg-config"
+    fi
+    
     success "Dependencies installed"
 }
 
@@ -255,7 +261,18 @@ setup_python() {
     
     cd "$APP_DIR"
     sudo -u "$APP_USER" python3 -m venv venv
-    sudo -u "$APP_USER" ./venv/bin/pip install --upgrade pip wheel
+    sudo -u "$APP_USER" ./venv/bin/pip install --upgrade pip wheel setuptools
+    
+    # Try to install mysqlclient with proper flags if needed
+    log "Installing Python dependencies..."
+    if ! sudo -u "$APP_USER" ./venv/bin/pip install mysqlclient; then
+        warning "mysqlclient installation failed, trying with manual flags..."
+        export MYSQLCLIENT_CFLAGS=`pkg-config --cflags mysqlclient || echo "-I/usr/include/mysql"`
+        export MYSQLCLIENT_LDFLAGS=`pkg-config --libs mysqlclient || echo "-L/usr/lib/x86_64-linux-gnu -lmysqlclient"`
+        sudo -u "$APP_USER" ./venv/bin/pip install mysqlclient
+    fi
+    
+    # Install remaining requirements
     sudo -u "$APP_USER" ./venv/bin/pip install -r requirements.txt
     sudo -u "$APP_USER" ./venv/bin/pip install gunicorn psycopg2-binary redis
     
