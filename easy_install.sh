@@ -404,7 +404,8 @@ EOF
     elif systemctl list-unit-files | grep -q "redis.service"; then
         systemctl enable --now redis
     fi
-    systemctl enable $APP_NAME.service $APP_NAME-scheduler.service
+    systemctl enable --now $APP_NAME.service $APP_NAME-scheduler.service
+    systemctl enable nginx
     
     success "Services configured"
 }
@@ -531,16 +532,22 @@ EOF
 
 # Start services
 start_services() {
-    log "Starting services..."
+    log "Verifying services are running..."
     
-    systemctl start $APP_NAME.service $APP_NAME-scheduler.service
+    # Ensure services are started (they should already be from setup_services)
+    systemctl start $APP_NAME.service $APP_NAME-scheduler.service 2>/dev/null || true
     
-    # Check if services are running
+    # Check if services are running and enabled
     sleep 3
-    if systemctl is-active --quiet $APP_NAME.service; then
-        success "Application is running"
+    if systemctl is-active --quiet $APP_NAME.service && systemctl is-enabled --quiet $APP_NAME.service; then
+        success "Application is running and enabled for auto-start"
     else
-        error "Application failed to start. Check logs: journalctl -u $APP_NAME"
+        if ! systemctl is-active --quiet $APP_NAME.service; then
+            error "Application failed to start. Check logs: journalctl -u $APP_NAME"
+        elif ! systemctl is-enabled --quiet $APP_NAME.service; then
+            warning "Application is running but not enabled for auto-start"
+            systemctl enable $APP_NAME.service $APP_NAME-scheduler.service
+        fi
     fi
 }
 
