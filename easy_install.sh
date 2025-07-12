@@ -224,7 +224,8 @@ quick_setup() {
     mkdir -p "$APP_DIR"/{logs,media,static,backups}
     mkdir -p /var/{run,log}/$APP_NAME
     
-    # Ensure directories have correct permissions
+    # Ensure directories have correct permissions and ownership
+    chown "$APP_USER:$APP_USER" /var/run/$APP_NAME /var/log/$APP_NAME
     chmod 755 /var/run/$APP_NAME /var/log/$APP_NAME
     
     log "Cloning repository..."
@@ -475,6 +476,11 @@ EOF
     elif systemctl list-unit-files | grep -q "redis.service"; then
         systemctl enable --now redis
     fi
+    # Ensure run directory exists with correct ownership before starting services
+    mkdir -p /var/run/$APP_NAME
+    chown "$APP_USER:$APP_USER" /var/run/$APP_NAME
+    chmod 755 /var/run/$APP_NAME
+    
     # Clean up any existing socket files
     rm -f /var/run/$APP_NAME/gunicorn.sock
     
@@ -612,12 +618,23 @@ start_services() {
     systemctl start $APP_NAME.service $APP_NAME-scheduler.service 2>/dev/null || true
     
     # Check if services are running and enabled
-    sleep 3
+    sleep 5
     if systemctl is-active --quiet $APP_NAME.service && systemctl is-enabled --quiet $APP_NAME.service; then
-        success "Application is running and enabled for auto-start"
+        # Verify socket file was created
+        if [[ -S "/var/run/$APP_NAME/gunicorn.sock" ]]; then
+            success "Application is running and socket created successfully"
+        else
+            warning "Service is running but socket file not found"
+            sleep 2
+            if [[ -S "/var/run/$APP_NAME/gunicorn.sock" ]]; then
+                success "Socket file created (delayed)"
+            else
+                warning "Socket file still missing - check service logs"
+            fi
+        fi
     else
         if ! systemctl is-active --quiet $APP_NAME.service; then
-            error "Application failed to start. Check logs: journalctl -u $APP_NAME"
+            error "Application failed to start. Check logs: journalctl -u $APP_NAME --no-pager -n 10"
         elif ! systemctl is-enabled --quiet $APP_NAME.service; then
             warning "Application is running but not enabled for auto-start"
             systemctl enable $APP_NAME.service $APP_NAME-scheduler.service
