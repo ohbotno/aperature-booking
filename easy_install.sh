@@ -425,7 +425,8 @@ setup_services() {
     cat > /etc/systemd/system/$APP_NAME.service << EOF
 [Unit]
 Description=Aperture Booking Gunicorn
-After=network.target postgresql.service $REDIS_SERVICE
+After=network.target postgresql.service
+Wants=$REDIS_SERVICE
 
 [Service]
 Type=notify
@@ -472,11 +473,22 @@ EOF
     systemctl daemon-reload
     systemctl enable --now postgresql
     
-    # Enable Redis with correct service name
+    # Enable Redis with correct service name and fix runtime directory issues
     if systemctl list-unit-files | grep -q "redis-server.service"; then
-        systemctl enable --now redis-server
+        # Create Redis runtime directory and tmpfiles config
+        mkdir -p /var/run/redis
+        chown redis:redis /var/run/redis 2>/dev/null || true
+        chmod 755 /var/run/redis
+        
+        cat > /etc/tmpfiles.d/redis.conf << EOF
+d /var/run/redis 0755 redis redis -
+EOF
+        
+        systemctl enable redis-server
+        systemctl start redis-server || warning "Redis failed to start, but continuing installation"
     elif systemctl list-unit-files | grep -q "redis.service"; then
-        systemctl enable --now redis
+        systemctl enable redis
+        systemctl start redis || warning "Redis failed to start, but continuing installation"
     fi
     # Create systemd tmpfiles configuration to recreate runtime directory on boot
     cat > /etc/tmpfiles.d/$APP_NAME.conf << EOF
