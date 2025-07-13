@@ -29,7 +29,7 @@ APP_DIR="/opt/aperture-booking"
 DOMAIN=""
 EMAIL=""
 DB_PASSWORD=$(openssl rand -base64 32)
-SECRET_KEY=$(python3 -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())' 2>/dev/null || openssl rand -base64 50)
+SECRET_KEY=$(openssl rand -base64 50)
 
 # Colors
 RED='\033[0;31m'
@@ -436,6 +436,11 @@ EOF
     # Verify critical tables exist
     log "Verifying database tables..."
     if sudo -u "$APP_USER" ./venv/bin/python -c "
+import os
+import django
+from django.conf import settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'aperture_booking.settings')
+django.setup()
 from django.db import connection
 with connection.cursor() as cursor:
     cursor.execute(\"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'auth_user'\")
