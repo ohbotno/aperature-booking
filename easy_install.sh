@@ -449,6 +449,30 @@ EOF
     log "Creating email templates..."
     sudo -u "$APP_USER" ./venv/bin/python manage.py create_email_templates || true
     
+    # Run any additional Django setup commands
+    log "Finalizing Django setup..."
+    sudo -u "$APP_USER" ./venv/bin/python manage.py check --deploy 2>/dev/null || true
+    
+    # Create any missing default objects
+    log "Setting up default configuration..."
+    sudo -u "$APP_USER" ./venv/bin/python manage.py shell -c "
+# Create default LabSettings if it doesn't exist
+from booking.models import LabSettings
+if not LabSettings.objects.exists():
+    LabSettings.objects.create(
+        lab_name='Aperture Booking',
+        contact_email='$EMAIL',
+        allow_booking_requests=True
+    )
+    print('Default lab settings created')
+
+# Ensure default groups exist
+from django.contrib.auth.models import Group
+lab_admin_group, created = Group.objects.get_or_create(name='Lab Admin')
+if created:
+    print('Lab Admin group created')
+" || true
+    
     success "Application configured"
 }
 
@@ -643,18 +667,18 @@ create_admin() {
         warning "Email: $EMAIL"
         warning "IMPORTANT: Change this password immediately after login!"
         
-        sudo -u "$APP_USER" ./venv/bin/python -c "
-import os
-import django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'aperture_booking.settings')
-django.setup()
+        if sudo -u "$APP_USER" ./venv/bin/python manage.py shell -c "
 from django.contrib.auth.models import User
 if not User.objects.filter(username='admin').exists():
     User.objects.create_superuser('admin', '$EMAIL', 'admin123')
     print('Default admin user created')
 else:
     print('Admin user already exists')
-"
+"; then
+            log "Admin user creation completed"
+        else
+            warning "Admin user creation failed, you may need to create one manually"
+        fi
         success "Default admin user created (username: admin, password: admin123)"
     fi
 }
@@ -697,33 +721,81 @@ EOF
 
 # Start services
 start_services() {
-    log "Verifying services are running..."
+    log "Starting and verifying services..."
     
-    # Ensure services are started (they should already be from setup_services)
-    systemctl start $APP_NAME.service $APP_NAME-scheduler.service 2>/dev/null || true
+    # Restart services to ensure clean state
+    log "Restarting application services..."
+    systemctl stop $APP_NAME.service $APP_NAME-scheduler.service 2>/dev/null || true
+    sleep 2
     
-    # Check if services are running and enabled
-    sleep 5
-    if systemctl is-active --quiet $APP_NAME.service && systemctl is-enabled --quiet $APP_NAME.service; then
+    # Start services
+    systemctl start $APP_NAME.service
+    systemctl start $APP_NAME-scheduler.service
+    
+    # Reload nginx to ensure it picks up any changes
+    systemctl reload nginx
+    
+    # Wait for services to start
+    log "Waiting for services to start..."
+    sleep 10
+    
+    # Check application service
+    if systemctl is-active --quiet $APP_NAME.service; then
+        success "Application service is running"
+        
         # Verify socket file was created
         if [[ -S "/var/run/$APP_NAME/gunicorn.sock" ]]; then
-            success "Application is running and socket created successfully"
+            success "Gunicorn socket created successfully"
         else
-            warning "Service is running but socket file not found"
-            sleep 2
+            warning "Gunicorn socket not found, waiting longer..."
+            sleep 5
             if [[ -S "/var/run/$APP_NAME/gunicorn.sock" ]]; then
-                success "Socket file created (delayed)"
+                success "Gunicorn socket created (delayed)"
             else
-                warning "Socket file still missing - check service logs"
+                warning "Gunicorn socket still missing"
+                log "Service logs:"
+                journalctl -u $APP_NAME --no-pager -n 5
             fi
         fi
     else
-        if ! systemctl is-active --quiet $APP_NAME.service; then
-            error "Application failed to start. Check logs: journalctl -u $APP_NAME --no-pager -n 10"
-        elif ! systemctl is-enabled --quiet $APP_NAME.service; then
-            warning "Application is running but not enabled for auto-start"
-            systemctl enable $APP_NAME.service $APP_NAME-scheduler.service
-        fi
+        warning "Application service failed to start"
+        log "Service status:"
+        systemctl status $APP_NAME.service --no-pager -l
+        log "Recent logs:"
+        journalctl -u $APP_NAME --no-pager -n 10
+    fi
+    
+    # Check scheduler service
+    if systemctl is-active --quiet $APP_NAME-scheduler.service; then
+        success "Scheduler service is running"
+    else
+        warning "Scheduler service failed to start"
+        log "Scheduler status:"
+        systemctl status $APP_NAME-scheduler.service --no-pager -l
+    fi
+    
+    # Check nginx
+    if systemctl is-active --quiet nginx; then
+        success "Nginx is running"
+    else
+        warning "Nginx is not running"
+        systemctl status nginx --no-pager -l
+    fi
+    
+    # Final verification - test HTTP response
+    log "Testing HTTP response..."
+    sleep 2
+    local server_ip=$(hostname -I | awk '{print $1}')
+    if curl -f -s "http://localhost/" > /dev/null 2>&1; then
+        success "Application is responding to HTTP requests"
+    elif curl -f -s "http://$server_ip/" > /dev/null 2>&1; then
+        success "Application is responding to HTTP requests on $server_ip"
+    else
+        warning "Application may not be responding to HTTP requests"
+        log "You may need to check:"
+        log "  - Service logs: journalctl -u $APP_NAME -f"
+        log "  - Nginx logs: tail -f /var/log/nginx/error.log"
+        log "  - Application logs: tail -f $APP_DIR/logs/*.log"
     fi
 }
 
@@ -824,12 +896,12 @@ main() {
     setup_database
     setup_python
     configure_app
+    create_admin
     setup_services
     setup_nginx
     setup_ssl
     setup_backups
     start_services
-    create_admin
     
     END_TIME=$(date +%s)
     DURATION=$((END_TIME - START_TIME))
