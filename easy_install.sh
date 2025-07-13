@@ -425,20 +425,53 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
 EOF
     fi
     
-    # Run Django migrations
+    # Run Django migrations with better error handling
     log "Running Django migrations..."
-    if sudo -u "$APP_USER" ./venv/bin/python manage.py migrate; then
+    if sudo -u "$APP_USER" ./venv/bin/python manage.py migrate --verbosity=2; then
         success "Django migrations completed"
     else
-        error "Django migrations failed. Check logs and database configuration."
+        log "Initial migration failed, attempting database reset..."
+        
+        # Reset database completely and try again
+        sudo -u postgres psql << EOF
+DROP DATABASE IF EXISTS $DB_NAME;
+CREATE DATABASE $DB_NAME OWNER $DB_USER ENCODING 'UTF8' TEMPLATE template0;
+GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
+EOF
+        
+        # Grant schema privileges again
+        sudo -u postgres psql -d "$DB_NAME" << EOF
+GRANT ALL ON SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
+EOF
+        
+        # Try migrations again
+        if sudo -u "$APP_USER" ./venv/bin/python manage.py migrate --verbosity=2; then
+            success "Django migrations completed after database reset"
+        else
+            error "Django migrations failed even after database reset. Check logs and database configuration."
+        fi
     fi
     
-    # Verify Django can connect to database (simple check)
-    log "Verifying Django database connection..."
-    if sudo -u "$APP_USER" ./venv/bin/python manage.py check --database default; then
-        success "Database connection verified"
+    # Verify critical tables exist
+    log "Verifying critical database tables..."
+    if sudo -u "$APP_USER" ./venv/bin/python manage.py shell -c "
+from django.contrib.auth.models import User
+from booking.models import LabSettings
+print('Testing User model...')
+user_count = User.objects.count()
+print(f'User table exists with {user_count} users')
+print('Testing LabSettings model...')
+settings_count = LabSettings.objects.count()
+print(f'LabSettings table exists with {settings_count} settings')
+print('All critical tables verified successfully')
+"; then
+        success "Critical database tables verified"
     else
-        error "Database connection verification failed"
+        error "Critical database tables verification failed"
     fi
     
     # Collect static files
