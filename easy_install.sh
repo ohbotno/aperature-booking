@@ -490,18 +490,20 @@ EOF
         mkdir -p /etc/systemd/system/redis-server.service.d/
         cat > /etc/systemd/system/redis-server.service.d/override.conf << EOF
 [Service]
-RuntimeDirectory=
-ExecStartPre=/bin/mkdir -p /var/run/redis
-ExecStartPre=/bin/chown redis:redis /var/run/redis
+ExecStartPre=/usr/bin/mkdir -p /var/run/redis
+ExecStartPre=/usr/bin/chown redis:redis /var/run/redis
 EOF
         
         systemctl daemon-reload
         systemctl enable redis-server
+        systemctl reset-failed redis-server 2>/dev/null || true
         if systemctl start redis-server; then
             success "Redis started successfully"
         else
             warning "Redis failed to start. The application will work without Redis caching."
-            warning "To fix Redis later, check: journalctl -xeu redis-server"
+            warning "Disabling Redis to prevent startup issues..."
+            systemctl disable redis-server 2>/dev/null || true
+            systemctl mask redis-server 2>/dev/null || true
         fi
     elif systemctl list-unit-files | grep -q "redis.service"; then
         systemctl enable redis
