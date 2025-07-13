@@ -180,7 +180,7 @@ install_dependencies() {
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
             python3 python3-pip python3-venv python3-dev \
             postgresql postgresql-contrib \
-            nginx redis-server \
+            nginx \
             build-essential libpq-dev \
             pkg-config \
             default-libmysqlclient-dev \
@@ -193,7 +193,7 @@ install_dependencies() {
         yum install -y \
             python3 python3-pip python3-devel \
             postgresql postgresql-server postgresql-contrib \
-            nginx redis \
+            nginx \
             gcc postgresql-devel \
             pkgconfig \
             mysql-devel \
@@ -309,7 +309,7 @@ setup_python() {
     
     # Install remaining requirements
     sudo -u "$APP_USER" ./venv/bin/pip install -r requirements.txt
-    sudo -u "$APP_USER" ./venv/bin/pip install gunicorn psycopg2-binary redis django-apscheduler
+    sudo -u "$APP_USER" ./venv/bin/pip install gunicorn psycopg2-binary django-apscheduler
     
     success "Python environment ready"
 }
@@ -342,9 +342,9 @@ EMAIL_USE_TLS=False
 DEFAULT_FROM_EMAIL=noreply@$DOMAIN
 SERVER_EMAIL=server@$DOMAIN
 
-# Redis Cache
-CACHE_BACKEND=django.core.cache.backends.redis.RedisCache
-CACHE_LOCATION=redis://127.0.0.1:6379/1
+# Cache (using database cache instead of Redis)
+CACHE_BACKEND=django.core.cache.backends.db.DatabaseCache
+CACHE_LOCATION=cache_table
 
 # Security
 SECURE_SSL_REDIRECT=$([ "$INSTALL_SSL" == "y" ] && echo "True" || echo "False")
@@ -453,6 +453,10 @@ EOF
     log "Finalizing Django setup..."
     sudo -u "$APP_USER" ./venv/bin/python manage.py check --deploy 2>/dev/null || true
     
+    # Create cache table for database caching
+    log "Creating cache table..."
+    sudo -u "$APP_USER" ./venv/bin/python manage.py createcachetable
+    
     # Create any missing default objects
     log "Setting up default configuration..."
     sudo -u "$APP_USER" ./venv/bin/python manage.py shell -c "
@@ -480,18 +484,11 @@ if created:
 setup_services() {
     log "Setting up system services..."
     
-    # Determine Redis service name
-    REDIS_SERVICE="redis-server.service"
-    if systemctl list-unit-files | grep -q "^redis.service"; then
-        REDIS_SERVICE="redis.service"
-    fi
-    
     # Gunicorn service
     cat > /etc/systemd/system/$APP_NAME.service << EOF
 [Unit]
 Description=Aperture Booking Gunicorn
 After=network.target postgresql.service
-Wants=$REDIS_SERVICE
 
 [Service]
 Type=notify
@@ -537,45 +534,6 @@ EOF
 
     systemctl daemon-reload
     systemctl enable --now postgresql
-    
-    # Enable Redis with correct service name and fix runtime directory issues
-    if systemctl list-unit-files | grep -q "redis-server.service"; then
-        log "Configuring Redis..."
-        
-        # Create Redis runtime directory and tmpfiles config
-        mkdir -p /var/run/redis
-        chown redis:redis /var/run/redis 2>/dev/null || true
-        chmod 755 /var/run/redis
-        
-        cat > /etc/tmpfiles.d/redis.conf << EOF
-d /var/run/redis 0755 redis redis -
-EOF
-        
-        # Create systemd override to fix runtime directory issue
-        mkdir -p /etc/systemd/system/redis-server.service.d/
-        cat > /etc/systemd/system/redis-server.service.d/override.conf << EOF
-[Service]
-ExecStartPre=/usr/bin/mkdir -p /var/run/redis
-ExecStartPre=/usr/bin/chown redis:redis /var/run/redis
-EOF
-        
-        systemctl daemon-reload
-        systemctl enable redis-server
-        systemctl reset-failed redis-server 2>/dev/null || true
-        if systemctl start redis-server; then
-            success "Redis started successfully"
-        else
-            warning "Redis failed to start. The application will work without Redis caching."
-            warning "Disabling Redis to prevent startup issues..."
-            systemctl disable redis-server 2>/dev/null || true
-            systemctl mask redis-server 2>/dev/null || true
-        fi
-    elif systemctl list-unit-files | grep -q "redis.service"; then
-        systemctl enable redis
-        systemctl start redis || warning "Redis failed to start, but continuing installation"
-    else
-        warning "Redis not found. The application will work without Redis caching."
-    fi
     # Create systemd tmpfiles configuration to recreate runtime directory on boot
     cat > /etc/tmpfiles.d/$APP_NAME.conf << EOF
 # Create runtime directory for Aperture Booking
