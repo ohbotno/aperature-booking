@@ -475,6 +475,8 @@ EOF
     
     # Enable Redis with correct service name and fix runtime directory issues
     if systemctl list-unit-files | grep -q "redis-server.service"; then
+        log "Configuring Redis..."
+        
         # Create Redis runtime directory and tmpfiles config
         mkdir -p /var/run/redis
         chown redis:redis /var/run/redis 2>/dev/null || true
@@ -484,11 +486,28 @@ EOF
 d /var/run/redis 0755 redis redis -
 EOF
         
+        # Create systemd override to fix runtime directory issue
+        mkdir -p /etc/systemd/system/redis-server.service.d/
+        cat > /etc/systemd/system/redis-server.service.d/override.conf << EOF
+[Service]
+RuntimeDirectory=
+ExecStartPre=/bin/mkdir -p /var/run/redis
+ExecStartPre=/bin/chown redis:redis /var/run/redis
+EOF
+        
+        systemctl daemon-reload
         systemctl enable redis-server
-        systemctl start redis-server || warning "Redis failed to start, but continuing installation"
+        if systemctl start redis-server; then
+            success "Redis started successfully"
+        else
+            warning "Redis failed to start. The application will work without Redis caching."
+            warning "To fix Redis later, check: journalctl -xeu redis-server"
+        fi
     elif systemctl list-unit-files | grep -q "redis.service"; then
         systemctl enable redis
         systemctl start redis || warning "Redis failed to start, but continuing installation"
+    else
+        warning "Redis not found. The application will work without Redis caching."
     fi
     # Create systemd tmpfiles configuration to recreate runtime directory on boot
     cat > /etc/tmpfiles.d/$APP_NAME.conf << EOF
