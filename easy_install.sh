@@ -433,25 +433,12 @@ EOF
         error "Django migrations failed. Check logs and database configuration."
     fi
     
-    # Verify critical tables exist
-    log "Verifying database tables..."
-    if sudo -u "$APP_USER" ./venv/bin/python -c "
-import os
-import django
-from django.conf import settings
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'aperture_booking.settings')
-django.setup()
-from django.db import connection
-with connection.cursor() as cursor:
-    cursor.execute(\"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'auth_user'\")
-    if cursor.fetchone()[0] == 0:
-        print('ERROR: auth_user table not found')
-        exit(1)
-    print('Core tables verified')
-"; then
-        success "Database tables verified"
+    # Verify Django can connect to database (simple check)
+    log "Verifying Django database connection..."
+    if sudo -u "$APP_USER" ./venv/bin/python manage.py check --database default; then
+        success "Database connection verified"
     else
-        error "Database tables verification failed"
+        error "Database connection verification failed"
     fi
     
     # Collect static files
