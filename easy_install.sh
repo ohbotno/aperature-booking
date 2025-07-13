@@ -380,32 +380,81 @@ EOF
         log "  $line"
     done
     
-    # Test database connection with better error reporting
-    if sudo -u "$APP_USER" ./venv/bin/python manage.py shell -c "
+    # Test basic database connectivity
+    log "Testing database connectivity..."
+    if sudo -u "$APP_USER" ./venv/bin/python -c "
+import os
+import django
+from django.conf import settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'aperture_booking.settings')
+django.setup()
 from django.db import connection
 try:
     with connection.cursor() as cursor:
         cursor.execute('SELECT 1')
-    print('SUCCESS: Django database connection working')
-    exit(0)
+    print('Database connection: OK')
 except Exception as e:
-    print(f'ERROR: Database connection failed: {e}')
+    print(f'Database connection failed: {e}')
     exit(1)
-" 2>&1; then
-        success "Django database connection successful"
+"; then
+        success "Database connection successful"
     else
-        log "Testing alternative connection method..."
-        if sudo -u "$APP_USER" ./venv/bin/python manage.py dbshell --command="\q" 2>/dev/null; then
-            success "Django database connection successful (alternative method)"
-        else
-            warning "Django database connection test failed, but continuing installation..."
-            log "You may need to manually fix the database configuration after installation"
-        fi
+        error "Database connection failed. Check configuration and try again."
     fi
     
-    # Run Django setup
-    sudo -u "$APP_USER" ./venv/bin/python manage.py migrate
+    # Check if migrations are needed
+    log "Checking database state..."
+    if sudo -u "$APP_USER" ./venv/bin/python manage.py showmigrations --plan | grep -q "auth.*\[ \]"; then
+        log "Database appears to be empty, running initial setup..."
+        
+        # Drop and recreate database to ensure clean state
+        log "Resetting database for clean installation..."
+        sudo -u postgres psql << EOF
+DROP DATABASE IF EXISTS $DB_NAME;
+CREATE DATABASE $DB_NAME OWNER $DB_USER ENCODING 'UTF8' TEMPLATE template0;
+GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
+EOF
+        
+        # Grant schema privileges
+        sudo -u postgres psql -d "$DB_NAME" << EOF
+GRANT ALL ON SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
+EOF
+    fi
+    
+    # Run Django migrations
+    log "Running Django migrations..."
+    if sudo -u "$APP_USER" ./venv/bin/python manage.py migrate; then
+        success "Django migrations completed"
+    else
+        error "Django migrations failed. Check logs and database configuration."
+    fi
+    
+    # Verify critical tables exist
+    log "Verifying database tables..."
+    if sudo -u "$APP_USER" ./venv/bin/python -c "
+from django.db import connection
+with connection.cursor() as cursor:
+    cursor.execute(\"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'auth_user'\")
+    if cursor.fetchone()[0] == 0:
+        print('ERROR: auth_user table not found')
+        exit(1)
+    print('Core tables verified')
+"; then
+        success "Database tables verified"
+    else
+        error "Database tables verification failed"
+    fi
+    
+    # Collect static files
+    log "Collecting static files..."
     sudo -u "$APP_USER" ./venv/bin/python manage.py collectstatic --noinput
+    
+    # Create email templates
+    log "Creating email templates..."
     sudo -u "$APP_USER" ./venv/bin/python manage.py create_email_templates || true
     
     success "Application configured"
@@ -602,15 +651,18 @@ create_admin() {
         warning "Email: $EMAIL"
         warning "IMPORTANT: Change this password immediately after login!"
         
-        sudo -u "$APP_USER" ./venv/bin/python manage.py shell << 'EOF'
-from django.contrib.auth.models import User
+        sudo -u "$APP_USER" ./venv/bin/python -c "
 import os
+import django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'aperture_booking.settings')
+django.setup()
+from django.contrib.auth.models import User
 if not User.objects.filter(username='admin').exists():
-    User.objects.create_superuser('admin', os.environ.get('ADMIN_EMAIL', 'admin@localhost'), 'admin123')
-    print("Default admin user created")
+    User.objects.create_superuser('admin', '$EMAIL', 'admin123')
+    print('Default admin user created')
 else:
-    print("Admin user already exists")
-EOF
+    print('Admin user already exists')
+"
         success "Default admin user created (username: admin, password: admin123)"
     fi
 }
