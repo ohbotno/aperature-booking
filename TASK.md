@@ -20,16 +20,20 @@
 - ✅ Recurring booking support
 
 ### Recent Updates (Based on Git History)
-1. **Lab Customization**: Implemented lab customization for free version (commit b492427)
-2. **UI Improvements**: Fixed footer spacing with non-breaking space (commit 43ffe30)
-3. **Code Cleanup**: Removed development testing files (commit 7770652)
-4. **Resource Tracking**: Implemented comprehensive resource issue tracking (commit a435f8b)
-5. **Licensing System**: Comprehensive licensing system for white-label deployment (commit cf3d4cd)
-6. **Version Display Fix**: Fixed version number inconsistency on site admin updates page (2025-07-07)
+1. **One-Command Installation**: Created production-ready installation script with automated deployment (2025-07-13)
+2. **Database Migration Fixes**: Enhanced database setup and migration handling for production deployments (2025-07-13)
+3. **Lab Customization**: Implemented lab customization for free version (commit b492427)
+4. **UI Improvements**: Fixed footer spacing with non-breaking space (commit 43ffe30)
+5. **Code Cleanup**: Removed development testing files (commit 7770652)
+6. **Resource Tracking**: Implemented comprehensive resource issue tracking (commit a435f8b)
+7. **Licensing System**: Comprehensive licensing system for white-label deployment (commit cf3d4cd)
+8. **Version Display Fix**: Fixed version number inconsistency on site admin updates page (2025-07-07)
 
 ## Current Tasks
 
 ### High Priority
+- [x] ✅ Create one-command production installation script
+- [x] ✅ Fix database migration issues in production deployment  
 - [ ] Review and test the licensing middleware implementation
 - [ ] Ensure all email templates are properly configured
 - [ ] Verify production deployment scripts are up to date
@@ -137,7 +141,22 @@ Before any release:
 
 ## Deployment Notes
 
-### Production Deployment
+### One-Command Production Installation
+For new deployments, use the automated installation script:
+```bash
+curl -fsSL https://raw.githubusercontent.com/ohbotno/aperture-booking/main/easy_install.sh | sudo bash
+```
+
+Features:
+- Automatic OS detection (Ubuntu/Debian/CentOS/RHEL)
+- Full system dependency installation (Python, PostgreSQL, Nginx, Redis)
+- Database setup with proper user permissions
+- Systemd service configuration with runtime directory handling
+- SSL certificate setup with Certbot (optional)
+- Automatic backup configuration
+- Non-interactive mode support for CI/CD pipelines
+
+### Manual Production Deployment
 1. Update version number in settings
 2. Run database migrations
 3. Collect static files

@@ -15,8 +15,15 @@ def fix_migration_file(filepath):
     
     # Replace condition= with check= in CheckConstraint
     original_content = content
+    # Handle both formats
     content = re.sub(
         r'(CheckConstraint\s*\(\s*)condition(\s*=)',
+        r'\1check\2',
+        content
+    )
+    # Also handle inline format
+    content = re.sub(
+        r'(constraint\s*=\s*models\.CheckConstraint\s*\(\s*)condition(\s*=)',
         r'\1check\2',
         content
     )

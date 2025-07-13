@@ -10,7 +10,7 @@
 # This script automatically installs Aperture Booking with:
 # - Nginx + Gunicorn
 # - PostgreSQL database
-# - Redis for caching
+# - Database caching
 # - SSL certificate (optional)
 # - Systemd services
 # - Automatic backups
@@ -534,6 +534,15 @@ EOF
 
     systemctl daemon-reload
     systemctl enable --now postgresql
+    
+    # Clean up any existing Redis services (in case they were installed before)
+    log "Cleaning up any existing Redis services..."
+    systemctl stop redis-server 2>/dev/null || true
+    systemctl stop redis 2>/dev/null || true
+    systemctl disable redis-server 2>/dev/null || true
+    systemctl disable redis 2>/dev/null || true
+    systemctl unmask redis-server 2>/dev/null || true
+    systemctl unmask redis 2>/dev/null || true
     # Create systemd tmpfiles configuration to recreate runtime directory on boot
     cat > /etc/tmpfiles.d/$APP_NAME.conf << EOF
 # Create runtime directory for Aperture Booking
