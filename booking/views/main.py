@@ -6149,24 +6149,88 @@ def site_admin_lab_settings_view(request):
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
 def site_admin_audit_logs_view(request):
     """Audit logs and system monitoring."""
-    # This would show booking history, user actions, system events, etc.
+    from booking.log_viewer import log_viewer
     
     # Recent bookings with actions
-    recent_bookings = Booking.objects.select_related('user', 'resource').order_by('-created_at')[:50]
+    recent_bookings = Booking.objects.select_related('user', 'resource').order_by('-created_at')[:20]
     
     # Recent user registrations
-    recent_users = User.objects.order_by('-date_joined')[:20]
+    recent_users = User.objects.order_by('-date_joined')[:10]
     
     # Recent access requests
-    recent_access_requests = AccessRequest.objects.select_related('user', 'resource').order_by('-created_at')[:25]
+    recent_access_requests = AccessRequest.objects.select_related('user', 'resource').order_by('-created_at')[:15]
+    
+    # System logs
+    system_logs = log_viewer.get_logs(hours=24, max_lines=50)
+    log_sources = log_viewer.get_available_sources()
     
     context = {
         'recent_bookings': recent_bookings,
         'recent_users': recent_users,
         'recent_access_requests': recent_access_requests,
+        'system_logs': system_logs,
+        'log_sources': log_sources,
     }
     
     return render(request, 'booking/site_admin_audit.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_logs_ajax(request):
+    """AJAX endpoint for system logs."""
+    from django.http import JsonResponse
+    from booking.log_viewer import log_viewer
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        source = request.GET.get('source')
+        level = request.GET.get('level')
+        search = request.GET.get('search')
+        
+        # Validate numeric parameters
+        try:
+            hours = int(request.GET.get('hours', 24))
+            max_lines = int(request.GET.get('max_lines', 100))
+        except ValueError:
+            return JsonResponse({
+                'error': 'Invalid numeric parameter'
+            }, status=400)
+        
+        # Limit parameters to reasonable values
+        hours = min(max(hours, 1), 720)  # 1 hour to 30 days
+        max_lines = min(max(max_lines, 1), 1000)  # 1 to 1000 lines
+        
+        logs = log_viewer.get_logs(source, level, search, hours, max_lines)
+        
+        log_data = []
+        for log in logs:
+            try:
+                log_data.append({
+                    'timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                    'level': log.level,
+                    'source': log.source,
+                    'message': log.message,
+                    'level_color': log.get_level_color()
+                })
+            except Exception as e:
+                logger.warning(f"Error processing log entry: {e}")
+                continue
+        
+        return JsonResponse({
+            'logs': log_data,
+            'total': len(log_data),
+            'status': 'success'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in logs AJAX endpoint: {e}")
+        return JsonResponse({
+            'error': f'Server error: {str(e)}',
+            'logs': [],
+            'total': 0
+        }, status=500)
 
 
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')

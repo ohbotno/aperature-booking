@@ -17,6 +17,9 @@ https://aperture-booking.org/commercial
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
+from django.urls import path
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 from .models import (
     AboutPage, LabSettings, UserProfile, Resource, Booking, BookingAttendee, 
     ApprovalRule, Maintenance, BookingHistory,
@@ -2606,4 +2609,47 @@ class LicenseValidationLogAdmin(admin.ModelAdmin):
             # Non-superusers can only see their own organization's logs
             qs = qs.filter(license__contact_email=request.user.email)
         return qs
+
+
+# Custom admin URLs integration
+class BookingAdminSite(admin.AdminSite):
+    def get_urls(self):
+        """Add custom URLs for log viewer."""
+        from .log_viewer import log_viewer_admin, log_viewer_ajax
+        urls = super().get_urls()
+        my_urls = [
+            path('booking/systemlogs/', log_viewer_admin.log_viewer_view, name='booking_systemlog_changelist'),
+            path('booking/systemlogs/ajax/', log_viewer_ajax, name='booking_systemlog_ajax'),
+        ]
+        return my_urls + urls
+
+# Replace the default admin site
+booking_admin_site = BookingAdminSite(name='booking_admin')
+
+# Add a menu item for logs
+from django.apps import apps
+from django.urls import reverse
+from django.utils.html import format_html
+
+# Monkey patch to add logs menu item
+original_each_context = admin.site.each_context
+
+def patched_each_context(request):
+    context = original_each_context(request)
+    if request.user.is_staff:
+        # Add logs link to admin menu
+        if 'available_apps' in context:
+            for app in context['available_apps']:
+                if app['app_label'] == 'booking':
+                    app['models'].append({
+                        'name': 'System Logs',
+                        'object_name': 'SystemLog',
+                        'perms': {'change': True, 'add': False, 'delete': False},
+                        'admin_url': reverse('admin:booking_systemlog_changelist'),
+                        'view_only': True,
+                    })
+                    break
+    return context
+
+admin.site.each_context = patched_each_context
 

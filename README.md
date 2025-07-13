@@ -57,8 +57,8 @@ An open-source Django application for managing laboratory resource bookings acro
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/lab-booking-system.git
-cd lab-booking-system/aperture_booking
+git clone https://github.com/ohbotno/aperture-booking.git
+cd aperture-booking/
 ```
 
 ### 2. Create Virtual Environment

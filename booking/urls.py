@@ -161,6 +161,7 @@ urlpatterns = [
     path('site-admin/config/', views.site_admin_system_config_view, name='site_admin_config'),
     path('site-admin/lab-settings/', views.site_admin_lab_settings_view, name='site_admin_lab_settings'),
     path('site-admin/audit/', views.site_admin_audit_logs_view, name='site_admin_audit'),
+    path('site-admin/audit/logs-ajax/', views.site_admin_logs_ajax, name='site_admin_logs_ajax'),
     path('site-admin/health-check/', views.site_admin_health_check_view, name='site_admin_health_check'),
     path('site-admin/test-email/', views.site_admin_test_email_view, name='site_admin_test_email'),
     path('site-admin/email-config/', views.site_admin_email_config_view, name='site_admin_email_config'),
