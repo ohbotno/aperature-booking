@@ -87,10 +87,15 @@ backups/
 CLAUDE.md
 PROJECT.md
 TODO.md
+LOGS.md
+PLANNING.md
+TASK.md
 
 # Development files (keep local, exclude from git)
 debug_urls.py
 CHECKING.md
+apply_migration_fix.sh
+fix_migrations.py
 
 # Testing files (keep local, exclude from git)
 test_backups/
