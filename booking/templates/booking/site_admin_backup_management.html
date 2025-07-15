@@ -205,11 +205,20 @@
                     </div>
                     
                     <div class="row">
-                        <div class="col-12 mb-3">
+                        <div class="col-md-6 mb-3">
                             <button class="btn btn-outline-secondary w-100" id="runScheduledBtn">
                                 <i class="fas fa-play me-2"></i>
                                 Run Scheduled Backups
                                 <span class="spinner-border spinner-border-sm ms-2 d-none" id="runScheduledSpinner" 
+                                      role="status" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <button class="btn btn-outline-success w-100" id="restoreLatestBtn" 
+                                    {% if not backups %}disabled{% endif %}>
+                                <i class="fas fa-undo me-2"></i>
+                                Restore Latest Backup
+                                <span class="spinner-border spinner-border-sm ms-2 d-none" id="restoreLatestSpinner" 
                                       role="status" aria-hidden="true"></span>
                             </button>
                         </div>
@@ -222,7 +231,8 @@
                                     <h6><i class="fas fa-info-circle text-secondary me-2"></i>Backup Information</h6>
                                     <p class="mb-1"><strong>Storage Location:</strong> <code>{{ stats.backup_dir|default:"backups/" }}</code></p>
                                     <p class="mb-1"><strong>Retention Policy:</strong> {{ stats.retention_days|default:30 }} days</p>
-                                    <p class="mb-0"><strong>Compression:</strong> Enabled (tar.gz format)</p>
+                                    <p class="mb-1"><strong>Compression:</strong> Enabled (tar.gz format)</p>
+                                    <p class="mb-0"><strong>Restore:</strong> Available via individual backup actions or quick restore above</p>
                                 </div>
                             </div>
                         </div>
@@ -1106,6 +1116,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const refreshSpinner = document.getElementById('refreshSpinner');
     const runScheduledBtn = document.getElementById('runScheduledBtn');
     const runScheduledSpinner = document.getElementById('runScheduledSpinner');
+    const restoreLatestBtn = document.getElementById('restoreLatestBtn');
+    const restoreLatestSpinner = document.getElementById('restoreLatestSpinner');
     const backupStatus = document.getElementById('backupStatus');
     const statusIcon = document.getElementById('statusIcon');
     const backupProgressModal = new bootstrap.Modal(document.getElementById('backupProgressModal'));
@@ -1249,6 +1261,41 @@ document.addEventListener('DOMContentLoaded', function() {
                 runScheduledSpinner.classList.add('d-none');
                 runScheduledBtn.disabled = false;
             });
+        });
+    }
+    
+    // Handle restore latest backup
+    if (restoreLatestBtn) {
+        restoreLatestBtn.addEventListener('click', function() {
+            restoreLatestSpinner.classList.remove('d-none');
+            restoreLatestBtn.disabled = true;
+            
+            // Find the latest backup (first in the list since they're sorted by date)
+            const firstBackupRow = document.querySelector('tbody tr');
+            if (!firstBackupRow) {
+                showAlert('warning', 'No backups available to restore');
+                restoreLatestSpinner.classList.add('d-none');
+                restoreLatestBtn.disabled = false;
+                return;
+            }
+            
+            // Extract backup name from the first row
+            const backupNameElement = firstBackupRow.querySelector('td:first-child strong');
+            if (!backupNameElement) {
+                showAlert('danger', 'Unable to identify latest backup');
+                restoreLatestSpinner.classList.add('d-none');
+                restoreLatestBtn.disabled = false;
+                return;
+            }
+            
+            const latestBackupName = backupNameElement.textContent.trim();
+            
+            // Reset spinner and button
+            restoreLatestSpinner.classList.add('d-none');
+            restoreLatestBtn.disabled = false;
+            
+            // Show the restore modal for the latest backup
+            showRestoreModal(latestBackupName);
         });
     }
     
