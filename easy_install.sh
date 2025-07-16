@@ -75,12 +75,24 @@ if test -z "$ALLOWED_HOSTS"; then
     fi
 fi
 
+# Set CSRF trusted origins for common ports
+if test -z "$CSRF_TRUSTED_ORIGINS"; then
+    CSRF_TRUSTED_ORIGINS="http://localhost,http://127.0.0.1,https://localhost,https://127.0.0.1"
+    if test -n "$SERVER_IP"; then
+        CSRF_TRUSTED_ORIGINS="$CSRF_TRUSTED_ORIGINS,http://$SERVER_IP,https://$SERVER_IP,http://$SERVER_IP:8080,https://$SERVER_IP:8080"
+    fi
+    if test "$DOMAIN" != "localhost"; then
+        CSRF_TRUSTED_ORIGINS="$CSRF_TRUSTED_ORIGINS,http://$DOMAIN,https://$DOMAIN,http://$DOMAIN:8080,https://$DOMAIN:8080"
+    fi
+fi
+
 print_status "Using configuration:"
 echo "  Domain: $DOMAIN"
 echo "  Install Directory: $INSTALL_DIR"
 echo "  Allowed Hosts: $ALLOWED_HOSTS"
+echo "  CSRF Trusted Origins: $CSRF_TRUSTED_ORIGINS"
 echo ""
-print_status "To change these values, set DOMAIN, INSTALL_DIR, and/or ALLOWED_HOSTS environment variables"
+print_status "To change these values, set DOMAIN, INSTALL_DIR, ALLOWED_HOSTS, and/or CSRF_TRUSTED_ORIGINS environment variables"
 
 # Debug output
 echo "DEBUG: DOMAIN is set to: '$DOMAIN'"
@@ -277,6 +289,7 @@ cat > .env <<EOF
 SECRET_KEY=$SECRET_KEY
 DEBUG=False
 ALLOWED_HOSTS=$ALLOWED_HOSTS
+CSRF_TRUSTED_ORIGINS=$CSRF_TRUSTED_ORIGINS
 
 # Database settings
 DB_ENGINE=postgresql
