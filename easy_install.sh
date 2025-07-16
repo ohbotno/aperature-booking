@@ -271,6 +271,7 @@ if test -z "$ADMIN_PASSWORD"; then
     ADMIN_PASSWORD=$(openssl rand -base64 16)
 fi
 
+print_status "Creating .env file in $INSTALL_DIR..."
 cat > .env <<EOF
 # Django settings
 SECRET_KEY=$SECRET_KEY
@@ -287,7 +288,33 @@ DB_PORT=5432
 
 # Basic settings
 TIME_ZONE=UTC
+
+# Admin user details
+ADMIN_EMAIL=$ADMIN_EMAIL
+ADMIN_PASSWORD=$ADMIN_PASSWORD
 EOF
+
+# Debug: Show .env file contents
+print_status "Verifying .env file contents:"
+echo "--- .env file contents ---"
+cat .env
+echo "--- end of .env file ---"
+echo ""
+
+# Debug: Check file location and permissions
+print_status "Checking .env file location and permissions:"
+ls -la .env
+echo ""
+
+# Test if Django can read the .env file
+print_status "Testing Django configuration with .env file..."
+python -c "
+from aperture_booking import settings
+print('ALLOWED_HOSTS from Django:', settings.ALLOWED_HOSTS)
+print('DB_ENGINE from Django:', settings.DB_ENGINE)
+print('DEBUG from Django:', settings.DEBUG)
+"
+echo ""
 
 # Run Django setup
 print_status "Setting up Django application..."
@@ -367,6 +394,10 @@ print_status "Starting Aperture Booking service..."
 systemctl daemon-reload
 systemctl enable aperture-booking
 systemctl start aperture-booking
+
+# Restart the service to load the new .env file
+print_status "Restarting Aperture Booking service to load .env configuration..."
+systemctl restart aperture-booking
 systemctl restart nginx
 
 # Final status check
