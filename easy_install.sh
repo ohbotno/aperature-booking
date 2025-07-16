@@ -197,6 +197,16 @@ ALTER USER $DB_USER CREATEDB;
 \q
 EOF
 
+# Grant schema permissions (required for newer PostgreSQL versions)
+sudo -u postgres psql -d $DB_NAME <<EOF
+GRANT ALL ON SCHEMA public TO $DB_USER;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO $DB_USER;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
+\q
+EOF
+
 print_status "Database created successfully"
 
 # Clone the repository
