@@ -56,14 +56,14 @@ print_status "Please provide the following information:"
 echo ""
 
 read -p "Enter domain name (e.g., aperture.example.com) or press Enter for localhost: " USER_DOMAIN
-if [ -z "$USER_DOMAIN" ]; then
+if test -z "$USER_DOMAIN"; then
     DOMAIN="localhost"
 else
     DOMAIN="$USER_DOMAIN"
 fi
 
 read -p "Enter installation directory (default: /opt/aperture-booking): " USER_INSTALL_DIR
-if [ -z "$USER_INSTALL_DIR" ]; then
+if test -z "$USER_INSTALL_DIR"; then
     INSTALL_DIR="/opt/aperture-booking"
 else
     INSTALL_DIR="$USER_INSTALL_DIR"
