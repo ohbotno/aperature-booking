@@ -52,22 +52,20 @@ print_status "Detected OS: $OS $OS_VERSION"
 
 # Get user inputs
 echo ""
-print_status "Please provide the following information:"
-echo ""
-
-read -p "Enter domain name (e.g., aperture.example.com) or press Enter for localhost: " USER_DOMAIN
-if test -z "$USER_DOMAIN"; then
+# Set default values (can be overridden with environment variables)
+if test -z "$DOMAIN"; then
     DOMAIN="localhost"
-else
-    DOMAIN="$USER_DOMAIN"
 fi
 
-read -p "Enter installation directory (default: /opt/aperture-booking): " USER_INSTALL_DIR
-if test -z "$USER_INSTALL_DIR"; then
+if test -z "$INSTALL_DIR"; then
     INSTALL_DIR="/opt/aperture-booking"
-else
-    INSTALL_DIR="$USER_INSTALL_DIR"
 fi
+
+print_status "Using configuration:"
+echo "  Domain: $DOMAIN"
+echo "  Install Directory: $INSTALL_DIR"
+echo ""
+print_status "To change these values, set DOMAIN and/or INSTALL_DIR environment variables"
 
 # Debug output
 echo "DEBUG: DOMAIN is set to: '$DOMAIN'"
