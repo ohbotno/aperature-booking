@@ -106,7 +106,11 @@ case $OS in
             nginx \
             git \
             curl \
-            wget
+            wget \
+            pkg-config \
+            default-libmysqlclient-dev \
+            python3-dev \
+            build-essential
         ;;
     centos|rhel|fedora)
         yum install -y \
@@ -118,7 +122,12 @@ case $OS in
             nginx \
             git \
             curl \
-            wget
+            wget \
+            pkgconfig \
+            mysql-devel \
+            python3-devel \
+            gcc \
+            gcc-c++
         
         # Initialize PostgreSQL on RHEL-based systems
         postgresql-setup initdb
