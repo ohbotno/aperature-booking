@@ -97,6 +97,7 @@ esac
 print_status "Installing required packages..."
 case $OS in
     ubuntu|debian)
+        # Install packages with explicit error checking
         apt-get install -y \
             python3 \
             python3-pip \
@@ -108,9 +109,30 @@ case $OS in
             curl \
             wget \
             pkg-config \
+            pkgconf \
             default-libmysqlclient-dev \
+            libmysqlclient-dev \
             python3-dev \
             build-essential
+        
+        # Verify critical packages are installed
+        print_status "Verifying MySQL development packages..."
+        if ! command -v pkg-config >/dev/null 2>&1; then
+            print_error "pkg-config not found after installation"
+            print_status "Attempting alternative installation..."
+            apt-get install -y pkgconf
+        fi
+        
+        if ! dpkg -l | grep -q libmysqlclient-dev; then
+            print_error "MySQL development libraries not found"
+            print_status "Attempting alternative installation..."
+            apt-get install -y libmariadb-dev libmariadb-dev-compat
+        fi
+        
+        # Final verification
+        print_status "Package verification results:"
+        echo "  pkg-config: $(command -v pkg-config || echo 'NOT FOUND')"
+        echo "  MySQL dev libs: $(dpkg -l | grep -c 'mysql.*dev\|mariadb.*dev' || echo '0') packages found"
         ;;
     centos|rhel|fedora)
         yum install -y \
@@ -193,6 +215,19 @@ source venv/bin/activate
 # Install Python dependencies
 print_status "Installing Python dependencies..."
 pip install --upgrade pip
+
+# Set environment variables for mysqlclient compilation
+export MYSQLCLIENT_CFLAGS="-I/usr/include/mysql"
+export MYSQLCLIENT_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lmysqlclient"
+
+# Try alternative paths if default doesn't exist
+if [ ! -d "/usr/include/mysql" ]; then
+    export MYSQLCLIENT_CFLAGS="-I/usr/include/mariadb"
+    export MYSQLCLIENT_LDFLAGS="-L/usr/lib/x86_64-linux-gnu -lmariadb"
+fi
+
+print_status "Using MySQL client flags: $MYSQLCLIENT_CFLAGS $MYSQLCLIENT_LDFLAGS"
+
 pip install -r requirements.txt
 pip install gunicorn
 
