@@ -188,26 +188,38 @@ if test -z "$DB_PASSWORD"; then
     print_status "Generated database password: $DB_PASSWORD"
 fi
 
-# Create database and user
+# Drop existing database and user if they exist (for clean installation)
+print_status "Cleaning up existing database and user..."
 sudo -u postgres psql <<EOF
+DROP DATABASE IF EXISTS $DB_NAME;
+DROP USER IF EXISTS $DB_USER;
+\q
+EOF
+
+# Create database and user with superuser privileges
+print_status "Creating database and user..."
+if sudo -u postgres psql <<EOF
 CREATE DATABASE $DB_NAME;
-CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';
+CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD' SUPERUSER CREATEDB;
 GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
-ALTER USER $DB_USER CREATEDB;
 \q
 EOF
+then
+    print_status "Database and superuser created successfully"
+    print_warning "Note: $DB_USER has superuser privileges for Django migrations"
+else
+    print_error "Failed to create database or user"
+    exit 1
+fi
 
-# Grant schema permissions (required for newer PostgreSQL versions)
-sudo -u postgres psql -d $DB_NAME <<EOF
-GRANT ALL ON SCHEMA public TO $DB_USER;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO $DB_USER;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
-\q
-EOF
-
-print_status "Database created successfully"
+# Test database connection
+print_status "Testing database connection..."
+if sudo -u postgres psql -d $DB_NAME -c "SELECT 1;" >/dev/null 2>&1; then
+    print_status "Database connection test successful"
+else
+    print_error "Database connection test failed"
+    exit 1
+fi
 
 # Clone the repository
 print_status "Cloning Aperture Booking from GitHub..."
