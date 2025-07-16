@@ -6,6 +6,13 @@
 
 set -e  # Exit on any error
 
+# Ensure we're running with bash
+if [ -z "$BASH_VERSION" ]; then
+    echo "Error: This script must be run with bash, not sh"
+    echo "Please run: bash $0"
+    exit 1
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -48,11 +55,23 @@ echo ""
 print_status "Please provide the following information:"
 echo ""
 
-read -p "Enter domain name (e.g., aperture.example.com) or press Enter for localhost: " DOMAIN
-DOMAIN=${DOMAIN:-localhost}
+read -p "Enter domain name (e.g., aperture.example.com) or press Enter for localhost: " USER_DOMAIN
+if [ -z "$USER_DOMAIN" ]; then
+    DOMAIN="localhost"
+else
+    DOMAIN="$USER_DOMAIN"
+fi
 
-read -p "Enter installation directory (default: /opt/aperture-booking): " INSTALL_DIR
-INSTALL_DIR=${INSTALL_DIR:-/opt/aperture-booking}
+read -p "Enter installation directory (default: /opt/aperture-booking): " USER_INSTALL_DIR
+if [ -z "$USER_INSTALL_DIR" ]; then
+    INSTALL_DIR="/opt/aperture-booking"
+else
+    INSTALL_DIR="$USER_INSTALL_DIR"
+fi
+
+# Debug output
+echo "DEBUG: DOMAIN is set to: '$DOMAIN'"
+echo "DEBUG: INSTALL_DIR is set to: '$INSTALL_DIR'"
 
 echo ""
 print_warning "Database passwords will be prompted during installation"
