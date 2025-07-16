@@ -61,21 +61,35 @@ if test -z "$INSTALL_DIR"; then
     INSTALL_DIR="/opt/aperture-booking"
 fi
 
+# For non-interactive installation, try to detect the server IP
+if test -z "$ALLOWED_HOSTS"; then
+    # Try to get the public IP
+    SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}')
+    if test -n "$SERVER_IP"; then
+        ALLOWED_HOSTS="localhost,127.0.0.1,$SERVER_IP"
+        if test "$DOMAIN" != "localhost"; then
+            ALLOWED_HOSTS="$ALLOWED_HOSTS,$DOMAIN"
+        fi
+    else
+        ALLOWED_HOSTS="localhost,127.0.0.1"
+    fi
+fi
+
 print_status "Using configuration:"
 echo "  Domain: $DOMAIN"
 echo "  Install Directory: $INSTALL_DIR"
+echo "  Allowed Hosts: $ALLOWED_HOSTS"
 echo ""
-print_status "To change these values, set DOMAIN and/or INSTALL_DIR environment variables"
+print_status "To change these values, set DOMAIN, INSTALL_DIR, and/or ALLOWED_HOSTS environment variables"
 
 # Debug output
 echo "DEBUG: DOMAIN is set to: '$DOMAIN'"
 echo "DEBUG: INSTALL_DIR is set to: '$INSTALL_DIR'"
 
 echo ""
-print_warning "Database passwords will be prompted during installation"
+print_warning "Database and admin passwords will be auto-generated"
+print_warning "Check the .env file and final output for credentials"
 echo ""
-
-read -p "Press Enter to continue or Ctrl+C to cancel..."
 
 # Update system packages
 print_status "Updating system packages..."
@@ -168,16 +182,10 @@ print_status "Setting up PostgreSQL database..."
 DB_NAME="aperture_booking"
 DB_USER="aperture_user"
 
-# Prompt for database password
-echo ""
-read -sp "Enter password for PostgreSQL user '$DB_USER': " DB_PASSWORD
-echo ""
-read -sp "Confirm password: " DB_PASSWORD_CONFIRM
-echo ""
-
-if [ "$DB_PASSWORD" != "$DB_PASSWORD_CONFIRM" ]; then
-    print_error "Passwords do not match"
-    exit 1
+# Generate database password
+if test -z "$DB_PASSWORD"; then
+    DB_PASSWORD=$(openssl rand -base64 32)
+    print_status "Generated database password: $DB_PASSWORD"
 fi
 
 # Create database and user
@@ -195,13 +203,8 @@ print_status "Database created successfully"
 print_status "Cloning Aperture Booking from GitHub..."
 if [ -d "$INSTALL_DIR" ]; then
     print_warning "Directory $INSTALL_DIR already exists"
-    read -p "Remove existing directory? (y/N): " REMOVE_DIR
-    if [[ $REMOVE_DIR =~ ^[Yy]$ ]]; then
-        rm -rf "$INSTALL_DIR"
-    else
-        print_error "Installation cancelled"
-        exit 1
-    fi
+    print_status "Removing existing directory..."
+    rm -rf "$INSTALL_DIR"
 fi
 
 git clone https://github.com/ohbotno/aperture-booking.git "$INSTALL_DIR"
@@ -237,17 +240,20 @@ print_status "Creating environment configuration..."
 # Generate secret key
 SECRET_KEY=$(python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')
 
-# Prompt for Django admin password
-echo ""
-read -p "Enter email for Django admin user: " ADMIN_EMAIL
-read -sp "Enter password for Django admin user: " ADMIN_PASSWORD
-echo ""
+# Generate Django admin credentials
+if test -z "$ADMIN_EMAIL"; then
+    ADMIN_EMAIL="admin@$DOMAIN"
+fi
+
+if test -z "$ADMIN_PASSWORD"; then
+    ADMIN_PASSWORD=$(openssl rand -base64 16)
+fi
 
 cat > .env <<EOF
 # Django settings
 SECRET_KEY=$SECRET_KEY
 DEBUG=False
-ALLOWED_HOSTS=$DOMAIN,localhost,127.0.0.1
+ALLOWED_HOSTS=$ALLOWED_HOSTS
 
 # Database settings
 DB_ENGINE=postgresql
