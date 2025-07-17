@@ -338,12 +338,42 @@ python manage.py collectstatic --noinput
 print_status "Creating Django admin user..."
 python manage.py shell <<EOF
 from django.contrib.auth import get_user_model
+from booking.models import UserProfile
 User = get_user_model()
 if not User.objects.filter(email='$ADMIN_EMAIL').exists():
-    User.objects.create_superuser('admin', '$ADMIN_EMAIL', '$ADMIN_PASSWORD')
-    print("Admin user created")
+    admin_user = User.objects.create_superuser('admin', '$ADMIN_EMAIL', '$ADMIN_PASSWORD')
+    # Create UserProfile with sysadmin role for site-admin access
+    UserProfile.objects.create(
+        user=admin_user,
+        role='sysadmin',
+        phone='+0000000000',  # Default phone
+        staff_number='ADMIN001',  # Required for sysadmin role
+        is_inducted=True,  # Mark as inducted
+        email_verified=True  # Mark email as verified
+    )
+    print("Admin user created with site-admin access")
 else:
-    print("Admin user already exists")
+    # Check if existing admin has UserProfile with sysadmin role
+    admin_user = User.objects.get(email='$ADMIN_EMAIL')
+    if not hasattr(admin_user, 'userprofile'):
+        UserProfile.objects.create(
+            user=admin_user,
+            role='sysadmin',
+            phone='+0000000000',  # Default phone
+            staff_number='ADMIN001',  # Required for sysadmin role
+            is_inducted=True,  # Mark as inducted
+            email_verified=True  # Mark email as verified
+        )
+        print("Added site-admin access to existing admin user")
+    elif admin_user.userprofile.role != 'sysadmin':
+        admin_user.userprofile.role = 'sysadmin'
+        admin_user.userprofile.staff_number = 'ADMIN001'  # Required for sysadmin role
+        admin_user.userprofile.is_inducted = True
+        admin_user.userprofile.email_verified = True
+        admin_user.userprofile.save()
+        print("Updated admin user role to sysadmin")
+    else:
+        print("Admin user already has site-admin access")
 EOF
 
 python manage.py create_email_templates || true
@@ -426,8 +456,17 @@ echo ""
 print_status "Installation complete!"
 echo ""
 echo "Access your installation at: http://$DOMAIN"
-echo "Admin login: admin / (password you provided)"
-echo "Admin email: $ADMIN_EMAIL"
+echo ""
+echo "=== Admin Credentials ==="
+echo "Username: admin"
+echo "Password: $ADMIN_PASSWORD"
+echo "Email: $ADMIN_EMAIL"
+echo ""
+echo "=== Admin Access Points ==="
+echo "Site Admin Panel: http://$DOMAIN/site-admin/"
+echo "Django Admin: http://$DOMAIN/admin/"
+echo ""
+print_warning "IMPORTANT: Save these credentials in a secure location!"
 echo ""
 print_warning "For production use, you should:"
 echo "  1. Configure SSL/HTTPS"
