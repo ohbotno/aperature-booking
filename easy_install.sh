@@ -340,40 +340,72 @@ python manage.py shell <<EOF
 from django.contrib.auth import get_user_model
 from booking.models import UserProfile
 User = get_user_model()
-if not User.objects.filter(email='$ADMIN_EMAIL').exists():
-    admin_user = User.objects.create_superuser('admin', '$ADMIN_EMAIL', '$ADMIN_PASSWORD')
-    # Create UserProfile with sysadmin role for site-admin access
-    UserProfile.objects.create(
-        user=admin_user,
-        role='sysadmin',
-        phone='+0000000000',  # Default phone
-        staff_number='ADMIN001',  # Required for sysadmin role
-        is_inducted=True,  # Mark as inducted
-        email_verified=True  # Mark email as verified
-    )
-    print("Admin user created with site-admin access")
+
+# Try to get or create the admin user
+try:
+    admin_user = User.objects.get(username='admin')
+    print("Found existing admin user")
+    created = False
+except User.DoesNotExist:
+    try:
+        admin_user = User.objects.create_superuser('admin', '$ADMIN_EMAIL', '$ADMIN_PASSWORD')
+        print("Created new admin user")
+        created = True
+    except Exception as e:
+        print(f"Error creating admin user: {e}")
+        # Try to find by email instead
+        try:
+            admin_user = User.objects.get(email='$ADMIN_EMAIL')
+            print("Found existing user by email")
+            created = False
+        except User.DoesNotExist:
+            print("Failed to create or find admin user")
+            exit(1)
+
+# Ensure the user is a superuser
+if not admin_user.is_superuser:
+    admin_user.is_superuser = True
+    admin_user.is_staff = True
+    admin_user.save()
+    print("Updated user to superuser status")
+
+# Handle UserProfile - use get_or_create to avoid conflicts with signals
+profile, profile_created = UserProfile.objects.get_or_create(
+    user=admin_user,
+    defaults={
+        'role': 'sysadmin',
+        'phone': '+0000000000',
+        'staff_number': 'ADMIN001',
+        'is_inducted': True,
+        'email_verified': True
+    }
+)
+
+if profile_created:
+    print("Created UserProfile with sysadmin access")
 else:
-    # Check if existing admin has UserProfile with sysadmin role
-    admin_user = User.objects.get(email='$ADMIN_EMAIL')
-    if not hasattr(admin_user, 'userprofile'):
-        UserProfile.objects.create(
-            user=admin_user,
-            role='sysadmin',
-            phone='+0000000000',  # Default phone
-            staff_number='ADMIN001',  # Required for sysadmin role
-            is_inducted=True,  # Mark as inducted
-            email_verified=True  # Mark email as verified
-        )
-        print("Added site-admin access to existing admin user")
-    elif admin_user.userprofile.role != 'sysadmin':
-        admin_user.userprofile.role = 'sysadmin'
-        admin_user.userprofile.staff_number = 'ADMIN001'  # Required for sysadmin role
-        admin_user.userprofile.is_inducted = True
-        admin_user.userprofile.email_verified = True
-        admin_user.userprofile.save()
-        print("Updated admin user role to sysadmin")
+    # Update existing profile if needed
+    updated = False
+    if profile.role != 'sysadmin':
+        profile.role = 'sysadmin'
+        updated = True
+    if not profile.staff_number:
+        profile.staff_number = 'ADMIN001'
+        updated = True
+    if not profile.is_inducted:
+        profile.is_inducted = True
+        updated = True
+    if not profile.email_verified:
+        profile.email_verified = True
+        updated = True
+    
+    if updated:
+        profile.save()
+        print("Updated existing UserProfile with sysadmin access")
     else:
-        print("Admin user already has site-admin access")
+        print("Admin user already has proper site-admin access")
+
+print(f"Admin user setup complete - username: admin, email: {admin_user.email}")
 EOF
 
 python manage.py create_email_templates || true
