@@ -13,5 +13,5 @@ For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
 https://aperture-booking.org/commercial
 """
 
-__version__ = "1.1.5"
-__version_info__ = (1, 1, 5)
+__version__ = "1.1.6"
+__version_info__ = (1, 1, 6)

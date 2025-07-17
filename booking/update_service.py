@@ -345,10 +345,65 @@ class UpdateService:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
             
+            # Restart the application service to load new code
+            restart_result = self._restart_application_service()
+            if not restart_result['success']:
+                logger.warning(f"Service restart failed: {restart_result['error']}")
+                # Don't fail the update just because restart failed
+            
             return {'success': True}
             
         except Exception as e:
             logger.error(f"Error applying update: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    def _restart_application_service(self) -> Dict:
+        """Restart the application service to load updated code."""
+        try:
+            # Try common service names for the application
+            service_names = ['aperture-booking', 'aperture_booking', 'gunicorn']
+            
+            for service_name in service_names:
+                try:
+                    # Check if service exists
+                    result = subprocess.run(
+                        ['systemctl', 'is-active', service_name],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    
+                    if result.returncode == 0:  # Service exists and is active
+                        # Restart the service
+                        restart_result = subprocess.run(
+                            ['systemctl', 'restart', service_name],
+                            capture_output=True,
+                            text=True,
+                            timeout=30
+                        )
+                        
+                        if restart_result.returncode == 0:
+                            logger.info(f"Successfully restarted service: {service_name}")
+                            return {'success': True, 'service': service_name}
+                        else:
+                            logger.warning(f"Failed to restart {service_name}: {restart_result.stderr}")
+                
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Timeout checking/restarting service: {service_name}")
+                except Exception as e:
+                    logger.warning(f"Error with service {service_name}: {e}")
+            
+            # If no systemctl services found, try touching wsgi.py to trigger reload
+            wsgi_file = self.base_dir / 'aperture_booking' / 'wsgi.py'
+            if wsgi_file.exists():
+                wsgi_file.touch()
+                logger.info("Touched wsgi.py to trigger application reload")
+                return {'success': True, 'method': 'wsgi_touch'}
+            
+            return {'success': False, 'error': 'No restart method available'}
+            
+        except Exception as e:
+            logger.error(f"Error restarting application service: {e}")
             return {'success': False, 'error': str(e)}
     
     def get_update_status(self) -> Dict:
