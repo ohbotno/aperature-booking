@@ -331,6 +331,19 @@ echo ""
 
 # Run Django setup
 print_status "Setting up Django application..."
+
+# Create required directories with proper permissions
+print_status "Creating required directories..."
+mkdir -p logs media static staticfiles
+chown www-data:www-data logs media static staticfiles
+chmod 755 logs media static staticfiles
+
+# Create log files with proper permissions
+print_status "Creating log files..."
+touch logs/errors.log logs/django.log
+chown www-data:www-data logs/errors.log logs/django.log
+chmod 664 logs/errors.log logs/django.log
+
 python manage.py migrate
 print_status "Collecting static files..."
 python manage.py collectstatic --clear --noinput
@@ -438,7 +451,7 @@ server {
     server_name $DOMAIN;
 
     location /static/ {
-        alias $INSTALL_DIR/static/;
+        alias $INSTALL_DIR/staticfiles/;
     }
 
     location /media/ {
@@ -467,8 +480,8 @@ chmod 644 "$INSTALL_DIR/.env"
 
 # Ensure static files have correct permissions
 print_status "Setting static files permissions..."
-chmod -R 755 "$INSTALL_DIR/static/"
-chown -R www-data:www-data "$INSTALL_DIR/static/"
+chmod -R 755 "$INSTALL_DIR/static/" "$INSTALL_DIR/staticfiles/"
+chown -R www-data:www-data "$INSTALL_DIR/static/" "$INSTALL_DIR/staticfiles/"
 
 # Reload services
 print_status "Starting Aperture Booking service..."

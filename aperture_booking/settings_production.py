@@ -81,6 +81,7 @@ if os.environ.get('USE_HTTPS', 'False').lower() == 'true':
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
 # Media files (user uploads)
 MEDIA_URL = '/media/'
