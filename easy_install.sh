@@ -332,7 +332,8 @@ echo ""
 # Run Django setup
 print_status "Setting up Django application..."
 python manage.py migrate
-python manage.py collectstatic --noinput
+print_status "Collecting static files..."
+python manage.py collectstatic --clear --noinput
 
 # Create superuser
 print_status "Creating Django admin user..."
@@ -463,6 +464,11 @@ print_status "Setting permissions..."
 chown -R www-data:www-data "$INSTALL_DIR"
 chmod -R 755 "$INSTALL_DIR"
 chmod 644 "$INSTALL_DIR/.env"
+
+# Ensure static files have correct permissions
+print_status "Setting static files permissions..."
+chmod -R 755 "$INSTALL_DIR/static/"
+chown -R www-data:www-data "$INSTALL_DIR/static/"
 
 # Reload services
 print_status "Starting Aperture Booking service..."
