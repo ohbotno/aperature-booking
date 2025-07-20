@@ -19,6 +19,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required, user_passes_test
+from django.views.decorators.http import require_http_methods
+from django.template.loader import render_to_string
 from django.http import JsonResponse
 from django.contrib.auth import login
 from django.contrib.auth.views import PasswordResetView, PasswordResetConfirmView, LoginView
@@ -28,6 +30,7 @@ from django.db.models import Q, Count
 from datetime import datetime, timedelta
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
+from ..forms import ChecklistItemForm
 from ..models import (
     AboutPage, UserProfile, Resource, Booking, ApprovalRule, Maintenance, EmailVerificationToken, 
     PasswordResetToken, BookingTemplate, Notification, NotificationPreference, WaitingListEntry, 
@@ -44,6 +47,7 @@ from ..forms import (
 )
 from ..recurring import RecurringBookingGenerator, RecurringBookingManager
 from ..conflicts import ConflictDetector, ConflictResolver, ConflictManager
+from ..services.licensing import require_license_feature
 from booking.serializers import (
     UserProfileSerializer, ResourceSerializer, BookingSerializer,
     ApprovalRuleSerializer, MaintenanceSerializer, WaitingListEntrySerializer,
@@ -107,6 +111,45 @@ class UserProfileViewSet(viewsets.ReadOnlyModelViewSet):
                 )
         except UserProfile.DoesNotExist:
             return UserProfile.objects.filter(user=user)
+    
+    @action(detail=False, methods=['post'], url_path='update-theme')
+    def update_theme_preference(self, request):
+        """Update the current user's theme preference."""
+        theme = request.data.get('theme')
+        if theme not in ['light', 'dark', 'system']:
+            return Response(
+                {'error': 'Invalid theme. Must be light, dark, or system.'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            profile = request.user.userprofile
+            profile.theme_preference = theme
+            profile.save()
+            return Response({
+                'success': True, 
+                'theme': theme,
+                'message': 'Theme preference updated successfully.'
+            })
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'error': 'User profile not found.'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=False, methods=['get'], url_path='theme')
+    def get_theme_preference(self, request):
+        """Get the current user's theme preference."""
+        try:
+            profile = request.user.userprofile
+            return Response({
+                'theme': profile.theme_preference
+            })
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'error': 'User profile not found.'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 
 class ResourceViewSet(viewsets.ModelViewSet):
@@ -1465,7 +1508,7 @@ def join_waiting_list(request, resource_id):
     try:
         user_profile = request.user.userprofile
         if not resource.is_available_for_user(user_profile):
-            messages.error(request, f'You do not meet the requirements to book {resource.name}.')
+            messages.error(request, f'You do not meet the requirements to book {resource.name}.', extra_tags='persistent-alert')
             return redirect('booking:calendar')
     except:
         messages.error(request, 'User profile not found.')
@@ -1730,6 +1773,55 @@ def resource_detail_view(request, resource_id):
     # Get approval progress for the user
     approval_progress = resource.get_approval_progress(request.user)
     
+    # Check required risk assessments for this resource
+    required_risk_assessments = RiskAssessment.objects.filter(
+        resource=resource,
+        is_active=True,
+        valid_until__gte=timezone.now().date()
+    ).order_by('risk_level', 'title')
+    
+    # Check user's status for each required risk assessment
+    user_risk_assessments = {}
+    risk_assessment_status = {'completed': 0, 'pending': 0, 'not_started': 0}
+    
+    for ra in required_risk_assessments:
+        try:
+            user_ra = UserRiskAssessment.objects.get(
+                user=request.user,
+                risk_assessment=ra
+            )
+            user_risk_assessments[ra.id] = user_ra
+            if user_ra.status == 'approved':
+                risk_assessment_status['completed'] += 1
+            elif user_ra.status in ['submitted', 'in_progress']:
+                risk_assessment_status['pending'] += 1
+            else:
+                risk_assessment_status['not_started'] += 1
+        except UserRiskAssessment.DoesNotExist:
+            user_risk_assessments[ra.id] = None
+            risk_assessment_status['not_started'] += 1
+    
+    # Determine if user needs to complete risk assessments
+    # Only consider risk assessment if the resource requires it via boolean field
+    needs_risk_assessments = (
+        resource.requires_risk_assessment and
+        (required_risk_assessments.exists() and 
+         risk_assessment_status['completed'] < required_risk_assessments.count())
+    )
+    
+    # Check if training is actually complete by examining approval progress
+    training_completed = False
+    if approval_progress and approval_progress.get('stages'):
+        for stage in approval_progress['stages']:
+            if stage.get('key') == 'training' and stage.get('status') == 'completed':
+                training_completed = True
+                break
+    
+    # Override has_pending_training if training is actually completed
+    # This ensures we don't show "Training Pending" when training is done
+    if training_completed:
+        has_pending_training = False
+    
     # If user can view calendar, show calendar view
     if can_view_calendar:
         return render(request, 'booking/resource_detail.html', {
@@ -1738,6 +1830,10 @@ def resource_detail_view(request, resource_id):
             'can_view_calendar': can_view_calendar,
             'has_pending_training': has_pending_training,
             'approval_progress': approval_progress,
+            'required_risk_assessments': required_risk_assessments,
+            'user_risk_assessments': user_risk_assessments,
+            'risk_assessment_status': risk_assessment_status,
+            'needs_risk_assessments': needs_risk_assessments,
             'show_calendar': True,
         })
     
@@ -1749,6 +1845,10 @@ def resource_detail_view(request, resource_id):
         'has_pending_request': has_pending_request,
         'has_pending_training': has_pending_training,
         'approval_progress': approval_progress,
+        'required_risk_assessments': required_risk_assessments,
+        'user_risk_assessments': user_risk_assessments,
+        'risk_assessment_status': risk_assessment_status,
+        'needs_risk_assessments': needs_risk_assessments,
         'show_calendar': False,
     })
 
@@ -1760,16 +1860,16 @@ def request_resource_access_view(request, resource_id):
     
     # Check if user already has access or pending request
     if resource.user_has_access(request.user):
-        messages.info(request, 'You already have access to this resource.')
+        messages.info(request, 'You already have access to this resource.', extra_tags='persistent-alert')
         return redirect('booking:resource_detail', resource_id=resource.id)
     
     if AccessRequest.objects.filter(resource=resource, user=request.user, status='pending').exists():
-        messages.info(request, 'You already have a pending access request for this resource.')
+        messages.info(request, 'You already have a pending access request for this resource.', extra_tags='persistent-alert')
         return redirect('booking:resource_detail', resource_id=resource.id)
     
     # Check if user has pending training request
     if TrainingRequest.objects.filter(resource=resource, user=request.user, status__in=['pending', 'scheduled']).exists():
-        messages.info(request, 'You already have a pending training request for this resource.')
+        messages.info(request, 'You already have a pending training request for this resource.', extra_tags='persistent-alert')
         return redirect('booking:resource_detail', resource_id=resource.id)
     
     if request.method == 'POST':
@@ -1777,10 +1877,22 @@ def request_resource_access_view(request, resource_id):
         justification = request.POST.get('justification', '').strip()
         requested_duration_days = request.POST.get('requested_duration_days')
         has_training = request.POST.get('has_training', '')
+        supervisor_name = request.POST.get('supervisor_name', '').strip()
+        supervisor_email = request.POST.get('supervisor_email', '').strip()
         
         if not justification:
             messages.error(request, 'Please provide a justification for your access request.')
             return redirect('booking:request_resource_access', resource_id=resource.id)
+        
+        # Check supervisor requirements for students
+        user_profile = request.user.userprofile
+        if user_profile.role == 'student':
+            if not supervisor_name:
+                messages.error(request, 'Supervisor name is required for student access requests.')
+                return redirect('booking:request_resource_access', resource_id=resource.id)
+            if not supervisor_email:
+                messages.error(request, 'Supervisor email is required for student access requests.')
+                return redirect('booking:request_resource_access', resource_id=resource.id)
         
         # Check if user meets training requirements
         user_profile = request.user.userprofile
@@ -1791,41 +1903,57 @@ def request_resource_access_view(request, resource_id):
                 # User claims to have training but system shows they don't
                 messages.warning(request, 
                     f'Our records show you have training level {user_profile.training_level}, but {resource.name} requires level {resource.required_training_level}. '
-                    'Training information will be sent to you to update your qualifications.')
+                    'Training information will be sent to you to update your qualifications.', extra_tags='persistent-alert')
                 
                 # Create training request for verification
-                training_request, created = TrainingRequest.objects.get_or_create(
+                existing_training = TrainingRequest.objects.filter(
                     user=request.user,
                     resource=resource,
-                    status__in=['pending', 'scheduled'],
-                    defaults={
-                        'requested_level': resource.required_training_level,
-                        'current_level': user_profile.training_level,
-                        'justification': f"Training verification needed for access to {resource.name}. User claims training completion. Original request: {justification}",
-                        'status': 'pending'
-                    }
-                )
+                    status__in=['pending', 'scheduled']
+                ).first()
+                
+                if existing_training:
+                    training_request = existing_training
+                    created = False
+                else:
+                    training_request = TrainingRequest.objects.create(
+                        user=request.user,
+                        resource=resource,
+                        status='pending',
+                        requested_level=resource.required_training_level,
+                        current_level=user_profile.training_level,
+                        justification=f"Training verification needed for access to {resource.name}. User claims training completion. Original request: {justification}"
+                    )
+                    created = True
                 
             elif has_training == 'no':
                 # User acknowledges they need training
-                messages.info(request, 'Training information will be sent to you as this resource requires additional training.')
+                messages.info(request, 'Training information will be sent to you as this resource requires additional training.', extra_tags='persistent-alert')
                 
                 # Create training request
-                training_request, created = TrainingRequest.objects.get_or_create(
+                existing_training = TrainingRequest.objects.filter(
                     user=request.user,
                     resource=resource,
-                    status__in=['pending', 'scheduled'],
-                    defaults={
-                        'requested_level': resource.required_training_level,
-                        'current_level': user_profile.training_level,
-                        'justification': f"Training needed for access to {resource.name}. Original request: {justification}",
-                        'status': 'pending'
-                    }
-                )
+                    status__in=['pending', 'scheduled']
+                ).first()
+                
+                if existing_training:
+                    training_request = existing_training
+                    created = False
+                else:
+                    training_request = TrainingRequest.objects.create(
+                        user=request.user,
+                        resource=resource,
+                        status='pending',
+                        requested_level=resource.required_training_level,
+                        current_level=user_profile.training_level,
+                        justification=f"Training needed for access to {resource.name}. Original request: {justification}"
+                    )
+                    created = True
             
             if 'training_request' in locals():
                 if created:
-                    messages.success(request, f'Training request for {resource.name} has been submitted. You will be contacted with training details.')
+                    messages.success(request, f'Training request for {resource.name} has been submitted. You will be contacted with training details.', extra_tags='persistent-alert')
                     
                     # Send notifications
                     try:
@@ -1836,7 +1964,7 @@ def request_resource_access_view(request, resource_id):
                         logger = logging.getLogger(__name__)
                         logger.error(f"Failed to send training request submission notification: {e}")
                 else:
-                    messages.info(request, f'You already have a pending training request for {resource.name}.')
+                    messages.info(request, f'You already have a pending training request for {resource.name}.', extra_tags='persistent-alert')
             
             return redirect('booking:resource_detail', resource_id=resource.id)
         
@@ -1846,10 +1974,12 @@ def request_resource_access_view(request, resource_id):
             user=request.user,
             access_type=access_type,
             justification=justification,
-            requested_duration_days=int(requested_duration_days) if requested_duration_days else None
+            requested_duration_days=int(requested_duration_days) if requested_duration_days else None,
+            supervisor_name=supervisor_name if user_profile.role == 'student' else '',
+            supervisor_email=supervisor_email if user_profile.role == 'student' else ''
         )
         
-        messages.success(request, f'Access request for {resource.name} has been submitted successfully.')
+        messages.success(request, f'Access request for {resource.name} has been submitted successfully.', extra_tags='persistent-alert')
         
         # Send notifications
         try:
@@ -1862,8 +1992,12 @@ def request_resource_access_view(request, resource_id):
         
         return redirect('booking:resource_detail', resource_id=resource.id)
     
+    # Determine if user is a student and needs supervisor info
+    is_student = hasattr(request.user, 'userprofile') and request.user.userprofile.role == 'student'
+    
     return render(request, 'booking/request_access.html', {
         'resource': resource,
+        'is_student': is_student,
     })
 
 
@@ -2415,7 +2549,7 @@ def edit_booking_view(request, pk):
                         updated_booking.status = 'pending'
                         updated_booking.approved_by = None
                         updated_booking.approved_at = None
-                        messages.info(request, 'Booking updated and set to pending approval due to time/resource changes.')
+                        messages.info(request, 'Booking updated and set to pending approval due to time/resource changes.', extra_tags='persistent-alert')
                     else:
                         messages.success(request, 'Booking updated successfully.')
                 else:
@@ -2714,6 +2848,7 @@ def resource_checkin_status_view(request, resource_id):
 
 
 @login_required
+@require_license_feature('advanced_reports')
 def usage_analytics_view(request):
     """View usage analytics (managers only)."""
     try:
@@ -3847,15 +3982,20 @@ def start_risk_assessment_view(request, assessment_id):
     )
     
     if request.method == 'POST':
-        form = UserRiskAssessmentForm(request.POST, instance=user_assessment, risk_assessment=assessment)
+        form = UserRiskAssessmentForm(request.POST, request.FILES, instance=user_assessment, risk_assessment=assessment)
         if form.is_valid():
             user_assessment = form.save(commit=False)
+            
+            # Handle file upload
+            if form.cleaned_data.get('risk_assessment_file'):
+                user_assessment.assessment_file = form.cleaned_data['risk_assessment_file']
+            
             user_assessment.status = 'submitted'
             user_assessment.submitted_at = timezone.now()
             user_assessment.save()
             
             messages.success(request, "Risk assessment submitted for review.")
-            return redirect('booking:risk_assessment_detail', assessment_id=assessment_id)
+            return redirect('booking:resource_detail', resource_id=assessment.resource.id)
     else:
         # Mark as started
         if user_assessment.status == 'not_started':
@@ -4155,6 +4295,7 @@ def is_lab_admin(user):
 
 @login_required
 @user_passes_test(is_lab_admin)
+@require_license_feature('advanced_reports')
 def approval_statistics_view(request):
     """User-friendly approval statistics dashboard."""
     from booking.models import ApprovalStatistics, AccessRequest, TrainingRequest
@@ -4567,7 +4708,7 @@ def lab_admin_dashboard_view(request):
 @user_passes_test(is_lab_admin)
 def lab_admin_access_requests_view(request):
     """Manage access requests."""
-    from booking.models import AccessRequest
+    from booking.models import AccessRequest, TrainingRequest
     
     # Handle status updates
     if request.method == 'POST':
@@ -4579,27 +4720,223 @@ def lab_admin_access_requests_view(request):
             
             if action == 'approve':
                 try:
-                    access_request.approve(request.user, "Approved via Lab Admin dashboard")
-                    messages.success(request, f'Access request approved for {access_request.user.get_full_name()}')
+                    # Double-check prerequisites before approval
+                    if not access_request.prerequisites_met():
+                        missing = []
+                        if not access_request.safety_induction_confirmed:
+                            missing.append("Safety Induction")
+                        if not access_request.lab_training_confirmed:
+                            missing.append("Lab Training")
+                        if not access_request.risk_assessment_confirmed:
+                            missing.append("Risk Assessment")
+                        
+                        missing_str = ", ".join(missing)
+                        messages.error(request, f'Cannot approve: Missing prerequisites - {missing_str}', extra_tags='persistent-alert')
+                    else:
+                        access_request.approve(request.user, "Approved via Lab Admin dashboard")
+                        messages.success(request, f'Access request approved for {access_request.user.get_full_name()}', extra_tags='persistent-alert')
                 except ValueError as e:
-                    messages.error(request, f'Error approving request: {str(e)}')
+                    messages.error(request, f'Error approving request: {str(e)}', extra_tags='persistent-alert')
                 except Exception as e:
-                    messages.error(request, f'Unexpected error: {str(e)}')
+                    messages.error(request, f'Unexpected error: {str(e)}', extra_tags='persistent-alert')
                 
             elif action == 'reject':
                 try:
                     access_request.reject(request.user, "Rejected via Lab Admin dashboard")
-                    messages.success(request, f'Access request rejected for {access_request.user.get_full_name()}')
+                    messages.success(request, f'Access request rejected for {access_request.user.get_full_name()}', extra_tags='persistent-alert')
                 except ValueError as e:
                     messages.error(request, f'Error rejecting request: {str(e)}')
                 except Exception as e:
                     messages.error(request, f'Unexpected error: {str(e)}')
+                    
+            elif action == 'confirm_safety':
+                notes = request.POST.get('safety_notes', '').strip()
+                try:
+                    access_request.confirm_safety_induction(request.user, notes)
+                    messages.success(request, f'Safety induction confirmed for {access_request.user.get_full_name()}', extra_tags='persistent-alert')
+                except Exception as e:
+                    messages.error(request, f'Error confirming safety induction: {str(e)}')
+                    
+            elif action == 'confirm_training':
+                notes = request.POST.get('training_notes', '').strip()
+                try:
+                    access_request.confirm_lab_training(request.user, notes)
+                    messages.success(request, f'Lab training confirmed for {access_request.user.get_full_name()}', extra_tags='persistent-alert')
+                except Exception as e:
+                    messages.error(request, f'Error confirming lab training: {str(e)}')
+                    
+            elif action == 'confirm_risk_assessment':
+                notes = request.POST.get('risk_assessment_notes', '').strip()
+                try:
+                    access_request.confirm_risk_assessment(request.user, notes)
+                    messages.success(request, f'Risk assessment confirmed for {access_request.user.get_full_name()}', extra_tags='persistent-alert')
+                except Exception as e:
+                    messages.error(request, f'Error confirming risk assessment: {str(e)}')
+                    
+            elif action == 'schedule_training':
+                justification = request.POST.get('training_justification', '').strip()
+                training_date = request.POST.get('training_date', '').strip()
+                training_time = request.POST.get('training_time', '').strip()
+                training_duration = request.POST.get('training_duration', '').strip()
+                trainer_notes = request.POST.get('trainer_notes', '').strip()
+                
+                if not justification:
+                    justification = f"Training requested for access to {access_request.resource.name}"
+                
+                # Parse training date and time
+                training_datetime = None
+                if training_date and training_time:
+                    try:
+                        from datetime import datetime
+                        training_datetime = datetime.strptime(f"{training_date} {training_time}", "%Y-%m-%d %H:%M")
+                        training_datetime = timezone.make_aware(training_datetime)
+                    except ValueError:
+                        messages.error(request, 'Invalid date or time format.')
+                        return redirect('booking:lab_admin_access_requests')
+                elif training_date:
+                    try:
+                        from datetime import datetime
+                        training_datetime = datetime.strptime(training_date, "%Y-%m-%d")
+                        training_datetime = timezone.make_aware(training_datetime)
+                    except ValueError:
+                        messages.error(request, 'Invalid date format.')
+                        return redirect('booking:lab_admin_access_requests')
+                
+                # Add duration and trainer notes to justification if provided
+                full_justification = justification
+                if training_duration:
+                    duration_text = f"{training_duration} hour{'s' if float(training_duration) != 1 else ''}"
+                    full_justification += f"\n\nExpected Duration: {duration_text}"
+                if trainer_notes:
+                    full_justification += f"\n\nTrainer Notes: {trainer_notes}"
+                
+                try:
+                    # Check if training request already exists for this user and resource with active status
+                    existing_request = TrainingRequest.objects.filter(
+                        user=access_request.user,
+                        resource=access_request.resource,
+                        status__in=['pending', 'scheduled']
+                    ).first()
+                    
+                    if existing_request:
+                        # Update existing request with new details
+                        existing_request.justification = full_justification
+                        if training_datetime:
+                            existing_request.training_date = training_datetime
+                            existing_request.status = 'scheduled'
+                        existing_request.save()
+                        training_request = existing_request
+                        created = False
+                    else:
+                        # Create new training request with appropriate status
+                        initial_status = 'scheduled' if training_datetime else 'pending'
+                        training_request = TrainingRequest.objects.create(
+                            user=access_request.user,
+                            resource=access_request.resource,
+                            status=initial_status,
+                            requested_level=access_request.resource.required_training_level or 1,
+                            current_level=access_request.user.userprofile.training_level,
+                            justification=full_justification,
+                            training_date=training_datetime
+                        )
+                        created = True
+                    
+                    # Handle booking creation and notifications when training is scheduled
+                    if training_datetime:
+                        try:
+                            # Calculate end time (default 2 hours if no duration specified)
+                            duration_hours = 2  # Default duration
+                            if training_duration:
+                                try:
+                                    duration_hours = float(training_duration)
+                                except ValueError:
+                                    duration_hours = 2
+                            
+                            training_end_time = training_datetime + timedelta(hours=duration_hours)
+                            
+                            # Check for booking conflicts
+                            conflicts = Booking.objects.filter(
+                                resource=access_request.resource,
+                                status__in=['approved', 'pending'],
+                                start_time__lt=training_end_time,
+                                end_time__gt=training_datetime
+                            )
+                            
+                            if conflicts.exists():
+                                # Find next available slot
+                                next_slot = None
+                                for hour_offset in range(1, 168):  # Check next week
+                                    test_start = training_datetime + timedelta(hours=hour_offset)
+                                    test_end = test_start + timedelta(hours=duration_hours)
+                                    
+                                    test_conflicts = Booking.objects.filter(
+                                        resource=access_request.resource,
+                                        status__in=['approved', 'pending'],
+                                        start_time__lt=test_end,
+                                        end_time__gt=test_start
+                                    )
+                                    
+                                    if not test_conflicts.exists():
+                                        next_slot = test_start
+                                        break
+                                
+                                conflict_msg = f'The requested time slot conflicts with existing bookings.'
+                                if next_slot:
+                                    conflict_msg += f' Next available slot: {next_slot.strftime("%B %d, %Y at %I:%M %p")}'
+                                
+                                messages.warning(request, conflict_msg, extra_tags='persistent-alert')
+                                # Reset to pending status and clear training_date
+                                training_request.status = 'pending'
+                                training_request.training_date = None
+                                training_request.save()
+                            else:
+                                # No conflicts, create the booking
+                                booking = Booking.objects.create(
+                                    resource=access_request.resource,
+                                    user=access_request.user,
+                                    title=f'Training Session: {access_request.resource.name}',
+                                    description=f'Training session for {access_request.user.get_full_name()}.\n\n{training_request.justification}',
+                                    start_time=training_datetime,
+                                    end_time=training_end_time,
+                                    status='approved',  # Training bookings are auto-approved
+                                    notes=f'Training Request ID: {training_request.id}'
+                                )
+                                
+                                # Send notifications
+                                try:
+                                    from booking.notifications import training_request_notifications
+                                    training_request_notifications.training_request_scheduled(training_request, training_datetime)
+                                except Exception as e:
+                                    import logging
+                                    logger = logging.getLogger(__name__)
+                                    logger.error(f"Failed to send training scheduled notification: {e}")
+                                
+                                if created:
+                                    messages.success(request, f'Training session scheduled for {access_request.user.get_full_name()} on {training_datetime.strftime("%B %d, %Y at %I:%M %p")}. Resource has been booked.', extra_tags='persistent-alert')
+                                else:
+                                    messages.success(request, f'Training session updated and scheduled for {access_request.user.get_full_name()} on {training_datetime.strftime("%B %d, %Y at %I:%M %p")}. Resource has been booked.', extra_tags='persistent-alert')
+                                    
+                        except Exception as e:
+                            messages.error(request, f'Error scheduling training session: {str(e)}')
+                            # Reset to pending status
+                            training_request.status = 'pending'
+                            training_request.training_date = None
+                            training_request.save()
+                    else:
+                        # No specific time scheduled
+                        if created:
+                            messages.success(request, f'Training request created for {access_request.user.get_full_name()}', extra_tags='persistent-alert')
+                        else:
+                            messages.info(request, f'Training request already exists for {access_request.user.get_full_name()}', extra_tags='persistent-alert')
+                        
+                except Exception as e:
+                    messages.error(request, f'Error creating training request: {str(e)}')
         
         return redirect('booking:lab_admin_access_requests')
     
     # Get access requests
     access_requests = AccessRequest.objects.select_related(
-        'user', 'resource', 'reviewed_by'
+        'user', 'resource', 'reviewed_by', 'safety_induction_confirmed_by', 'lab_training_confirmed_by', 'risk_assessment_confirmed_by'
     ).order_by('-created_at')
     
     # Apply filters
@@ -4612,9 +4949,17 @@ def lab_admin_access_requests_view(request):
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     
+    # Add prerequisite status to each request
+    for request_obj in page_obj:
+        request_obj.prerequisite_status = request_obj.get_prerequisite_status()
+    
+    # Add today's date for date picker minimum value
+    from datetime import date
+    
     context = {
         'access_requests': page_obj,
         'status_filter': status_filter,
+        'today': date.today(),
     }
     
     return render(request, 'booking/lab_admin_access_requests.html', context)
@@ -4626,7 +4971,7 @@ def lab_admin_training_view(request):
     """Manage training requests and sessions."""
     from booking.models import TrainingRequest, UserTraining, TrainingCourse
     
-    # Handle training request approval
+    # Handle training request actions
     if request.method == 'POST':
         action = request.POST.get('action')
         
@@ -4641,18 +4986,152 @@ def lab_admin_training_view(request):
             
             messages.success(request, f'Training request approved for {training_request.user.get_full_name()}')
             
+        elif action == 'delete_request':
+            request_id = request.POST.get('request_id')
+            training_request = get_object_or_404(TrainingRequest, id=request_id)
+            user_name = training_request.user.get_full_name()
+            
+            training_request.delete()
+            messages.success(request, f'Training request for {user_name} has been deleted', extra_tags='persistent-alert')
+            
+        elif action == 'edit_request':
+            request_id = request.POST.get('request_id')
+            training_request = get_object_or_404(TrainingRequest, id=request_id)
+            
+            # Parse training date and time
+            training_date = request.POST.get('training_date')
+            training_time = request.POST.get('training_time')
+            training_datetime = None
+            
+            if training_date and training_time:
+                try:
+                    from datetime import datetime
+                    training_datetime = datetime.strptime(f"{training_date} {training_time}", "%Y-%m-%d %H:%M")
+                    training_datetime = timezone.make_aware(training_datetime)
+                except ValueError:
+                    messages.error(request, 'Invalid date or time format.')
+                    return redirect('booking:lab_admin_training')
+            elif training_date:
+                try:
+                    from datetime import datetime
+                    training_datetime = datetime.strptime(training_date, "%Y-%m-%d")
+                    training_datetime = timezone.make_aware(training_datetime)
+                except ValueError:
+                    messages.error(request, 'Invalid date format.')
+                    return redirect('booking:lab_admin_training')
+            
+            # Update training request fields
+            training_request.training_date = training_datetime
+            training_request.justification = request.POST.get('training_justification', training_request.justification)
+            training_request.save()
+            
+            messages.success(request, f'Training request updated for {training_request.user.get_full_name()}', extra_tags='persistent-alert')
+            
         elif action == 'schedule_training':
             user_training_id = request.POST.get('user_training_id')
             session_date = request.POST.get('session_date')
             
             if user_training_id and session_date:
                 user_training = get_object_or_404(UserTraining, id=user_training_id)
-                user_training.session_date = session_date
-                user_training.instructor = request.user
-                user_training.status = 'scheduled'
-                user_training.save()
                 
-                messages.success(request, f'Training session scheduled for {user_training.user.get_full_name()}')
+                try:
+                    # Parse session date and create datetime object
+                    session_datetime = datetime.strptime(session_date, "%Y-%m-%d")
+                    session_datetime = timezone.make_aware(session_datetime)
+                    
+                    # Set default training duration (2 hours)
+                    training_duration = timedelta(hours=2)
+                    session_end_time = session_datetime + training_duration
+                    
+                    # Find associated resource (from training course requirements)
+                    resource = None
+                    training_requirements = user_training.training_course.resource_requirements.all()
+                    if training_requirements.exists():
+                        resource = training_requirements.first().resource
+                    
+                    if resource:
+                        # Check for booking conflicts
+                        conflicts = Booking.objects.filter(
+                            resource=resource,
+                            status__in=['approved', 'pending'],
+                            start_time__lt=session_end_time,
+                            end_time__gt=session_datetime
+                        )
+                        
+                        if conflicts.exists():
+                            # Find next available slot
+                            next_slot = None
+                            for day_offset in range(1, 30):  # Check next month
+                                test_start = session_datetime + timedelta(days=day_offset)
+                                test_end = test_start + training_duration
+                                
+                                test_conflicts = Booking.objects.filter(
+                                    resource=resource,
+                                    status__in=['approved', 'pending'],
+                                    start_time__lt=test_end,
+                                    end_time__gt=test_start
+                                )
+                                
+                                if not test_conflicts.exists():
+                                    next_slot = test_start
+                                    break
+                            
+                            conflict_msg = f'The requested date conflicts with existing bookings for {resource.name}.'
+                            if next_slot:
+                                conflict_msg += f' Next available date: {next_slot.strftime("%B %d, %Y")}'
+                            
+                            messages.warning(request, conflict_msg, extra_tags='persistent-alert')
+                        else:
+                            # No conflicts, create the booking
+                            booking = Booking.objects.create(
+                                resource=resource,
+                                user=user_training.user,
+                                title=f'Training Session: {user_training.training_course.title}',
+                                description=f'Training session for {user_training.user.get_full_name()} - {user_training.training_course.title}',
+                                start_time=session_datetime,
+                                end_time=session_end_time,
+                                status='approved',  # Training bookings are auto-approved
+                                notes=f'User Training ID: {user_training.id}'
+                            )
+                            
+                            # Update user training
+                            user_training.session_date = session_date
+                            user_training.instructor = request.user
+                            user_training.status = 'scheduled'
+                            user_training.save()
+                            
+                            # Send notifications
+                            try:
+                                from booking.notifications import training_request_notifications
+                                training_request_notifications.training_request_scheduled(user_training, session_datetime)
+                            except Exception as e:
+                                import logging
+                                logger = logging.getLogger(__name__)
+                                logger.error(f"Failed to send training scheduled notification: {e}")
+                            
+                            messages.success(request, f'Training session scheduled for {user_training.user.get_full_name()} on {session_datetime.strftime("%B %d, %Y")}. Resource {resource.name} has been booked.', extra_tags='persistent-alert')
+                    else:
+                        # No specific resource, just update the user training
+                        user_training.session_date = session_date
+                        user_training.instructor = request.user
+                        user_training.status = 'scheduled'
+                        user_training.save()
+                        
+                        # Send notifications
+                        try:
+                            from booking.notifications import training_request_notifications
+                            training_request_notifications.training_request_scheduled(user_training, session_datetime)
+                        except Exception as e:
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.error(f"Failed to send training scheduled notification: {e}")
+                        
+                        messages.success(request, f'Training session scheduled for {user_training.user.get_full_name()} on {session_datetime.strftime("%B %d, %Y")}', extra_tags='persistent-alert')
+                        
+                except ValueError:
+                    messages.error(request, 'Invalid date format.')
+                except Exception as e:
+                    messages.error(request, f'Error scheduling training session: {str(e)}')
         
         return redirect('booking:lab_admin_training')
     
@@ -4669,6 +5148,66 @@ def lab_admin_training_view(request):
     }
     
     return render(request, 'booking/lab_admin_training.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_risk_assessments_view(request):
+    """Manage user risk assessments."""
+    from booking.models import UserRiskAssessment, RiskAssessment
+    
+    # Handle risk assessment actions
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'approve_assessment':
+            assessment_id = request.POST.get('assessment_id')
+            user_assessment = get_object_or_404(UserRiskAssessment, id=assessment_id)
+            
+            user_assessment.status = 'approved'
+            user_assessment.completed_at = timezone.now()
+            user_assessment.save()
+            
+            messages.success(request, f'Risk assessment approved for {user_assessment.user.get_full_name()}')
+            
+        elif action == 'reject_assessment':
+            assessment_id = request.POST.get('assessment_id')
+            user_assessment = get_object_or_404(UserRiskAssessment, id=assessment_id)
+            rejection_reason = request.POST.get('rejection_reason', '')
+            
+            user_assessment.status = 'rejected'
+            user_assessment.rejection_reason = rejection_reason
+            user_assessment.save()
+            
+            messages.success(request, f'Risk assessment rejected for {user_assessment.user.get_full_name()}')
+            
+        elif action == 'view_details':
+            assessment_id = request.POST.get('assessment_id')
+            # This could redirect to a detailed view of the assessment
+            return redirect('booking:lab_admin_risk_assessments')
+        
+        return redirect('booking:lab_admin_risk_assessments')
+    
+    # Get risk assessment data
+    submitted_assessments = UserRiskAssessment.objects.filter(
+        status='submitted'
+    ).select_related('user', 'risk_assessment').order_by('-submitted_at')
+    
+    approved_assessments = UserRiskAssessment.objects.filter(
+        status='approved'
+    ).select_related('user', 'risk_assessment').order_by('-completed_at')[:20]  # Show recent 20
+    
+    rejected_assessments = UserRiskAssessment.objects.filter(
+        status='rejected'
+    ).select_related('user', 'risk_assessment').order_by('-submitted_at')[:20]  # Show recent 20
+    
+    context = {
+        'submitted_assessments': submitted_assessments,
+        'approved_assessments': approved_assessments,
+        'rejected_assessments': rejected_assessments,
+    }
+    
+    return render(request, 'booking/lab_admin_risk_assessments.html', context)
 
 
 @login_required
@@ -4798,6 +5337,7 @@ def lab_admin_edit_resource_view(request, resource_id):
     resource = get_object_or_404(Resource, id=resource_id)
     
     if request.method == 'POST':
+        # Handle regular form submission
         form = ResourceForm(request.POST, request.FILES, instance=resource)
         if form.is_valid():
             resource = form.save()
@@ -5210,6 +5750,25 @@ def lab_admin_inductions_view(request):
                 user_profile.is_inducted = True
                 user_profile.save()
                 
+                # Also mark safety induction as confirmed on any pending access requests
+                from booking.models import AccessRequest
+                from django.utils import timezone
+                pending_requests = AccessRequest.objects.filter(
+                    user=user, 
+                    status='pending',
+                    safety_induction_confirmed=False
+                )
+                
+                for access_request in pending_requests:
+                    access_request.safety_induction_confirmed = True
+                    access_request.safety_induction_confirmed_by = request.user
+                    access_request.safety_induction_confirmed_at = timezone.now()
+                    access_request.safety_induction_notes = f"Confirmed via general lab induction by {request.user.get_full_name() or request.user.username}"
+                    access_request.save(update_fields=[
+                        'safety_induction_confirmed', 'safety_induction_confirmed_by', 
+                        'safety_induction_confirmed_at', 'safety_induction_notes', 'updated_at'
+                    ])
+                
                 messages.success(request, f'Successfully marked {user.get_full_name() or user.username} as inducted.')
                 
                 # Send notification to user
@@ -5225,6 +5784,24 @@ def lab_admin_inductions_view(request):
             elif action == 'mark_not_inducted':
                 user_profile.is_inducted = False
                 user_profile.save()
+                
+                # Also clear safety induction confirmation on any pending access requests
+                from booking.models import AccessRequest
+                pending_requests = AccessRequest.objects.filter(
+                    user=user, 
+                    status='pending',
+                    safety_induction_confirmed=True
+                )
+                
+                for access_request in pending_requests:
+                    access_request.safety_induction_confirmed = False
+                    access_request.safety_induction_confirmed_by = None
+                    access_request.safety_induction_confirmed_at = None
+                    access_request.safety_induction_notes = ""
+                    access_request.save(update_fields=[
+                        'safety_induction_confirmed', 'safety_induction_confirmed_by', 
+                        'safety_induction_confirmed_at', 'safety_induction_notes', 'updated_at'
+                    ])
                 
                 messages.success(request, f'Successfully marked {user.get_full_name() or user.username} as not inducted.')
                 
@@ -5398,6 +5975,187 @@ def calendar_sync_settings_view(request):
     }
     
     return render(request, 'booking/calendar_sync_settings.html', context)
+
+
+# =============================================================================
+# Google Calendar Integration Views
+# =============================================================================
+
+@login_required
+def google_calendar_auth_view(request):
+    """Initiate Google Calendar OAuth flow."""
+    try:
+        from ..services.google_calendar import google_calendar_service
+        
+        if not google_calendar_service:
+            messages.error(request, 'Google Calendar integration is not available. Please contact administrator.')
+            return redirect('booking:calendar_sync_settings')
+        
+        # Get authorization URL
+        auth_url = google_calendar_service.get_authorization_url(request)
+        return redirect(auth_url)
+        
+    except Exception as e:
+        logger.error(f"Error initiating Google Calendar auth for user {request.user.username}: {e}")
+        messages.error(request, f'Error connecting to Google Calendar: {e}')
+        return redirect('booking:calendar_sync_settings')
+
+
+@login_required
+def google_calendar_callback_view(request):
+    """Handle Google Calendar OAuth callback."""
+    try:
+        from ..services.google_calendar import google_calendar_service
+        from ..models import GoogleCalendarIntegration
+        
+        if not google_calendar_service:
+            messages.error(request, 'Google Calendar integration is not available.')
+            return redirect('booking:calendar_sync_settings')
+        
+        # Check for authorization code
+        authorization_code = request.GET.get('code')
+        if not authorization_code:
+            error = request.GET.get('error', 'No authorization code received')
+            messages.error(request, f'Google Calendar authorization failed: {error}')
+            return redirect('booking:calendar_sync_settings')
+        
+        # Handle the callback
+        integration = google_calendar_service.handle_oauth_callback(request, authorization_code)
+        
+        messages.success(
+            request, 
+            'Google Calendar has been connected successfully! Your bookings will now sync automatically.'
+        )
+        
+        return redirect('booking:calendar_sync_settings')
+        
+    except Exception as e:
+        logger.error(f"Error handling Google Calendar callback for user {request.user.username}: {e}")
+        messages.error(request, f'Error connecting Google Calendar: {e}')
+        return redirect('booking:calendar_sync_settings')
+
+
+@login_required
+def google_calendar_settings_view(request):
+    """Manage Google Calendar integration settings."""
+    from ..models import GoogleCalendarIntegration, CalendarSyncPreferences
+    from ..forms import CalendarSyncPreferencesForm
+    
+    try:
+        integration = GoogleCalendarIntegration.objects.get(user=request.user)
+    except GoogleCalendarIntegration.DoesNotExist:
+        integration = None
+    
+    try:
+        preferences = CalendarSyncPreferences.objects.get(user=request.user)
+    except CalendarSyncPreferences.DoesNotExist:
+        preferences = CalendarSyncPreferences.objects.create(user=request.user)
+    
+    if request.method == 'POST':
+        form = CalendarSyncPreferencesForm(request.POST, instance=preferences)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Calendar sync preferences updated successfully.')
+            return redirect('booking:google_calendar_settings')
+    else:
+        form = CalendarSyncPreferencesForm(instance=preferences)
+    
+    context = {
+        'integration': integration,
+        'preferences': preferences,
+        'form': form,
+    }
+    
+    return render(request, 'booking/google_calendar_settings.html', context)
+
+
+@login_required
+def google_calendar_sync_view(request):
+    """Manually trigger Google Calendar sync."""
+    from ..services.google_calendar import google_calendar_service
+    from ..models import GoogleCalendarIntegration
+    
+    try:
+        integration = GoogleCalendarIntegration.objects.get(user=request.user)
+        
+        if not integration.can_sync():
+            messages.error(request, 'Google Calendar sync is not available. Please check your connection.')
+            return redirect('booking:calendar_sync_settings')
+        
+        # Get user's future bookings
+        from ..models import Booking
+        bookings = Booking.objects.filter(
+            user=request.user,
+            start_time__gte=timezone.now(),
+            status__in=['confirmed', 'pending']
+        ).order_by('start_time')
+        
+        sync_count = 0
+        error_count = 0
+        
+        for booking in bookings:
+            # Check if booking already has a Google event
+            existing_log = booking.googlecalendarsynclog_set.filter(
+                user=request.user,
+                action='created',
+                status='success'
+            ).first()
+            
+            if existing_log:
+                # Update existing event
+                success = google_calendar_service.update_calendar_event(
+                    integration, booking, existing_log.google_event_id
+                )
+            else:
+                # Create new event
+                event_id = google_calendar_service.create_calendar_event(integration, booking)
+                success = event_id is not None
+            
+            if success:
+                sync_count += 1
+            else:
+                error_count += 1
+        
+        # Update last sync time
+        integration.last_sync = timezone.now()
+        integration.save()
+        
+        if error_count == 0:
+            messages.success(request, f'Successfully synced {sync_count} bookings to Google Calendar.')
+        else:
+            messages.warning(
+                request, 
+                f'Synced {sync_count} bookings successfully, but {error_count} failed. Check sync logs for details.'
+            )
+        
+    except GoogleCalendarIntegration.DoesNotExist:
+        messages.error(request, 'Google Calendar is not connected. Please connect first.')
+    except Exception as e:
+        logger.error(f"Error syncing Google Calendar for user {request.user.username}: {e}")
+        messages.error(request, f'Error syncing with Google Calendar: {e}')
+    
+    return redirect('booking:calendar_sync_settings')
+
+
+@login_required
+def google_calendar_disconnect_view(request):
+    """Disconnect Google Calendar integration."""
+    from ..services.google_calendar import google_calendar_service
+    
+    if request.method == 'POST':
+        try:
+            success = google_calendar_service.disconnect_integration(request.user)
+            
+            if success:
+                messages.success(request, 'Google Calendar has been disconnected successfully.')
+            else:
+                messages.warning(request, 'Google Calendar was not connected.')
+                
+        except Exception as e:
+            logger.error(f"Error disconnecting Google Calendar for user {request.user.username}: {e}")
+            messages.error(request, f'Error disconnecting Google Calendar: {e}')
+    
+    return redirect('booking:calendar_sync_settings')
 
 
 def about_page_view(request):
@@ -5645,6 +6403,7 @@ def site_admin_license_management_view(request):
 
 
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+@require_license_feature('custom_branding')
 def site_admin_branding_config_view(request):
     """Site admin branding configuration page."""
     try:
@@ -6930,6 +7689,7 @@ def site_admin_email_config_edit_view(request, config_id):
 
 # Backup Management Views
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+@require_license_feature('advanced_reports')
 def site_admin_backup_management_view(request):
     """Backup management interface."""
     from booking.backup_service import BackupService
@@ -7837,5 +8597,641 @@ def my_reported_issues(request):
     
     return render(request, 'booking/my_issues.html', {
         'issues': issues,
+    })
+
+
+# =============================================================================
+# Checklist Item AJAX Views
+# =============================================================================
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def ajax_create_checklist_item(request):
+    """AJAX view for creating checklist items in a popup."""
+    if not (request.user.is_staff or hasattr(request.user, 'userprofile') and 
+            request.user.userprofile.role in ['technician', 'sysadmin']):
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    if request.method == 'GET':
+        form = ChecklistItemForm()
+        html = render_to_string('booking/modals/checklist_item_form.html', {
+            'form': form,
+        }, request=request)
+        return JsonResponse({'html': html})
+    
+    elif request.method == 'POST':
+        form = ChecklistItemForm(request.POST)
+        if form.is_valid():
+            checklist_item = form.save(commit=False)
+            checklist_item.created_by = request.user
+            checklist_item.save()
+            
+            return JsonResponse({
+                'success': True,
+                'item': {
+                    'id': checklist_item.id,
+                    'title': checklist_item.title,
+                    'description': checklist_item.description,
+                    'category': checklist_item.get_category_display(),
+                    'item_type': checklist_item.get_item_type_display(),
+                    'is_required': checklist_item.is_required,
+                }
+            })
+        else:
+            html = render_to_string('booking/modals/checklist_item_form.html', {
+                'form': form,
+            }, request=request)
+            return JsonResponse({'html': html, 'errors': form.errors})
+
+
+# =============================================================================
+# Academic Hierarchy Management Views (Site Admin)
+# =============================================================================
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_academic_hierarchy_view(request):
+    """Academic hierarchy management dashboard."""
+    faculties = Faculty.objects.annotate(
+        colleges_count=Count('colleges'),
+        departments_count=Count('colleges__departments')
+    ).order_by('name')
+    
+    colleges = College.objects.select_related('faculty').annotate(
+        departments_count=Count('departments')
+    ).order_by('faculty__name', 'name')
+    
+    departments = Department.objects.select_related('college__faculty').order_by(
+        'college__faculty__name', 'college__name', 'name'
+    )
+    
+    stats = {
+        'total_faculties': Faculty.objects.count(),
+        'active_faculties': Faculty.objects.filter(is_active=True).count(),
+        'total_colleges': College.objects.count(),
+        'active_colleges': College.objects.filter(is_active=True).count(),
+        'total_departments': Department.objects.count(),
+        'active_departments': Department.objects.filter(is_active=True).count(),
+    }
+    
+    return render(request, 'booking/site_admin_academic_hierarchy.html', {
+        'faculties': faculties[:10],  # Show first 10 for overview
+        'colleges': colleges[:10],    # Show first 10 for overview
+        'departments': departments[:10],  # Show first 10 for overview
+        'stats': stats,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_faculties_view(request):
+    """Faculty management view."""
+    faculties = Faculty.objects.annotate(
+        colleges_count=Count('colleges'),
+        departments_count=Count('colleges__departments')
+    ).order_by('name')
+    
+    # Search functionality
+    search = request.GET.get('search', '')
+    if search:
+        faculties = faculties.filter(
+            Q(name__icontains=search) | Q(code__icontains=search)
+        )
+    
+    # Pagination
+    paginator = Paginator(faculties, 20)
+    page = request.GET.get('page')
+    faculties = paginator.get_page(page)
+    
+    return render(request, 'booking/site_admin_faculties.html', {
+        'faculties': faculties,
+        'search': search,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_faculty_create_view(request):
+    """Create new faculty."""
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        code = request.POST.get('code', '').strip().upper()
+        is_active = request.POST.get('is_active') == 'on'
+        
+        if not name or not code:
+            messages.error(request, 'Faculty name and code are required.')
+            return render(request, 'booking/site_admin_faculty_form.html', {
+                'faculty': None,
+                'action': 'Create',
+            })
+        
+        if Faculty.objects.filter(name=name).exists():
+            messages.error(request, 'A faculty with this name already exists.')
+            return render(request, 'booking/site_admin_faculty_form.html', {
+                'faculty': None,
+                'action': 'Create',
+            })
+        
+        if Faculty.objects.filter(code=code).exists():
+            messages.error(request, 'A faculty with this code already exists.')
+            return render(request, 'booking/site_admin_faculty_form.html', {
+                'faculty': None,
+                'action': 'Create',
+            })
+        
+        faculty = Faculty.objects.create(
+            name=name,
+            code=code,
+            is_active=is_active
+        )
+        
+        messages.success(request, f'Faculty "{faculty.name}" created successfully.')
+        return redirect('booking:site_admin_faculties')
+    
+    return render(request, 'booking/site_admin_faculty_form.html', {
+        'faculty': None,
+        'action': 'Create',
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_faculty_edit_view(request, faculty_id):
+    """Edit existing faculty."""
+    faculty = get_object_or_404(Faculty, id=faculty_id)
+    
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        code = request.POST.get('code', '').strip().upper()
+        is_active = request.POST.get('is_active') == 'on'
+        
+        if not name or not code:
+            messages.error(request, 'Faculty name and code are required.')
+            return render(request, 'booking/site_admin_faculty_form.html', {
+                'faculty': faculty,
+                'action': 'Edit',
+            })
+        
+        # Check for duplicate name (excluding current faculty)
+        if Faculty.objects.filter(name=name).exclude(id=faculty.id).exists():
+            messages.error(request, 'A faculty with this name already exists.')
+            return render(request, 'booking/site_admin_faculty_form.html', {
+                'faculty': faculty,
+                'action': 'Edit',
+            })
+        
+        # Check for duplicate code (excluding current faculty)
+        if Faculty.objects.filter(code=code).exclude(id=faculty.id).exists():
+            messages.error(request, 'A faculty with this code already exists.')
+            return render(request, 'booking/site_admin_faculty_form.html', {
+                'faculty': faculty,
+                'action': 'Edit',
+            })
+        
+        faculty.name = name
+        faculty.code = code
+        faculty.is_active = is_active
+        faculty.save()
+        
+        messages.success(request, f'Faculty "{faculty.name}" updated successfully.')
+        return redirect('booking:site_admin_faculties')
+    
+    return render(request, 'booking/site_admin_faculty_form.html', {
+        'faculty': faculty,
+        'action': 'Edit',
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_faculty_delete_view(request, faculty_id):
+    """Delete faculty."""
+    faculty = get_object_or_404(Faculty, id=faculty_id)
+    
+    if request.method == 'POST':
+        faculty_name = faculty.name
+        try:
+            faculty.delete()
+            messages.success(request, f'Faculty "{faculty_name}" deleted successfully.')
+        except Exception as e:
+            messages.error(request, f'Cannot delete faculty: {str(e)}')
+        
+        return redirect('booking:site_admin_faculties')
+    
+    # Get related data for confirmation
+    colleges_count = faculty.colleges.count()
+    departments_count = Department.objects.filter(college__faculty=faculty).count()
+    
+    return render(request, 'booking/site_admin_faculty_confirm_delete.html', {
+        'faculty': faculty,
+        'colleges_count': colleges_count,
+        'departments_count': departments_count,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_colleges_view(request):
+    """College management view."""
+    colleges = College.objects.select_related('faculty').annotate(
+        departments_count=Count('departments')
+    ).order_by('faculty__name', 'name')
+    
+    # Filter by faculty
+    faculty_id = request.GET.get('faculty')
+    selected_faculty_obj = None
+    if faculty_id:
+        try:
+            selected_faculty_obj = Faculty.objects.get(id=faculty_id)
+            colleges = colleges.filter(faculty_id=faculty_id)
+        except Faculty.DoesNotExist:
+            faculty_id = None
+    
+    # Search functionality
+    search = request.GET.get('search', '')
+    if search:
+        colleges = colleges.filter(
+            Q(name__icontains=search) | 
+            Q(code__icontains=search) |
+            Q(faculty__name__icontains=search)
+        )
+    
+    # Pagination
+    paginator = Paginator(colleges, 20)
+    page = request.GET.get('page')
+    colleges = paginator.get_page(page)
+    
+    faculties = Faculty.objects.filter(is_active=True).order_by('name')
+    
+    return render(request, 'booking/site_admin_colleges.html', {
+        'colleges': colleges,
+        'faculties': faculties,
+        'search': search,
+        'selected_faculty': faculty_id,
+        'selected_faculty_obj': selected_faculty_obj,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_college_create_view(request):
+    """Create new college."""
+    faculties = Faculty.objects.filter(is_active=True).order_by('name')
+    
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        code = request.POST.get('code', '').strip().upper()
+        faculty_id = request.POST.get('faculty')
+        is_active = request.POST.get('is_active') == 'on'
+        
+        if not name or not code or not faculty_id:
+            messages.error(request, 'College name, code, and faculty are required.')
+            return render(request, 'booking/site_admin_college_form.html', {
+                'college': None,
+                'faculties': faculties,
+                'action': 'Create',
+            })
+        
+        try:
+            faculty = Faculty.objects.get(id=faculty_id)
+        except Faculty.DoesNotExist:
+            messages.error(request, 'Selected faculty does not exist.')
+            return render(request, 'booking/site_admin_college_form.html', {
+                'college': None,
+                'faculties': faculties,
+                'action': 'Create',
+            })
+        
+        # Check for duplicate name within faculty
+        if College.objects.filter(faculty=faculty, name=name).exists():
+            messages.error(request, 'A college with this name already exists in this faculty.')
+            return render(request, 'booking/site_admin_college_form.html', {
+                'college': None,
+                'faculties': faculties,
+                'action': 'Create',
+            })
+        
+        # Check for duplicate code within faculty
+        if College.objects.filter(faculty=faculty, code=code).exists():
+            messages.error(request, 'A college with this code already exists in this faculty.')
+            return render(request, 'booking/site_admin_college_form.html', {
+                'college': None,
+                'faculties': faculties,
+                'action': 'Create',
+            })
+        
+        college = College.objects.create(
+            name=name,
+            code=code,
+            faculty=faculty,
+            is_active=is_active
+        )
+        
+        messages.success(request, f'College "{college.name}" created successfully.')
+        return redirect('booking:site_admin_colleges')
+    
+    return render(request, 'booking/site_admin_college_form.html', {
+        'college': None,
+        'faculties': faculties,
+        'action': 'Create',
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_college_edit_view(request, college_id):
+    """Edit existing college."""
+    college = get_object_or_404(College, id=college_id)
+    faculties = Faculty.objects.filter(is_active=True).order_by('name')
+    
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        code = request.POST.get('code', '').strip().upper()
+        faculty_id = request.POST.get('faculty')
+        is_active = request.POST.get('is_active') == 'on'
+        
+        if not name or not code or not faculty_id:
+            messages.error(request, 'College name, code, and faculty are required.')
+            return render(request, 'booking/site_admin_college_form.html', {
+                'college': college,
+                'faculties': faculties,
+                'action': 'Edit',
+            })
+        
+        try:
+            faculty = Faculty.objects.get(id=faculty_id)
+        except Faculty.DoesNotExist:
+            messages.error(request, 'Selected faculty does not exist.')
+            return render(request, 'booking/site_admin_college_form.html', {
+                'college': college,
+                'faculties': faculties,
+                'action': 'Edit',
+            })
+        
+        # Check for duplicate name within faculty (excluding current college)
+        if College.objects.filter(faculty=faculty, name=name).exclude(id=college.id).exists():
+            messages.error(request, 'A college with this name already exists in this faculty.')
+            return render(request, 'booking/site_admin_college_form.html', {
+                'college': college,
+                'faculties': faculties,
+                'action': 'Edit',
+            })
+        
+        # Check for duplicate code within faculty (excluding current college)
+        if College.objects.filter(faculty=faculty, code=code).exclude(id=college.id).exists():
+            messages.error(request, 'A college with this code already exists in this faculty.')
+            return render(request, 'booking/site_admin_college_form.html', {
+                'college': college,
+                'faculties': faculties,
+                'action': 'Edit',
+            })
+        
+        college.name = name
+        college.code = code
+        college.faculty = faculty
+        college.is_active = is_active
+        college.save()
+        
+        messages.success(request, f'College "{college.name}" updated successfully.')
+        return redirect('booking:site_admin_colleges')
+    
+    return render(request, 'booking/site_admin_college_form.html', {
+        'college': college,
+        'faculties': faculties,
+        'action': 'Edit',
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_college_delete_view(request, college_id):
+    """Delete college."""
+    college = get_object_or_404(College, id=college_id)
+    
+    if request.method == 'POST':
+        college_name = college.name
+        try:
+            college.delete()
+            messages.success(request, f'College "{college_name}" deleted successfully.')
+        except Exception as e:
+            messages.error(request, f'Cannot delete college: {str(e)}')
+        
+        return redirect('booking:site_admin_colleges')
+    
+    # Get related data for confirmation
+    departments_count = college.departments.count()
+    
+    return render(request, 'booking/site_admin_college_confirm_delete.html', {
+        'college': college,
+        'departments_count': departments_count,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_departments_view(request):
+    """Department management view."""
+    departments = Department.objects.select_related('college__faculty').order_by(
+        'college__faculty__name', 'college__name', 'name'
+    )
+    
+    # Filter by faculty
+    faculty_id = request.GET.get('faculty')
+    selected_faculty_obj = None
+    if faculty_id:
+        try:
+            selected_faculty_obj = Faculty.objects.get(id=faculty_id)
+            departments = departments.filter(college__faculty_id=faculty_id)
+        except Faculty.DoesNotExist:
+            faculty_id = None
+    
+    # Filter by college
+    college_id = request.GET.get('college')
+    selected_college_obj = None
+    if college_id:
+        try:
+            selected_college_obj = College.objects.get(id=college_id)
+            departments = departments.filter(college_id=college_id)
+        except College.DoesNotExist:
+            college_id = None
+    
+    # Search functionality
+    search = request.GET.get('search', '')
+    if search:
+        departments = departments.filter(
+            Q(name__icontains=search) | 
+            Q(code__icontains=search) |
+            Q(college__name__icontains=search) |
+            Q(college__faculty__name__icontains=search)
+        )
+    
+    # Pagination
+    paginator = Paginator(departments, 20)
+    page = request.GET.get('page')
+    departments = paginator.get_page(page)
+    
+    faculties = Faculty.objects.filter(is_active=True).order_by('name')
+    colleges = College.objects.filter(is_active=True).select_related('faculty').order_by('faculty__name', 'name')
+    
+    return render(request, 'booking/site_admin_departments.html', {
+        'departments': departments,
+        'faculties': faculties,
+        'colleges': colleges,
+        'search': search,
+        'selected_faculty': faculty_id,
+        'selected_college': college_id,
+        'selected_faculty_obj': selected_faculty_obj,
+        'selected_college_obj': selected_college_obj,
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_department_create_view(request):
+    """Create new department."""
+    colleges = College.objects.filter(is_active=True).select_related('faculty').order_by('faculty__name', 'name')
+    
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        code = request.POST.get('code', '').strip().upper()
+        college_id = request.POST.get('college')
+        is_active = request.POST.get('is_active') == 'on'
+        
+        if not name or not code or not college_id:
+            messages.error(request, 'Department name, code, and college are required.')
+            return render(request, 'booking/site_admin_department_form.html', {
+                'department': None,
+                'colleges': colleges,
+                'action': 'Create',
+            })
+        
+        try:
+            college = College.objects.get(id=college_id)
+        except College.DoesNotExist:
+            messages.error(request, 'Selected college does not exist.')
+            return render(request, 'booking/site_admin_department_form.html', {
+                'department': None,
+                'colleges': colleges,
+                'action': 'Create',
+            })
+        
+        # Check for duplicate name within college
+        if Department.objects.filter(college=college, name=name).exists():
+            messages.error(request, 'A department with this name already exists in this college.')
+            return render(request, 'booking/site_admin_department_form.html', {
+                'department': None,
+                'colleges': colleges,
+                'action': 'Create',
+            })
+        
+        # Check for duplicate code within college
+        if Department.objects.filter(college=college, code=code).exists():
+            messages.error(request, 'A department with this code already exists in this college.')
+            return render(request, 'booking/site_admin_department_form.html', {
+                'department': None,
+                'colleges': colleges,
+                'action': 'Create',
+            })
+        
+        department = Department.objects.create(
+            name=name,
+            code=code,
+            college=college,
+            is_active=is_active
+        )
+        
+        messages.success(request, f'Department "{department.name}" created successfully.')
+        return redirect('booking:site_admin_departments')
+    
+    return render(request, 'booking/site_admin_department_form.html', {
+        'department': None,
+        'colleges': colleges,
+        'action': 'Create',
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_department_edit_view(request, department_id):
+    """Edit existing department."""
+    department = get_object_or_404(Department, id=department_id)
+    colleges = College.objects.filter(is_active=True).select_related('faculty').order_by('faculty__name', 'name')
+    
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        code = request.POST.get('code', '').strip().upper()
+        college_id = request.POST.get('college')
+        is_active = request.POST.get('is_active') == 'on'
+        
+        if not name or not code or not college_id:
+            messages.error(request, 'Department name, code, and college are required.')
+            return render(request, 'booking/site_admin_department_form.html', {
+                'department': department,
+                'colleges': colleges,
+                'action': 'Edit',
+            })
+        
+        try:
+            college = College.objects.get(id=college_id)
+        except College.DoesNotExist:
+            messages.error(request, 'Selected college does not exist.')
+            return render(request, 'booking/site_admin_department_form.html', {
+                'department': department,
+                'colleges': colleges,
+                'action': 'Edit',
+            })
+        
+        # Check for duplicate name within college (excluding current department)
+        if Department.objects.filter(college=college, name=name).exclude(id=department.id).exists():
+            messages.error(request, 'A department with this name already exists in this college.')
+            return render(request, 'booking/site_admin_department_form.html', {
+                'department': department,
+                'colleges': colleges,
+                'action': 'Edit',
+            })
+        
+        # Check for duplicate code within college (excluding current department)
+        if Department.objects.filter(college=college, code=code).exclude(id=department.id).exists():
+            messages.error(request, 'A department with this code already exists in this college.')
+            return render(request, 'booking/site_admin_department_form.html', {
+                'department': department,
+                'colleges': colleges,
+                'action': 'Edit',
+            })
+        
+        department.name = name
+        department.code = code
+        department.college = college
+        department.is_active = is_active
+        department.save()
+        
+        messages.success(request, f'Department "{department.name}" updated successfully.')
+        return redirect('booking:site_admin_departments')
+    
+    return render(request, 'booking/site_admin_department_form.html', {
+        'department': department,
+        'colleges': colleges,
+        'action': 'Edit',
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_staff)
+def site_admin_department_delete_view(request, department_id):
+    """Delete department."""
+    department = get_object_or_404(Department, id=department_id)
+    
+    if request.method == 'POST':
+        department_name = department.name
+        try:
+            department.delete()
+            messages.success(request, f'Department "{department_name}" deleted successfully.')
+        except Exception as e:
+            messages.error(request, f'Cannot delete department: {str(e)}')
+        
+        return redirect('booking:site_admin_departments')
+    
+    return render(request, 'booking/site_admin_department_confirm_delete.html', {
+        'department': department,
     })
 

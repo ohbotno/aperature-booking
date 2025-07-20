@@ -126,6 +126,7 @@ urlpatterns = [
     path('lab-admin/', views.lab_admin_dashboard_view, name='lab_admin_dashboard'),
     path('lab-admin/access-requests/', views.lab_admin_access_requests_view, name='lab_admin_access_requests'),
     path('lab-admin/training/', views.lab_admin_training_view, name='lab_admin_training'),
+    path('lab-admin/risk-assessments/', views.lab_admin_risk_assessments_view, name='lab_admin_risk_assessments'),
     path('lab-admin/users/', views.lab_admin_users_view, name='lab_admin_users'),
     path('lab-admin/resources/', views.lab_admin_resources_view, name='lab_admin_resources'),
     path('lab-admin/resources/add/', views.lab_admin_add_resource_view, name='lab_admin_add_resource'),
@@ -145,6 +146,13 @@ urlpatterns = [
     path('calendar/public/<str:token>/', views.public_calendar_feed_view, name='public_calendar_feed'),
     path('calendar/resource/<int:resource_id>/export/', views.export_resource_calendar_view, name='export_resource_calendar'),
     path('calendar/sync-settings/', views.calendar_sync_settings_view, name='calendar_sync_settings'),
+    
+    # Google Calendar Integration URLs
+    path('calendar/google/auth/', views.google_calendar_auth_view, name='google_calendar_auth'),
+    path('calendar/google/callback/', views.google_calendar_callback_view, name='google_calendar_callback'),
+    path('calendar/google/settings/', views.google_calendar_settings_view, name='google_calendar_settings'),
+    path('calendar/google/sync/', views.google_calendar_sync_view, name='google_calendar_sync'),
+    path('calendar/google/disconnect/', views.google_calendar_disconnect_view, name='google_calendar_disconnect'),
     
     # Calendar Invitation URLs
     path('booking/<int:booking_id>/invitation/', views.download_booking_invitation, name='download_booking_invitation'),
@@ -196,6 +204,30 @@ urlpatterns = [
     path('license/validate/', views.licensing.license_validate_now, name='license_validate_now'),
     path('license/api/status/', views.licensing.license_api_status, name='license_api_status'),
     path('license/generate-key/', views.licensing.generate_license_key_view, name='generate_license_key'),
+    
+    # AJAX URLs
+    path('ajax/checklist-item/create/', views.ajax_create_checklist_item, name='ajax_create_checklist_item'),
+    
+    # Academic Hierarchy Management URLs (Site Admin)
+    path('site-admin/academic-hierarchy/', views.site_admin_academic_hierarchy_view, name='site_admin_academic_hierarchy'),
+    
+    # Faculty Management URLs
+    path('site-admin/faculties/', views.site_admin_faculties_view, name='site_admin_faculties'),
+    path('site-admin/faculties/create/', views.site_admin_faculty_create_view, name='site_admin_faculty_create'),
+    path('site-admin/faculties/<int:faculty_id>/edit/', views.site_admin_faculty_edit_view, name='site_admin_faculty_edit'),
+    path('site-admin/faculties/<int:faculty_id>/delete/', views.site_admin_faculty_delete_view, name='site_admin_faculty_delete'),
+    
+    # College Management URLs
+    path('site-admin/colleges/', views.site_admin_colleges_view, name='site_admin_colleges'),
+    path('site-admin/colleges/create/', views.site_admin_college_create_view, name='site_admin_college_create'),
+    path('site-admin/colleges/<int:college_id>/edit/', views.site_admin_college_edit_view, name='site_admin_college_edit'),
+    path('site-admin/colleges/<int:college_id>/delete/', views.site_admin_college_delete_view, name='site_admin_college_delete'),
+    
+    # Department Management URLs
+    path('site-admin/departments/', views.site_admin_departments_view, name='site_admin_departments'),
+    path('site-admin/departments/create/', views.site_admin_department_create_view, name='site_admin_department_create'),
+    path('site-admin/departments/<int:department_id>/edit/', views.site_admin_department_edit_view, name='site_admin_department_edit'),
+    path('site-admin/departments/<int:department_id>/delete/', views.site_admin_department_delete_view, name='site_admin_department_delete'),
     
     # Resource Issue Reporting URLs
     path('resources/<int:resource_id>/report-issue/', views.report_resource_issue, name='report_resource_issue'),
