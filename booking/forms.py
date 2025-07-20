@@ -15,7 +15,7 @@ from .models import (
     Faculty, College, Department, AccessRequest, RiskAssessment, UserRiskAssessment, 
     TrainingCourse, UserTraining, ResourceResponsible, ResourceIssue,
     Maintenance, MaintenanceVendor, MaintenanceDocument, MaintenanceAlert, EmailConfiguration,
-    ChecklistItem, ResourceChecklistItem, ChecklistResponse
+    ChecklistItem, ResourceChecklistItem, ChecklistResponse, CalendarSyncPreferences
 )
 from .recurring import RecurringBookingPattern
 
@@ -914,7 +914,7 @@ class AccessRequestForm(forms.ModelForm):
     
     class Meta:
         model = AccessRequest
-        fields = ['access_type', 'justification', 'requested_duration_days']
+        fields = ['access_type', 'justification', 'requested_duration_days', 'supervisor_name', 'supervisor_email']
         widgets = {
             'access_type': forms.Select(attrs={'class': 'form-control'}),
             'justification': forms.Textarea(attrs={
@@ -927,21 +927,59 @@ class AccessRequestForm(forms.ModelForm):
                 'min': 1,
                 'max': 365,
                 'value': 90
+            }),
+            'supervisor_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Full name of your supervisor'
+            }),
+            'supervisor_email': forms.EmailInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'supervisor@university.edu'
             })
         }
         help_texts = {
             'access_type': 'Type of access you are requesting',
             'justification': 'Detailed explanation of why you need access',
-            'requested_duration_days': 'How many days you need access for (max 1 year)'
+            'requested_duration_days': 'How many days you need access for (max 1 year)',
+            'supervisor_name': 'Name of your academic supervisor (required for students)',
+            'supervisor_email': 'Email address of your academic supervisor (required for students)'
         }
 
     def __init__(self, *args, **kwargs):
         self.resource = kwargs.pop('resource', None)
+        self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
         
         if self.resource:
             # Customize access type choices based on resource
             self.fields['justification'].help_text = f'Explain why you need access to {self.resource.name}'
+        
+        # Make supervisor fields required for students
+        if self.user and hasattr(self.user, 'userprofile') and self.user.userprofile.role == 'student':
+            self.fields['supervisor_name'].required = True
+            self.fields['supervisor_email'].required = True
+        else:
+            # Hide supervisor fields for non-students
+            self.fields['supervisor_name'].widget = forms.HiddenInput()
+            self.fields['supervisor_email'].widget = forms.HiddenInput()
+            self.fields['supervisor_name'].required = False
+            self.fields['supervisor_email'].required = False
+    
+    def clean(self):
+        """Validate supervisor information for students."""
+        cleaned_data = super().clean()
+        
+        if self.user and hasattr(self.user, 'userprofile') and self.user.userprofile.role == 'student':
+            supervisor_name = cleaned_data.get('supervisor_name')
+            supervisor_email = cleaned_data.get('supervisor_email')
+            
+            if not supervisor_name:
+                self.add_error('supervisor_name', 'Supervisor name is required for student access requests.')
+            
+            if not supervisor_email:
+                self.add_error('supervisor_email', 'Supervisor email is required for student access requests.')
+        
+        return cleaned_data
 
 
 class AccessRequestReviewForm(forms.Form):
@@ -1024,23 +1062,43 @@ class RiskAssessmentForm(forms.ModelForm):
 class UserRiskAssessmentForm(forms.ModelForm):
     """Form for users to complete risk assessments."""
     
+    # Add file upload field
+    risk_assessment_file = forms.FileField(
+        required=False,
+        widget=forms.FileInput(attrs={
+            'class': 'form-control',
+            'accept': '.xlsx,.xls,.csv,.pdf,.doc,.docx'
+        }),
+        help_text='Upload supporting documents (Excel, PDF, Word, etc.)'
+    )
+    
     class Meta:
         model = UserRiskAssessment
         fields = ['responses', 'user_declaration']
         widgets = {
+            'responses': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 5,
+                'placeholder': 'Provide your responses to the risk assessment questions and any additional comments...'
+            }),
             'user_declaration': forms.Textarea(attrs={
                 'class': 'form-control',
-                'rows': 3,
-                'placeholder': 'I declare that I have read and understood the risk assessment...'
+                'rows': 4,
+                'placeholder': 'I declare that I have read and understood this risk assessment. I acknowledge the identified hazards and agree to follow all control measures and safety procedures outlined above...'
             })
         }
         help_texts = {
-            'user_declaration': 'Declaration of understanding and acceptance'
+            'responses': 'Your responses to assessment questions and any additional information',
+            'user_declaration': 'Required declaration of understanding and acceptance'
         }
 
     def __init__(self, *args, **kwargs):
         self.risk_assessment = kwargs.pop('risk_assessment', None)
         super().__init__(*args, **kwargs)
+        
+        # Initialize responses field with empty string instead of {}
+        if not self.instance.pk and 'responses' not in self.initial:
+            self.initial['responses'] = ''
         
         if self.risk_assessment:
             # Add dynamic fields based on risk assessment questions
@@ -1190,8 +1248,8 @@ class ResourceForm(forms.ModelForm):
         model = Resource
         fields = [
             'name', 'resource_type', 'description', 'location', 'capacity',
-            'required_training_level', 'requires_induction', 'max_booking_hours',
-            'is_active', 'image', 'requires_checkout_checklist', 
+            'required_training_level', 'requires_induction', 'requires_risk_assessment',
+            'max_booking_hours', 'is_active', 'image', 'requires_checkout_checklist', 
             'checkout_checklist_title', 'checkout_checklist_description'
         ]
         widgets = {
@@ -1202,6 +1260,7 @@ class ResourceForm(forms.ModelForm):
             'capacity': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
             'required_training_level': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
             'requires_induction': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'requires_risk_assessment': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'max_booking_hours': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'image': forms.FileInput(attrs={'class': 'form-control', 'accept': 'image/*'}),
@@ -1217,6 +1276,7 @@ class ResourceForm(forms.ModelForm):
             'capacity': 'Maximum number of users who can use this resource simultaneously',
             'required_training_level': 'Minimum training level required to use this resource',
             'requires_induction': 'Check if users need induction before using this resource',
+            'requires_risk_assessment': 'Check if users need to complete a risk assessment before accessing this resource',
             'max_booking_hours': 'Maximum duration (in hours) for a single booking. Leave blank for no limit',
             'is_active': 'Uncheck to temporarily disable bookings for this resource',
             'image': 'Upload an image to help users identify this resource',
@@ -2011,7 +2071,8 @@ class ResourceChecklistConfigForm(forms.Form):
             self.fields[f"{field_name}_enabled"] = forms.BooleanField(
                 required=False,
                 initial=assignment is not None and assignment.is_active,
-                label=f"{item.get_category_display()}: {item.title}"
+                label=f"{item.get_category_display()}: {item.title}",
+                widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
             )
             
             # Order field
@@ -2026,7 +2087,8 @@ class ResourceChecklistConfigForm(forms.Form):
             self.fields[f"{field_name}_required"] = forms.BooleanField(
                 required=False,
                 initial=assignment.is_required if assignment else item.is_required,
-                label="Required"
+                label="Required",
+                widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
             )
     
     def save(self):
@@ -2253,3 +2315,64 @@ class IssueFilterForm(forms.Form):
             'class': 'form-control'
         })
     )
+
+
+class CalendarSyncPreferencesForm(forms.ModelForm):
+    """Form for managing calendar sync preferences."""
+    
+    class Meta:
+        model = CalendarSyncPreferences
+        fields = [
+            'auto_sync_timing',
+            'sync_future_bookings_only',
+            'sync_cancelled_bookings',
+            'sync_pending_bookings',
+            'conflict_resolution',
+            'event_prefix',
+            'include_resource_in_title',
+            'include_description',
+            'set_event_location',
+            'notify_sync_errors',
+            'notify_sync_success',
+        ]
+        widgets = {
+            'auto_sync_timing': forms.Select(attrs={
+                'class': 'form-select'
+            }),
+            'conflict_resolution': forms.Select(attrs={
+                'class': 'form-select'
+            }),
+            'event_prefix': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': '[Lab] '
+            }),
+            'sync_future_bookings_only': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'sync_cancelled_bookings': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'sync_pending_bookings': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'include_resource_in_title': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'include_description': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'set_event_location': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'notify_sync_errors': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+            'notify_sync_success': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
+        }
+        help_texts = {
+            'auto_sync_timing': 'How often to automatically sync your bookings with Google Calendar',
+            'conflict_resolution': 'What to do when there are conflicts between Aperture and Google Calendar',
+            'event_prefix': 'Text to add before Google Calendar event titles (optional)',
+        }

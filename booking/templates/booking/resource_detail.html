@@ -81,12 +81,12 @@
                                         You have access to this resource
                                     </div>
                                 {% elif has_pending_training %}
-                                    <div class="alert alert-info">
+                                    <div class="alert alert-info persistent-alert">
                                         <i class="bi bi-book-fill me-2"></i>
                                         Training pending - You will be contacted with training details
                                     </div>
                                 {% elif has_pending_request %}
-                                    <div class="alert alert-warning">
+                                    <div class="alert alert-warning persistent-alert">
                                         <i class="bi bi-clock-fill me-2"></i>
                                         Your access request is pending review
                                     </div>
@@ -97,6 +97,7 @@
                                     </div>
                                 {% endif %}
                             </div>
+
 
                             <!-- Approval Progress -->
                             {% if approval_progress and approval_progress.overall.total_stages > 0 %}
@@ -206,6 +207,8 @@
                             </div>
                             {% endif %}
 
+
+
                             <!-- Action Button -->
                             <div class="d-grid gap-2">
                                 {% if show_calendar %}
@@ -216,6 +219,20 @@
                                     <div class="btn btn-info" role="button">
                                         <i class="bi bi-book me-1"></i>Training Pending
                                     </div>
+                                {% elif needs_risk_assessments %}
+                                    {% if risk_assessment_status.not_started > 0 %}
+                                        <a href="#risk-assessments" class="btn btn-danger" onclick="document.querySelector('#risk-assessments').scrollIntoView({behavior: 'smooth'})">
+                                            <i class="bi bi-shield-exclamation me-1"></i>Submit Risk Assessment ({{ risk_assessment_status.not_started }} pending)
+                                        </a>
+                                    {% elif risk_assessment_status.pending > 0 %}
+                                        <div class="btn btn-warning" role="button" title="Risk assessments under review">
+                                            <i class="bi bi-clock me-1"></i>Risk Assessment Review ({{ risk_assessment_status.pending }} pending)
+                                        </div>
+                                    {% else %}
+                                        <div class="btn btn-danger" role="button" title="Complete required risk assessments first">
+                                            <i class="bi bi-shield-exclamation me-1"></i>Risk Assessments Required
+                                        </div>
+                                    {% endif %}
                                 {% elif has_pending_request %}
                                     <div class="btn btn-warning" role="button">
                                         <i class="bi bi-clock me-1"></i>Request Pending
@@ -259,12 +276,12 @@
                             </div>
                             <div class="card-body">
                                 {% if has_pending_training %}
-                                    <div class="alert alert-info">
+                                    <div class="alert alert-info persistent-alert">
                                         <h6><i class="bi bi-book-fill me-2"></i>Training Pending</h6>
                                         <p class="mb-0">You have requested training for this resource. You will be contacted with training details and schedule information.</p>
                                     </div>
                                 {% elif has_pending_request %}
-                                    <div class="alert alert-warning">
+                                    <div class="alert alert-warning persistent-alert">
                                         <h6><i class="bi bi-clock-fill me-2"></i>Request Pending</h6>
                                         <p class="mb-0">Your access request for this resource is currently being reviewed. You will be notified once a decision is made.</p>
                                     </div>
@@ -292,6 +309,86 @@
                                             <i class="bi bi-key me-1"></i>Request Access to {{ resource.name }}
                                         </a>
                                     </div>
+                                {% endif %}
+
+                                <!-- Risk Assessment Requirements -->
+                                {% if not user_has_access and resource.requires_risk_assessment and required_risk_assessments and needs_risk_assessments %}
+                                <div class="mt-4" id="risk-assessments">
+                                    <h6 class="fw-bold text-danger mb-3">
+                                        <i class="bi bi-shield-exclamation me-2"></i>Required Risk Assessments
+                                    </h6>
+                                    <div class="alert alert-warning mb-3">
+                                        <div class="small mb-2">
+                                            <strong>Progress:</strong> {{ risk_assessment_status.completed }}/{{ required_risk_assessments.count }} completed
+                                        </div>
+                                        <div class="small text-muted">
+                                            Complete all risk assessments before accessing this resource.
+                                        </div>
+                                    </div>
+                                    
+                                    {% for assessment in required_risk_assessments %}
+                                    <div class="border rounded p-3 mb-3">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div class="flex-grow-1">
+                                                <h6 class="mb-1">{{ assessment.title }}</h6>
+                                                <div class="text-muted small mb-2">
+                                                    <span class="me-3">
+                                                        <i class="bi bi-exclamation-triangle me-1"></i>
+                                                        Risk Level: 
+                                                        <span class="badge bg-{% if assessment.risk_level == 'high' %}danger{% elif assessment.risk_level == 'medium' %}warning{% elif assessment.risk_level == 'low' %}success{% else %}secondary{% endif %}">
+                                                            {{ assessment.get_risk_level_display }}
+                                                        </span>
+                                                    </span>
+                                                </div>
+                                                {% for assessment_id, user_assessment in user_risk_assessments.items %}
+                                                    {% if assessment_id == assessment.id %}
+                                                        {% if user_assessment %}
+                                                            <div class="small">
+                                                                Status: 
+                                                                <span class="badge bg-{% if user_assessment.status == 'approved' %}success{% elif user_assessment.status == 'submitted' %}info{% elif user_assessment.status == 'in_progress' %}warning{% else %}secondary{% endif %}">
+                                                                    {{ user_assessment.get_status_display }}
+                                                                </span>
+                                                                {% if user_assessment.submitted_at %}
+                                                                    <br><small class="text-muted">
+                                                                        <i class="bi bi-clock me-1"></i>{{ user_assessment.submitted_at|date:"M j, g:i A" }}
+                                                                    </small>
+                                                                {% endif %}
+                                                            </div>
+                                                        {% else %}
+                                                            <div class="small">
+                                                                <span class="badge bg-secondary">Not Started</span>
+                                                            </div>
+                                                        {% endif %}
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                        <div class="d-grid gap-2 mt-2">
+                                            {% for assessment_id, user_assessment in user_risk_assessments.items %}
+                                                {% if assessment_id == assessment.id %}
+                                                    {% if user_assessment and user_assessment.status == 'approved' %}
+                                                        <div class="btn btn-success btn-sm" disabled>
+                                                            <i class="bi bi-check-circle-fill me-1"></i>Completed
+                                                        </div>
+                                                    {% elif user_assessment and user_assessment.status == 'submitted' %}
+                                                        <div class="btn btn-info btn-sm" disabled>
+                                                            <i class="bi bi-clock me-1"></i>Under Review
+                                                        </div>
+                                                    {% elif user_assessment and user_assessment.status == 'in_progress' %}
+                                                        <a href="{% url 'booking:start_risk_assessment' assessment.id %}" class="btn btn-warning btn-sm">
+                                                            <i class="bi bi-arrow-right me-1"></i>Continue Assessment
+                                                        </a>
+                                                    {% else %}
+                                                        <a href="{% url 'booking:start_risk_assessment' assessment.id %}" class="btn btn-primary btn-sm">
+                                                            <i class="bi bi-play me-1"></i>Start Assessment
+                                                        </a>
+                                                    {% endif %}
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
                                 {% endif %}
                             </div>
                         </div>
