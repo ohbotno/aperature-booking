@@ -2631,25 +2631,6 @@ from django.apps import apps
 from django.urls import reverse
 from django.utils.html import format_html
 
-# Monkey patch to add logs menu item
-original_each_context = admin.site.each_context
-
-def patched_each_context(request):
-    context = original_each_context(request)
-    if request.user.is_staff:
-        # Add logs link to admin menu
-        if 'available_apps' in context:
-            for app in context['available_apps']:
-                if app['app_label'] == 'booking':
-                    app['models'].append({
-                        'name': 'System Logs',
-                        'object_name': 'SystemLog',
-                        'perms': {'change': True, 'add': False, 'delete': False},
-                        'admin_url': reverse('admin:booking_systemlog_changelist'),
-                        'view_only': True,
-                    })
-                    break
-    return context
-
-admin.site.each_context = patched_each_context
+# Note: SystemLog model-related admin patch removed due to non-existent model
+# If you need system logging functionality, create the SystemLog model first
 

@@ -211,6 +211,25 @@
 
                                 <div class="mb-3">
                                     <div class="form-check">
+                                        {{ form.requires_risk_assessment }}
+                                        <label class="form-check-label" for="{{ form.requires_risk_assessment.id_for_label }}">
+                                            {{ form.requires_risk_assessment.label }}
+                                        </label>
+                                    </div>
+                                    {% if form.requires_risk_assessment.help_text %}
+                                    <small class="form-text text-muted">{{ form.requires_risk_assessment.help_text }}</small>
+                                    {% endif %}
+                                    {% if form.requires_risk_assessment.errors %}
+                                    <div class="text-danger">
+                                        {% for error in form.requires_risk_assessment.errors %}
+                                        <small>{{ error }}</small>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="form-check">
                                         {{ form.is_active }}
                                         <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
                                             {{ form.is_active.label }}
@@ -260,7 +279,7 @@
                                     </div>
                                     <div class="col-md-6">
                                         {% if resource and resource.pk %}
-                                            {% with checklist_count=resource.checklist_items.count %}
+                                            {% with checklist_count=resource.active_checklist_items_count %}
                                             {% if checklist_count > 0 %}
                                             <div class="card border-info">
                                                 <div class="card-body py-2">
@@ -352,6 +371,7 @@
                             </div>
                         </div>
 
+
                         <!-- Form Actions -->
                         <div class="row mt-4">
                             <div class="col-12">
@@ -378,6 +398,7 @@
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block extra_js %}

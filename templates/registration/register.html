@@ -15,7 +15,7 @@
                 <small class="text-muted">A Lab booking system v{{ version }}</small>
             </div>
             <div class="card-body">
-                <form method="post">
+                <form method="post" data-progress="true">
                     {% csrf_token %}
                     
                     {% if form.errors %}

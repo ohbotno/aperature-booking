@@ -34,6 +34,7 @@ def notification_context(request):
             'pending_access_requests_count': 0,
             'pending_training_requests_count': 0,
             'total_notifications_count': 0,
+            'recent_notifications': [],
         }
     
     try:
@@ -63,6 +64,13 @@ def notification_context(request):
                     status='pending'
                 ).count()
         
+        # Get recent unread notifications for display
+        recent_notifications = Notification.objects.filter(
+            user=request.user,
+            delivery_method='in_app',
+            status__in=['pending', 'sent']
+        ).select_related('booking', 'resource', 'access_request', 'training_request', 'maintenance').order_by('-created_at')[:5]
+        
         # Total actionable items
         total_notifications = (
             unread_notifications + 
@@ -75,6 +83,7 @@ def notification_context(request):
             'pending_access_requests_count': pending_access_requests,
             'pending_training_requests_count': pending_training_requests,
             'total_notifications_count': total_notifications,
+            'recent_notifications': recent_notifications,
         }
         
     except Exception as e:
@@ -84,6 +93,7 @@ def notification_context(request):
             'pending_access_requests_count': 0,
             'pending_training_requests_count': 0,
             'total_notifications_count': 0,
+            'recent_notifications': [],
         }
 
 
@@ -175,4 +185,37 @@ def version_context(request):
         # Fallback to current version
         return {
             'version': '1.1.2',
+        }
+
+
+def theme_context(request):
+    """Add user's theme preference to template context."""
+    if not request.user.is_authenticated:
+        return {
+            'user_theme': 'light',
+            'user_theme_preference': 'light'
+        }  # Default for anonymous users
+    
+    try:
+        user_profile = request.user.userprofile
+        theme_preference = user_profile.theme_preference
+        
+        # For server-side rendering, resolve system theme to a default
+        # The client-side JavaScript will handle actual system detection
+        if theme_preference == 'system':
+            # Try to detect from User-Agent hints or default to light
+            # This is a simple fallback - the client JS will override this
+            resolved_theme = 'light'
+        else:
+            resolved_theme = theme_preference
+            
+        return {
+            'user_theme': resolved_theme,
+            'user_theme_preference': theme_preference
+        }
+    except Exception:
+        # Fallback to light theme if profile doesn't exist or error occurs
+        return {
+            'user_theme': 'light',
+            'user_theme_preference': 'light'
         }

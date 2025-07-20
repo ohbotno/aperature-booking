@@ -106,6 +106,35 @@
                             </div>
                         </div>
 
+                        <!-- Supervisor Information (Students Only) -->
+                        {% if is_student %}
+                        <div class="mb-4">
+                            <div class="alert alert-info">
+                                <h6><i class="bi bi-mortarboard-fill me-2"></i>Student Supervisor Information</h6>
+                                <p class="mb-0">As a student, you are required to provide your academic supervisor's details. Your supervisor may be contacted regarding this access request.</p>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="supervisor_name" class="form-label">Supervisor Name <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="supervisor_name" name="supervisor_name" required 
+                                           placeholder="Dr. Jane Smith">
+                                    <div class="form-text">
+                                        Full name of your academic supervisor
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="supervisor_email" class="form-label">Supervisor Email <span class="text-danger">*</span></label>
+                                    <input type="email" class="form-control" id="supervisor_email" name="supervisor_email" required 
+                                           placeholder="supervisor@university.edu">
+                                    <div class="form-text">
+                                        Email address of your academic supervisor
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+
                         <!-- Training Verification -->
                         {% if resource.required_training_level > user.userprofile.training_level %}
                         <div class="mb-3">
@@ -224,6 +253,35 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('justification').focus();
             return false;
         }
+        
+        // Supervisor fields validation for students
+        {% if is_student %}
+        const supervisorName = document.getElementById('supervisor_name').value.trim();
+        const supervisorEmail = document.getElementById('supervisor_email').value.trim();
+        
+        if (!supervisorName) {
+            e.preventDefault();
+            alert('Please provide your supervisor\'s name.');
+            document.getElementById('supervisor_name').focus();
+            return false;
+        }
+        
+        if (!supervisorEmail) {
+            e.preventDefault();
+            alert('Please provide your supervisor\'s email address.');
+            document.getElementById('supervisor_email').focus();
+            return false;
+        }
+        
+        // Basic email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(supervisorEmail)) {
+            e.preventDefault();
+            alert('Please provide a valid email address for your supervisor.');
+            document.getElementById('supervisor_email').focus();
+            return false;
+        }
+        {% endif %}
         
         // Training verification confirmation
         if (hasTrainingYes && hasTrainingYes.checked) {

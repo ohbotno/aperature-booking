@@ -56,8 +56,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'booking.middleware.licensing.BrandingMiddleware',
-    # Note: LicenseValidationMiddleware is optional and can be enabled for strict licensing
-    # 'booking.middleware.licensing.LicenseValidationMiddleware',
+    # License validation middleware - enforces license restrictions
+    'booking.middleware.licensing.LicenseValidationMiddleware',
 ]
 
 ROOT_URLCONF = 'aperture_booking.urls'
@@ -78,6 +78,7 @@ TEMPLATES = [
                 'booking.context_processors.branding_context',
                 'booking.context_processors.lab_settings_context',
                 'booking.context_processors.version_context',
+                'booking.context_processors.theme_context',
             ],
         },
     },
@@ -301,3 +302,11 @@ SCHEDULER_CONFIG = {
 
 # Disable APScheduler for development to prevent database locking issues
 SCHEDULER_AUTOSTART = False
+
+# Google Calendar OAuth Integration
+GOOGLE_OAUTH2_CLIENT_ID = os.environ.get('GOOGLE_OAUTH2_CLIENT_ID', '')
+GOOGLE_OAUTH2_CLIENT_SECRET = os.environ.get('GOOGLE_OAUTH2_CLIENT_SECRET', '')
+GOOGLE_CALENDAR_SCOPES = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/userinfo.email'
+]

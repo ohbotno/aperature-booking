@@ -78,3 +78,87 @@ def div(value, arg):
         return float(value) / float(arg)
     except (ValueError, ZeroDivisionError, TypeError):
         return 0
+
+
+# =============================================================================
+# Google Calendar Integration Template Tags
+# =============================================================================
+
+@register.filter
+def has_google_calendar_integration(user):
+    """Check if user has Google Calendar integration enabled."""
+    try:
+        from ..models import GoogleCalendarIntegration
+        return GoogleCalendarIntegration.objects.filter(
+            user=user, 
+            is_active=True
+        ).exists()
+    except Exception:
+        return False
+
+
+@register.filter
+def badge_color(status_text):
+    """Convert status text to Bootstrap badge color."""
+    if not status_text:
+        return 'secondary'
+    
+    status_lower = status_text.lower()
+    
+    if 'active' in status_lower or 'connected' in status_lower or 'success' in status_lower:
+        return 'success'
+    elif 'error' in status_lower or 'failed' in status_lower or 'expired' in status_lower:
+        return 'danger'
+    elif 'warning' in status_lower or 'issue' in status_lower:
+        return 'warning'
+    elif 'disabled' in status_lower or 'disconnected' in status_lower:
+        return 'secondary'
+    else:
+        return 'info'
+
+
+@register.filter
+def replace(value, args):
+    """Replace text in a string. Usage: {{ text|replace:"old,new" }}"""
+    if not args:
+        return value
+    
+    try:
+        old, new = args.split(',', 1)
+        return str(value).replace(old, new)
+    except (ValueError, AttributeError):
+        return value
+
+
+@register.filter
+def get_form_field(form, field_name):
+    """
+    Get a form field by name. Usage: {{ form|get_form_field:"field_name" }}
+    This allows dynamic field access in templates.
+    """
+    try:
+        return form[field_name]
+    except KeyError:
+        return None
+
+
+@register.simple_tag
+def get_checklist_fields(form, item_id):
+    """
+    Get all three checklist fields for an item (enabled, order, required).
+    Usage: {% get_checklist_fields form item.id as fields %}
+    Returns a dict with enabled, order, and required fields.
+    """
+    try:
+        return {
+            'enabled': form[f'item_{item_id}_enabled'],
+            'order': form[f'item_{item_id}_order'],
+            'required': form[f'item_{item_id}_required'],
+        }
+    except KeyError as e:
+        return {
+            'enabled': None,
+            'order': None,
+            'required': None,
+            'error': str(e)
+        }

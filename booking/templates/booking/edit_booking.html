@@ -27,7 +27,7 @@
                 <h5 class="mb-0">Edit Booking Information</h5>
             </div>
             <div class="card-body">
-                <form method="post" id="edit-booking-form">
+                <form method="post" id="edit-booking-form" data-progress="true">
                     {% csrf_token %}
                     
                     {% if form.non_field_errors %}
@@ -125,8 +125,9 @@
 
                     <div class="d-flex justify-content-between">
                         <a href="{% url 'booking:booking_detail' booking.pk %}" class="btn btn-secondary">Cancel</a>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-check-circle"></i> Update Booking
+                        <button type="submit" class="btn btn-primary" id="update-booking-btn">
+                            <i class="bi bi-check-circle" id="update-btn-icon"></i> 
+                            <span id="update-btn-text">Update Booking</span>
                         </button>
                     </div>
                 </form>
@@ -299,5 +300,6 @@ function shiftBooking(days) {
         startTimeInput.dispatchEvent(new Event('change'));
     }
 }
+
 </script>
 {% endblock %}

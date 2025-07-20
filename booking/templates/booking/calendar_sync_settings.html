@@ -122,6 +122,76 @@
                     </div>
                 </div>
 
+                <!-- Google Calendar Integration -->
+                <div class="col-lg-6 mb-4">
+                    <div class="card h-100">
+                        <div class="card-header bg-warning text-dark">
+                            <h5 class="mb-0"><i class="fab fa-google me-2"></i>Google Calendar Sync</h5>
+                        </div>
+                        <div class="card-body">
+                            {% load booking_extras %}
+                            {% if user|has_google_calendar_integration %}
+                                {% with integration=user.google_calendar_integration %}
+                                    <div class="alert alert-success">
+                                        <i class="fas fa-check-circle me-2"></i>
+                                        <strong>Connected!</strong> Your bookings are syncing with Google Calendar.
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6>Connection Status:</h6>
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span class="badge bg-{{ integration.get_status_display|lower|badge_color }} p-2">
+                                                {{ integration.get_status_display }}
+                                            </span>
+                                            {% if integration.last_sync %}
+                                                <small class="text-muted">Last sync: {{ integration.last_sync|timesince }} ago</small>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+
+                                    <div class="d-grid gap-2">
+                                        <a href="{% url 'booking:google_calendar_settings' %}" class="btn btn-outline-primary btn-sm">
+                                            <i class="fas fa-cog me-1"></i>Sync Settings
+                                        </a>
+                                        <a href="{% url 'booking:google_calendar_sync' %}" class="btn btn-outline-success btn-sm">
+                                            <i class="fas fa-sync me-1"></i>Sync Now
+                                        </a>
+                                        <form method="post" action="{% url 'booking:google_calendar_disconnect' %}" class="d-inline">
+                                            {% csrf_token %}
+                                            <button type="submit" class="btn btn-outline-danger btn-sm w-100" 
+                                                    onclick="return confirm('Are you sure you want to disconnect Google Calendar?')">
+                                                <i class="fas fa-unlink me-1"></i>Disconnect
+                                            </button>
+                                        </form>
+                                    </div>
+                                {% endwith %}
+                            {% else %}
+                                <p>Connect your Google Calendar to automatically sync your bookings. Changes will appear in your Google Calendar instantly!</p>
+                                
+                                <div class="features-list mb-3">
+                                    <h6>Features:</h6>
+                                    <ul class="list-unstyled">
+                                        <li><i class="fas fa-check text-success me-2"></i>Automatic two-way sync</li>
+                                        <li><i class="fas fa-check text-success me-2"></i>Real-time updates</li>
+                                        <li><i class="fas fa-check text-success me-2"></i>Custom event details</li>
+                                        <li><i class="fas fa-check text-success me-2"></i>Conflict resolution</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="d-grid">
+                                    <a href="{% url 'booking:google_calendar_auth' %}" class="btn btn-warning">
+                                        <i class="fab fa-google me-2"></i>Connect Google Calendar
+                                    </a>
+                                </div>
+                                
+                                <div class="alert alert-info mt-3">
+                                    <small><i class="fas fa-shield-alt me-2"></i><strong>Privacy:</strong> We only access your calendar data to sync your bookings. You can disconnect at any time.</small>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Live Subscription -->
                 <div class="col-lg-6 mb-4">
                     <div class="card h-100">

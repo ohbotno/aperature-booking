@@ -122,12 +122,6 @@
 
                                 <div class="mt-3">
                                     {% if user.is_authenticated %}
-                                        <a href="{% url 'booking:dashboard' %}" class="btn btn-primary w-100 mb-2">
-                                            <i class="fas fa-tachometer-alt me-2"></i>Go to Dashboard
-                                        </a>
-                                        <a href="{% url 'booking:resources_list' %}" class="btn btn-outline-primary w-100 mb-2">
-                                            <i class="fas fa-flask me-2"></i>Browse Resources
-                                        </a>
                                         {% if user.is_staff or user.userprofile.role in 'technician,sysadmin' %}
                                             <a href="{% url 'booking:about_edit' %}" class="btn btn-outline-secondary w-100">
                                                 <i class="fas fa-edit me-2"></i>Edit This Page

@@ -103,17 +103,18 @@ class LicenseValidationMiddleware:
     def _handle_invalid_license(self, request):
         """Handle invalid license by redirecting to license activation page."""
         # For AJAX requests, return JSON error
-        if request.is_ajax() or request.content_type == 'application/json':
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        if is_ajax or request.content_type == 'application/json':
             from django.http import JsonResponse
             return JsonResponse({
                 'error': 'License validation failed',
-                'redirect': reverse('license_status')
+                'redirect': reverse('booking:license_status')
             }, status=403)
         
         # For regular requests, redirect to license page
         license_error = getattr(request, 'session', {}).get('license_error', 'License validation failed')
         messages.error(request, f"License issue: {license_error}")
-        return redirect('license_status')
+        return redirect('booking:license_status')
 
 
 class BrandingMiddleware:

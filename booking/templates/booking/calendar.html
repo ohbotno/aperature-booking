@@ -1034,11 +1034,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function cancelBooking(bookingId) {
         if (confirm('Are you sure you want to cancel this booking?')) {
-            fetch(`/api/bookings/${bookingId}/cancel/`, {
+            FormProgressManager.ajaxWithProgress(`/api/bookings/${bookingId}/cancel/`, {
                 method: 'POST',
                 headers: {
                     'X-CSRFToken': getCSRFToken()
                 }
+            }, {
+                overlayMessage: 'Cancelling booking...',
+                showOverlay: true
             })
             .then(response => response.json())
             .then(data => {
