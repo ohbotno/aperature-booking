@@ -287,6 +287,29 @@ class Notification(models.Model):
         
         self.save(update_fields=['status', 'retry_count', 'next_retry_at', 'metadata', 'updated_at'])
     
+    def get_notification_url(self):
+        """Get the appropriate URL for this notification based on its related object."""
+        from django.urls import reverse
+        
+        try:
+            # Check for related objects in order of priority
+            if self.booking:
+                return reverse('booking:booking_detail', kwargs={'booking_id': self.booking.id})
+            elif self.resource:
+                return reverse('booking:resource_detail', kwargs={'resource_id': self.resource.id})
+            elif self.access_request:
+                return reverse('booking:resource_detail', kwargs={'resource_id': self.access_request.resource.id})
+            elif self.training_request:
+                return reverse('booking:resource_detail', kwargs={'resource_id': self.training_request.resource.id})
+            elif self.maintenance:
+                return reverse('booking:resource_detail', kwargs={'resource_id': self.maintenance.resource.id})
+            else:
+                # Default to notifications page if no specific object
+                return reverse('booking:notifications')
+        except Exception:
+            # Fallback to notifications page if URL generation fails
+            return reverse('booking:notifications')
+    
     def can_retry(self):
         """Check if notification can be retried."""
         return (
@@ -495,6 +518,18 @@ class UserProfile(models.Model):
         ],
         default='24h',
         help_text="Preferred time format"
+    )
+    
+    # Theme preference
+    theme_preference = models.CharField(
+        max_length=10,
+        choices=[
+            ('light', 'Light'),
+            ('dark', 'Dark'),
+            ('system', 'System'),
+        ],
+        default='system',
+        help_text="Preferred theme (light, dark, or follow system)"
     )
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -710,6 +745,10 @@ class Resource(models.Model):
     capacity = models.PositiveIntegerField(default=1)
     required_training_level = models.PositiveIntegerField(default=1)
     requires_induction = models.BooleanField(default=False)
+    requires_risk_assessment = models.BooleanField(
+        default=False,
+        help_text="Require users to complete a risk assessment before accessing this resource"
+    )
     max_booking_hours = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     image = models.ImageField(upload_to='resources/', blank=True, null=True, help_text="Resource image")
@@ -732,7 +771,7 @@ class Resource(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
+    
     class Meta:
         db_table = 'booking_resource'
         ordering = ['name']
@@ -865,34 +904,53 @@ class Resource(models.Model):
         progress['stages'].append(training_stage)
         
         # Stage 3: Risk Assessment
-        required_assessments = RiskAssessment.objects.filter(resource=self, is_mandatory=True)
+        risk_assessment_required = self.requires_risk_assessment
+        
+        # If risk assessment is required, check for any required assessments for this resource
+        required_assessments = RiskAssessment.objects.filter(resource=self, is_mandatory=True) if risk_assessment_required else RiskAssessment.objects.none()
         assessment_completed = []
         assessment_pending = []
         
-        for assessment in required_assessments:
-            user_assessment = UserRiskAssessment.objects.filter(
-                user=user,
-                risk_assessment=assessment,
-                status='approved'
-            ).first()
-            
-            if user_assessment:
-                assessment_completed.append(assessment.title)
-            else:
-                assessment_pending.append(assessment.title)
+        if risk_assessment_required:
+            for assessment in required_assessments:
+                user_assessment = UserRiskAssessment.objects.filter(
+                    user=user,
+                    risk_assessment=assessment,
+                    status='approved'
+                ).first()
+                
+                if user_assessment:
+                    assessment_completed.append(assessment.title)
+                else:
+                    assessment_pending.append(assessment.title)
+        
+        # If risk assessment required but no assessments exist yet, show as pending
+        if risk_assessment_required and not required_assessments.exists():
+            risk_completed = False
+            risk_status = 'pending'
+            description = 'Risk assessment required - no assessments configured yet'
+        elif risk_assessment_required:
+            risk_completed = len(assessment_pending) == 0 and len(required_assessments) > 0
+            risk_status = 'completed' if risk_completed else 'pending'
+            description = f'{len(assessment_completed)} of {len(required_assessments)} risk assessments completed'
+        else:
+            risk_completed = True  # Not required means completed
+            risk_status = 'not_required'
+            description = 'Risk assessment not required for this resource'
         
         risk_stage = {
             'name': 'Risk Assessment',
             'key': 'risk_assessment',
-            'required': len(required_assessments) > 0,
-            'completed': len(assessment_pending) == 0 and len(required_assessments) > 0,
-            'status': 'completed' if len(assessment_pending) == 0 and len(required_assessments) > 0 else ('not_required' if len(required_assessments) == 0 else 'pending'),
-            'icon': 'bi-clipboard-check',
-            'description': f'{len(assessment_completed)} of {len(required_assessments)} risk assessments completed',
+            'required': risk_assessment_required,
+            'completed': risk_completed,
+            'status': risk_status,
+            'icon': 'bi-shield-exclamation',
+            'description': description,
             'details': {
                 'completed': assessment_completed,
                 'pending': assessment_pending,
-                'total_required': len(required_assessments)
+                'total_required': len(required_assessments),
+                'resource_requires': risk_assessment_required
             }
         }
         progress['stages'].append(risk_stage)
@@ -947,6 +1005,16 @@ class Resource(models.Model):
         progress['next_step'] = next_pending_stage
         
         return progress
+    
+    @property
+    def requires_risk_assessment_safe(self):
+        """Safely access requires_risk_assessment field."""
+        return self.requires_risk_assessment
+    
+    @property
+    def active_checklist_items_count(self):
+        """Get count of active checklist items assigned to this resource."""
+        return self.checklist_items.filter(is_active=True).count()
 
 
 class ResourceAccess(models.Model):
@@ -1114,6 +1182,24 @@ class AccessRequest(models.Model):
     # Duration request
     requested_duration_days = models.PositiveIntegerField(null=True, blank=True, help_text="Requested access duration in days")
     
+    # Supervisor information (required for students)
+    supervisor_name = models.CharField(max_length=200, blank=True, help_text="Name of supervisor (required for students)")
+    supervisor_email = models.EmailField(blank=True, help_text="Email of supervisor (required for students)")
+    
+    # Prerequisites confirmation
+    safety_induction_confirmed = models.BooleanField(default=False, help_text="Lab admin confirmed user completed safety induction")
+    lab_training_confirmed = models.BooleanField(default=False, help_text="Lab admin confirmed user completed lab training")
+    risk_assessment_confirmed = models.BooleanField(default=False, help_text="Lab admin confirmed user submitted required risk assessment")
+    safety_induction_notes = models.TextField(blank=True, help_text="Notes about safety induction completion")
+    lab_training_notes = models.TextField(blank=True, help_text="Notes about lab training completion")
+    risk_assessment_notes = models.TextField(blank=True, help_text="Notes about risk assessment submission")
+    safety_induction_confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='confirmed_safety_inductions')
+    lab_training_confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='confirmed_lab_trainings')
+    risk_assessment_confirmed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='confirmed_risk_assessments')
+    safety_induction_confirmed_at = models.DateTimeField(null=True, blank=True)
+    lab_training_confirmed_at = models.DateTimeField(null=True, blank=True)
+    risk_assessment_confirmed_at = models.DateTimeField(null=True, blank=True)
+    
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1130,6 +1216,10 @@ class AccessRequest(models.Model):
         """Approve the access request and create ResourceAccess."""
         if self.status != 'pending':
             raise ValueError("Can only approve pending requests")
+        
+        # Check if prerequisites are met
+        if not self.prerequisites_met():
+            raise ValueError("Cannot approve: Safety induction and lab training must be confirmed first")
         
         # Create the access permission
         expires_at = None
@@ -1164,6 +1254,102 @@ class AccessRequest(models.Model):
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to send access request approval notification: {e}")
+    
+    def confirm_safety_induction(self, confirmed_by, notes=""):
+        """Confirm that user has completed safety induction."""
+        self.safety_induction_confirmed = True
+        self.safety_induction_confirmed_by = confirmed_by
+        self.safety_induction_confirmed_at = timezone.now()
+        self.safety_induction_notes = notes
+        self.save(update_fields=['safety_induction_confirmed', 'safety_induction_confirmed_by', 
+                                'safety_induction_confirmed_at', 'safety_induction_notes', 'updated_at'])
+        
+        # Also mark the user as generally inducted if they aren't already
+        try:
+            user_profile = self.user.userprofile
+            if not user_profile.is_inducted:
+                user_profile.is_inducted = True
+                user_profile.save(update_fields=['is_inducted'])
+                
+                # Send notification to user about general induction completion
+                from booking.models import Notification
+                Notification.objects.create(
+                    user=self.user,
+                    title='Lab Induction Completed',
+                    message=f'Your lab induction has been confirmed by {confirmed_by.get_full_name() or confirmed_by.username}. You can now request access to lab resources.',
+                    notification_type='induction'
+                )
+        except Exception as e:
+            # Log error but don't fail the main operation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to update general induction status: {e}")
+    
+    def confirm_lab_training(self, confirmed_by, notes=""):
+        """Confirm that user has completed lab training."""
+        self.lab_training_confirmed = True
+        self.lab_training_confirmed_by = confirmed_by
+        self.lab_training_confirmed_at = timezone.now()
+        self.lab_training_notes = notes
+        self.save(update_fields=['lab_training_confirmed', 'lab_training_confirmed_by',
+                                'lab_training_confirmed_at', 'lab_training_notes', 'updated_at'])
+    
+    def confirm_risk_assessment(self, confirmed_by, notes=""):
+        """Confirm that user has submitted required risk assessment."""
+        self.risk_assessment_confirmed = True
+        self.risk_assessment_confirmed_by = confirmed_by
+        self.risk_assessment_confirmed_at = timezone.now()
+        self.risk_assessment_notes = notes
+        self.save(update_fields=['risk_assessment_confirmed', 'risk_assessment_confirmed_by',
+                                'risk_assessment_confirmed_at', 'risk_assessment_notes', 'updated_at'])
+    
+    def prerequisites_met(self):
+        """Check if all prerequisites for approval are met."""
+        return (self.safety_induction_confirmed and 
+                self.lab_training_confirmed and 
+                self.risk_assessment_confirmed)
+    
+    def get_prerequisite_status(self):
+        """Get the status of prerequisites for display."""
+        return {
+            'safety_induction': {
+                'completed': self.safety_induction_confirmed,
+                'confirmed_by': self.safety_induction_confirmed_by,
+                'confirmed_at': self.safety_induction_confirmed_at,
+                'notes': self.safety_induction_notes
+            },
+            'lab_training': {
+                'completed': self.lab_training_confirmed,
+                'confirmed_by': self.lab_training_confirmed_by,
+                'confirmed_at': self.lab_training_confirmed_at,
+                'notes': self.lab_training_notes
+            },
+            'risk_assessment': {
+                'completed': self.risk_assessment_confirmed,
+                'confirmed_by': self.risk_assessment_confirmed_by,
+                'confirmed_at': self.risk_assessment_confirmed_at,
+                'notes': self.risk_assessment_notes
+            },
+            'all_met': self.prerequisites_met()
+        }
+    
+    def requires_supervisor_info(self):
+        """Check if this request requires supervisor information (for students)."""
+        try:
+            return self.user.userprofile.role == 'student'
+        except AttributeError:
+            return False
+    
+    def has_supervisor_info(self):
+        """Check if supervisor information is provided."""
+        return bool(self.supervisor_name and self.supervisor_email)
+    
+    def clean(self):
+        """Validate the access request."""
+        super().clean()
+        if self.requires_supervisor_info() and not self.has_supervisor_info():
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Supervisor name and email are required for student access requests.")
     
     def reject(self, reviewed_by, review_notes=""):
         """Reject the access request."""
@@ -2895,6 +3081,14 @@ class UserRiskAssessment(models.Model):
     responses = models.JSONField(default=dict, help_text="User responses to assessment questions")
     assessor_notes = models.TextField(blank=True, help_text="Notes from the person reviewing the assessment")
     user_declaration = models.TextField(blank=True, help_text="User declaration and acknowledgment")
+    
+    # File upload
+    assessment_file = models.FileField(
+        upload_to='risk_assessments/',
+        blank=True,
+        null=True,
+        help_text="Supporting documents (Excel, PDF, Word, etc.)"
+    )
     
     # Review information
     reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_assessments')
@@ -5654,3 +5848,279 @@ class ResourceIssue(models.Model):
             'critical': 'danger',
         }
         return severity_colors.get(self.severity, 'secondary')
+
+
+# =============================================================================
+# Google Calendar Integration Models
+# =============================================================================
+
+class GoogleCalendarIntegration(models.Model):
+    """Store Google Calendar OAuth integration settings for users."""
+    
+    user = models.OneToOneField(
+        User, 
+        on_delete=models.CASCADE,
+        related_name='google_calendar_integration'
+    )
+    google_calendar_id = models.CharField(
+        max_length=255, 
+        blank=True,
+        help_text="Google Calendar ID where events will be synced"
+    )
+    access_token = models.TextField(
+        help_text="Google OAuth access token (encrypted)"
+    )
+    refresh_token = models.TextField(
+        help_text="Google OAuth refresh token (encrypted)"
+    )
+    token_expires_at = models.DateTimeField(
+        help_text="When the access token expires"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether the integration is active"
+    )
+    sync_enabled = models.BooleanField(
+        default=True,
+        help_text="Whether automatic syncing is enabled"
+    )
+    sync_direction = models.CharField(
+        max_length=20,
+        choices=[
+            ('one_way', 'One-way (Aperture → Google)'),
+            ('two_way', 'Two-way sync'),
+        ],
+        default='one_way',
+        help_text="Direction of calendar synchronization"
+    )
+    last_sync = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Last successful sync timestamp"
+    )
+    sync_error_count = models.IntegerField(
+        default=0,
+        help_text="Number of consecutive sync errors"
+    )
+    last_error = models.TextField(
+        blank=True,
+        help_text="Last sync error message"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Google Calendar Integration"
+        verbose_name_plural = "Google Calendar Integrations"
+
+    def __str__(self):
+        return f"Google Calendar for {self.user.get_full_name() or self.user.username}"
+
+    def is_token_expired(self):
+        """Check if the access token is expired."""
+        return timezone.now() >= self.token_expires_at
+
+    def needs_refresh(self):
+        """Check if token needs refresh (expires within 5 minutes)."""
+        return timezone.now() >= (self.token_expires_at - timedelta(minutes=5))
+
+    def can_sync(self):
+        """Check if integration can perform sync operations."""
+        return self.is_active and self.sync_enabled and not self.is_token_expired()
+
+    def get_status_display(self):
+        """Get human-readable status."""
+        if not self.is_active:
+            return "Disabled"
+        elif self.is_token_expired():
+            return "Token Expired"
+        elif self.sync_error_count > 0:
+            return f"Sync Issues ({self.sync_error_count} errors)"
+        elif self.last_sync:
+            return f"Active (last sync: {self.last_sync.strftime('%Y-%m-%d %H:%M')})"
+        else:
+            return "Connected"
+
+
+class GoogleCalendarSyncLog(models.Model):
+    """Log of Google Calendar sync operations."""
+    
+    ACTION_CHOICES = [
+        ('created', 'Event Created'),
+        ('updated', 'Event Updated'), 
+        ('deleted', 'Event Deleted'),
+        ('full_sync', 'Full Sync'),
+        ('token_refresh', 'Token Refresh'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('success', 'Success'),
+        ('error', 'Error'),
+        ('skipped', 'Skipped'),
+    ]
+    
+    user = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE,
+        help_text="User whose calendar was synced"
+    )
+    booking = models.ForeignKey(
+        'Booking', 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True,
+        help_text="Booking that was synced (if applicable)"
+    )
+    google_event_id = models.CharField(
+        max_length=255, 
+        blank=True,
+        help_text="Google Calendar event ID"
+    )
+    action = models.CharField(
+        max_length=20, 
+        choices=ACTION_CHOICES,
+        help_text="Type of sync operation performed"
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default='success',
+        help_text="Result of the sync operation"
+    )
+    error_message = models.TextField(
+        blank=True,
+        help_text="Error message if sync failed"
+    )
+    request_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Request data sent to Google Calendar API"
+    )
+    response_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Response data from Google Calendar API"
+    )
+    duration_ms = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Duration of API call in milliseconds"
+    )
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Google Calendar Sync Log"
+        verbose_name_plural = "Google Calendar Sync Logs"
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['user', 'timestamp']),
+            models.Index(fields=['booking', 'action']),
+            models.Index(fields=['status', 'timestamp']),
+        ]
+
+    def __str__(self):
+        booking_info = f" (Booking #{self.booking.id})" if self.booking else ""
+        return f"{self.get_action_display()} - {self.get_status_display()}{booking_info}"
+
+    def get_status_color(self):
+        """Get Bootstrap color class for status."""
+        colors = {
+            'success': 'success',
+            'error': 'danger', 
+            'skipped': 'warning',
+        }
+        return colors.get(self.status, 'secondary')
+
+
+class CalendarSyncPreferences(models.Model):
+    """User preferences for calendar sync behavior."""
+    
+    SYNC_TIMING_CHOICES = [
+        ('immediate', 'Immediately'),
+        ('hourly', 'Every hour'),
+        ('daily', 'Daily'),
+        ('manual', 'Manual only'),
+    ]
+    
+    CONFLICT_RESOLUTION_CHOICES = [
+        ('aperture_wins', 'Aperture Booking wins'),
+        ('google_wins', 'Google Calendar wins'),
+        ('ask_user', 'Ask user each time'),
+        ('skip', 'Skip conflicting events'),
+    ]
+    
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='calendar_sync_preferences'
+    )
+    
+    # Sync timing preferences
+    auto_sync_timing = models.CharField(
+        max_length=20,
+        choices=SYNC_TIMING_CHOICES,
+        default='hourly',
+        help_text="How often to automatically sync with Google Calendar"
+    )
+    
+    # What to sync
+    sync_future_bookings_only = models.BooleanField(
+        default=True,
+        help_text="Only sync future bookings (ignore past bookings)"
+    )
+    sync_cancelled_bookings = models.BooleanField(
+        default=False,
+        help_text="Include cancelled bookings in calendar sync"
+    )
+    sync_pending_bookings = models.BooleanField(
+        default=True,
+        help_text="Include pending approval bookings in calendar sync"
+    )
+    
+    # Conflict resolution
+    conflict_resolution = models.CharField(
+        max_length=20,
+        choices=CONFLICT_RESOLUTION_CHOICES,
+        default='skip',
+        help_text="How to handle conflicts between Aperture and Google Calendar"
+    )
+    
+    # Calendar appearance
+    event_prefix = models.CharField(
+        max_length=50,
+        blank=True,
+        default="[Lab] ",
+        help_text="Prefix to add to Google Calendar event titles"
+    )
+    include_resource_in_title = models.BooleanField(
+        default=True,
+        help_text="Include resource name in Google Calendar event title"
+    )
+    include_description = models.BooleanField(
+        default=True,
+        help_text="Include booking description in Google Calendar event"
+    )
+    set_event_location = models.BooleanField(
+        default=True,
+        help_text="Set resource location as Google Calendar event location"
+    )
+    
+    # Notifications
+    notify_sync_errors = models.BooleanField(
+        default=True,
+        help_text="Send notifications when calendar sync fails"
+    )
+    notify_sync_success = models.BooleanField(
+        default=False,
+        help_text="Send notifications when calendar sync succeeds"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Calendar Sync Preferences"
+        verbose_name_plural = "Calendar Sync Preferences"
+
+    def __str__(self):
+        return f"Calendar preferences for {self.user.get_full_name() or self.user.username}"
