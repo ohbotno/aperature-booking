@@ -1074,13 +1074,8 @@ class UserRiskAssessmentForm(forms.ModelForm):
     
     class Meta:
         model = UserRiskAssessment
-        fields = ['responses', 'user_declaration']
+        fields = ['user_declaration']
         widgets = {
-            'responses': forms.Textarea(attrs={
-                'class': 'form-control',
-                'rows': 5,
-                'placeholder': 'Provide your responses to the risk assessment questions and any additional comments...'
-            }),
             'user_declaration': forms.Textarea(attrs={
                 'class': 'form-control',
                 'rows': 4,
@@ -1088,7 +1083,6 @@ class UserRiskAssessmentForm(forms.ModelForm):
             })
         }
         help_texts = {
-            'responses': 'Your responses to assessment questions and any additional information',
             'user_declaration': 'Required declaration of understanding and acceptance'
         }
 
@@ -1096,9 +1090,9 @@ class UserRiskAssessmentForm(forms.ModelForm):
         self.risk_assessment = kwargs.pop('risk_assessment', None)
         super().__init__(*args, **kwargs)
         
-        # Initialize responses field with empty string instead of {}
-        if not self.instance.pk and 'responses' not in self.initial:
-            self.initial['responses'] = ''
+        # Make user_declaration field required
+        self.fields['user_declaration'].required = True
+        
         
         if self.risk_assessment:
             # Add dynamic fields based on risk assessment questions
@@ -1114,6 +1108,13 @@ class UserRiskAssessmentForm(forms.ModelForm):
             label='I confirm I have read and understood this risk assessment',
             help_text='You must confirm understanding to proceed'
         )
+    
+    def clean_user_declaration(self):
+        """Validate user declaration field."""
+        user_declaration = self.cleaned_data.get('user_declaration')
+        if not user_declaration or not user_declaration.strip():
+            raise forms.ValidationError('A declaration is required to submit the risk assessment.')
+        return user_declaration
 
 
 class TrainingCourseForm(forms.ModelForm):

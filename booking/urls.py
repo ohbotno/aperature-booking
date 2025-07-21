@@ -104,9 +104,9 @@ urlpatterns = [
     
     # Training URLs
     path('training/', views.training_dashboard_view, name='training_dashboard'),
-    path('training/courses/', views.training_courses_view, name='training_courses'),
-    path('training/courses/<int:course_id>/', views.training_course_detail_view, name='training_course_detail'),
-    path('training/courses/<int:course_id>/enroll/', views.enroll_training_view, name='enroll_training'),
+    path('training/courses/', views.training_redirect_view, name='training_courses'),
+    path('training/courses/<int:course_id>/', views.training_redirect_view, name='training_course_detail'),
+    path('training/courses/<int:course_id>/enroll/', views.training_redirect_view, name='enroll_training'),
     path('training/my-training/', views.my_training_view, name='my_training'),
     path('training/manage/', views.manage_training_view, name='manage_training'),
     
@@ -133,6 +133,16 @@ urlpatterns = [
     path('lab-admin/resources/<int:resource_id>/edit/', views.lab_admin_edit_resource_view, name='lab_admin_edit_resource'),
     path('lab-admin/resources/<int:resource_id>/checklist/', views.lab_admin_resource_checklist_view, name='lab_admin_resource_checklist'),
     path('lab-admin/resources/<int:resource_id>/delete/', views.lab_admin_delete_resource_view, name='lab_admin_delete_resource'),
+    
+    # Training requirement API endpoints
+    path('lab-admin/resources/<int:resource_id>/training-requirements/add/', views.add_training_requirement_api, name='lab_admin_add_training_requirement'),
+    path('lab-admin/resources/<int:resource_id>/training-requirements/<int:requirement_id>/remove/', views.remove_training_requirement_api, name='lab_admin_remove_training_requirement'),
+    path('lab-admin/resources/<int:resource_id>/training-requirements/reorder/', views.update_training_requirement_order_api, name='lab_admin_reorder_training_requirements'),
+    
+    # Training course API endpoints
+    path('lab-admin/training-courses/add/', views.add_training_course_api, name='lab_admin_add_training_course'),
+    path('lab-admin/training-courses/<int:course_id>/edit/', views.edit_training_course_api, name='lab_admin_edit_training_course'),
+    path('lab-admin/training-courses/<int:course_id>/delete/', views.delete_training_course_api, name='lab_admin_delete_training_course'),
     path('lab-admin/maintenance/', views.lab_admin_maintenance_view, name='lab_admin_maintenance'),
     path('lab-admin/maintenance/add/', views.lab_admin_add_maintenance_view, name='lab_admin_add_maintenance'),
     path('lab-admin/maintenance/<int:maintenance_id>/', views.lab_admin_edit_maintenance_view, name='lab_admin_view_maintenance'),

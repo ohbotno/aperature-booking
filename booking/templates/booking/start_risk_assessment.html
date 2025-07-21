@@ -5,89 +5,33 @@
 
 {% block extra_css %}
 <style>
-.risk-assessment-card {
-    border: 1px solid var(--bs-border-color);
-    border-radius: 0.375rem;
-    margin-bottom: 1.5rem;
-    background-color: var(--bs-body-bg);
-}
-.risk-level-low { border-left: 4px solid #28a745; }
-.risk-level-medium { border-left: 4px solid #ffc107; }
-.risk-level-high { border-left: 4px solid #fd7e14; }
-.risk-level-critical { border-left: 4px solid #dc3545; }
+.risk-level-low { border-left: 4px solid var(--bs-success); }
+.risk-level-medium { border-left: 4px solid var(--bs-warning); }
+.risk-level-high { border-left: 4px solid var(--bs-orange); }
+.risk-level-critical { border-left: 4px solid var(--bs-danger); }
 .assessment-progress {
-    background: var(--bs-secondary-bg);
+    background-color: var(--bs-info-bg-subtle);
+    border: 1px solid var(--bs-info-border-subtle);
     border-radius: 0.375rem;
     padding: 1rem;
     margin-bottom: 1.5rem;
-    border: 1px solid var(--bs-border-color);
 }
-.required-field {
-    color: #dc3545;
+
+[data-theme="dark"] .assessment-progress {
+    background-color: rgba(49, 130, 206, 0.15);
+    border-color: rgba(49, 130, 206, 0.3);
 }
-.dark-theme-card {
-    background-color: var(--bs-body-bg);
-    border: 1px solid var(--bs-border-color);
-}
-.alert-warning, .alert-info, .alert-success, .alert-danger {
-    background-color: var(--bs-secondary-bg);
-    border: 1px solid var(--bs-border-color);
-    color: var(--bs-body-color);
-}
-.card {
-    background-color: var(--bs-body-bg);
-    border: 1px solid var(--bs-border-color);
-}
-.card-header {
-    background-color: var(--bs-secondary-bg);
-    border-bottom: 1px solid var(--bs-border-color);
-}
-.form-control {
-    background-color: var(--bs-body-bg);
-    border: 1px solid var(--bs-border-color);
-    color: var(--bs-body-color);
-}
-.form-control:focus {
-    background-color: var(--bs-body-bg);
-    border-color: #86b7fe;
-    color: var(--bs-body-color);
-}
-.btn-outline-secondary {
-    color: var(--bs-body-color);
-    border-color: var(--bs-border-color);
-}
-.btn-outline-secondary:hover {
+
+[data-theme="dark"] .form-control[type="file"]::-webkit-file-upload-button {
     background-color: var(--bs-secondary);
-    border-color: var(--bs-border-color);
-}
-.assessment-progress {
-    background-color: var(--bs-secondary-bg) !important;
-    color: var(--bs-body-color) !important;
-}
-.assessment-progress .badge {
-    background-color: var(--bs-secondary) !important;
-    color: var(--bs-body-color) !important;
-}
-.form-control[type="file"] {
-    background-color: var(--bs-body-bg) !important;
-    border: 1px solid var(--bs-border-color) !important;
-    color: var(--bs-body-color) !important;
-}
-.form-control[type="file"]::-webkit-file-upload-button {
-    background-color: var(--bs-secondary-bg);
     border: 1px solid var(--bs-border-color);
     color: var(--bs-body-color);
-    border-radius: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    margin-right: 0.75rem;
 }
-.form-control[type="file"]::file-selector-button {
-    background-color: var(--bs-secondary-bg);
+
+[data-theme="dark"] .form-control[type="file"]::file-selector-button {
+    background-color: var(--bs-secondary);
     border: 1px solid var(--bs-border-color);
     color: var(--bs-body-color);
-    border-radius: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    margin-right: 0.75rem;
 }
 </style>
 {% endblock %}
@@ -138,7 +82,7 @@
             <div class="row">
                 <div class="col-lg-8">
                     <!-- Assessment Form -->
-                    <div class="card risk-assessment-card risk-level-{{ assessment.risk_level }}">
+                    <div class="card risk-level-{{ assessment.risk_level }}" style="margin-bottom: 1.5rem;">
                         <div class="card-header">
                             <h5 class="mb-0">
                                 <i class="fas fa-clipboard-list me-2"></i>Assessment Details
@@ -207,14 +151,26 @@
                             <form method="post" enctype="multipart/form-data">
                                 {% csrf_token %}
                                 
-                                <div class="mb-4">
-                                    <h6 class="text-muted">Risk Assessment Responses</h6>
-                                    <p class="small text-muted">Please provide any additional information or responses relevant to this risk assessment:</p>
-                                    {{ form.responses }}
-                                    {% if form.responses.help_text %}
-                                        <div class="form-text">{{ form.responses.help_text }}</div>
-                                    {% endif %}
-                                </div>
+                                <!-- Display form errors -->
+                                {% if form.errors %}
+                                    <div class="alert alert-danger">
+                                        <h6><i class="fas fa-exclamation-triangle me-1"></i>Please correct the following errors:</h6>
+                                        <ul class="mb-0">
+                                            {% for field, errors in form.errors.items %}
+                                                {% for error in errors %}
+                                                    <li>{% if field != '__all__' %}{{ field|capfirst }}: {% endif %}{{ error }}</li>
+                                                {% endfor %}
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                {% endif %}
+
+                                <!-- Debug: Show form field names -->
+                                {% if request.user.is_staff %}
+                                    <div class="alert alert-info small">
+                                        <strong>Debug - Available form fields:</strong> {{ form.fields.keys }}
+                                    </div>
+                                {% endif %}
 
                                 <div class="mb-4">
                                     <h6 class="text-muted">
@@ -235,10 +191,36 @@
                                     {% endif %}
                                 </div>
 
+
+                                <!-- Understanding Confirmation -->
+                                {% if form.understanding_confirmed %}
                                 <div class="mb-4">
-                                    <h6 class="text-muted">Declaration <span class="required-field">*</span></h6>
+                                    <div class="form-check">
+                                        {{ form.understanding_confirmed }}
+                                        <label class="form-check-label" for="{{ form.understanding_confirmed.id_for_label }}">
+                                            {{ form.understanding_confirmed.label }}
+                                        </label>
+                                        {% if form.understanding_confirmed.errors %}
+                                            <div class="invalid-feedback d-block">
+                                                {% for error in form.understanding_confirmed.errors %}{{ error }}{% endfor %}
+                                            </div>
+                                        {% endif %}
+                                        {% if form.understanding_confirmed.help_text %}
+                                            <div class="form-text">{{ form.understanding_confirmed.help_text }}</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                {% endif %}
+
+                                <div class="mb-4">
+                                    <h6 class="text-muted">Declaration <span class="text-danger">*</span></h6>
                                     <p class="small text-muted">Please confirm your understanding and acceptance of the risk assessment:</p>
                                     {{ form.user_declaration }}
+                                    {% if form.user_declaration.errors %}
+                                        <div class="invalid-feedback d-block">
+                                            {% for error in form.user_declaration.errors %}{{ error }}{% endfor %}
+                                        </div>
+                                    {% endif %}
                                     {% if form.user_declaration.help_text %}
                                         <div class="form-text">{{ form.user_declaration.help_text }}</div>
                                     {% endif %}
@@ -253,7 +235,7 @@
                                         <i class="fas fa-check me-1"></i>Already Submitted
                                     </div>
                                     {% else %}
-                                    <button type="submit" class="btn btn-primary">
+                                    <button type="submit" class="btn btn-primary" id="submit-assessment-btn">
                                         <i class="fas fa-paper-plane me-1"></i>Submit Risk Assessment
                                     </button>
                                     {% endif %}
@@ -347,4 +329,42 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form[method="post"]');
+    const submitBtn = document.getElementById('submit-assessment-btn');
+    
+    if (form && submitBtn) {
+        console.log('Risk assessment form and submit button found');
+        
+        // Add form submit event listener
+        form.addEventListener('submit', function(e) {
+            console.log('Form submission triggered');
+            
+            // Check form validity
+            const userDeclaration = form.querySelector('[name="user_declaration"]');
+            console.log('User declaration field:', userDeclaration);
+            console.log('User declaration value:', userDeclaration ? userDeclaration.value : 'Field not found');
+            
+            // Log all form data
+            const formData = new FormData(form);
+            for (let [key, value] of formData.entries()) {
+                console.log(`Form field ${key}:`, value);
+            }
+        });
+        
+        // Add button click listener
+        submitBtn.addEventListener('click', function(e) {
+            console.log('Submit button clicked');
+        });
+    } else {
+        console.log('Form or submit button not found');
+        console.log('Form:', form);
+        console.log('Submit button:', submitBtn);
+    }
+});
+</script>
 {% endblock %}

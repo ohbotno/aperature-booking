@@ -48,9 +48,34 @@
                                             {% endif %}
                                         </div>
                                         <div class="btn-group" role="group">
-                                            <button type="button" class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#viewModal{{ assessment.id }}" title="View Details">
-                                                <i class="fas fa-eye"></i>
-                                            </button>
+                                            {% if assessment.assessment_file %}
+                                                {% if assessment.assessment_file.name|lower|slice:"-4:" == ".pdf" %}
+                                                    <button type="button" class="btn btn-outline-info btn-sm" onclick="viewPdfInModal('{{ assessment.assessment_file.url }}', '{{ assessment.assessment_file.name }}')" title="View PDF">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                {% elif assessment.assessment_file.name|lower|slice:"-5:" == ".xlsx" or assessment.assessment_file.name|lower|slice:"-4:" == ".xls" %}
+                                                    <button type="button" class="btn btn-outline-info btn-sm" onclick="viewExcelInModal('{{ assessment.assessment_file.url }}', '{{ assessment.assessment_file.name }}')" title="View Excel">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                {% elif assessment.assessment_file.name|lower|slice:"-5:" == ".docx" or assessment.assessment_file.name|lower|slice:"-4:" == ".doc" %}
+                                                    <button type="button" class="btn btn-outline-info btn-sm" onclick="viewWordInModal('{{ assessment.assessment_file.url }}', '{{ assessment.assessment_file.name }}')" title="View Document">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                {% else %}
+                                                    <a href="{{ assessment.assessment_file.url }}" target="_blank" class="btn btn-outline-info btn-sm" title="View File">
+                                                        <i class="fas fa-eye"></i>
+                                                    </a>
+                                                {% endif %}
+                                            {% else %}
+                                                <button type="button" class="btn btn-outline-info btn-sm" data-bs-toggle="modal" data-bs-target="#viewModal{{ assessment.id }}" title="View Details">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                            {% endif %}
+                                            {% if assessment.assessment_file %}
+                                            <a href="{{ assessment.assessment_file.url }}" download class="btn btn-outline-secondary btn-sm" title="Download File">
+                                                <i class="fas fa-download"></i>
+                                            </a>
+                                            {% endif %}
                                             <button type="button" class="btn btn-outline-success btn-sm" data-bs-toggle="modal" data-bs-target="#approveModal{{ assessment.id }}" title="Approve">
                                                 <i class="fas fa-check"></i>
                                             </button>
@@ -91,11 +116,40 @@
                                                     {{ assessment.user_declaration }}
                                                 </div>
                                                 {% endif %}
-                                                {% if assessment.responses %}
+                                                {% if assessment.assessment_file %}
                                                 <hr>
-                                                <strong>Responses:</strong>
+                                                <strong>Supporting Documents:</strong>
                                                 <div class="border rounded p-2 mt-2 bg-light">
-                                                    {{ assessment.responses }}
+                                                    <i class="fas fa-file me-2"></i>
+                                                    <span class="me-2">{{ assessment.assessment_file.name }}</span>
+                                                    <div class="btn-group btn-group-sm mt-2" role="group">
+                                                        {% if assessment.assessment_file.name|lower|slice:"-4:" == ".pdf" %}
+                                                            <button type="button" class="btn btn-outline-primary" onclick="viewPdfInModal('{{ assessment.assessment_file.url }}', '{{ assessment.assessment_file.name }}')">
+                                                                <i class="fas fa-eye me-1"></i>View PDF
+                                                            </button>
+                                                        {% elif assessment.assessment_file.name|lower|slice:"-5:" == ".xlsx" or assessment.assessment_file.name|lower|slice:"-4:" == ".xls" %}
+                                                            <button type="button" class="btn btn-outline-primary" onclick="viewExcelInModal('{{ assessment.assessment_file.url }}', '{{ assessment.assessment_file.name }}')">
+                                                                <i class="fas fa-eye me-1"></i>View Excel
+                                                            </button>
+                                                        {% elif assessment.assessment_file.name|lower|slice:"-5:" == ".docx" or assessment.assessment_file.name|lower|slice:"-4:" == ".doc" %}
+                                                            <button type="button" class="btn btn-outline-primary" onclick="viewWordInModal('{{ assessment.assessment_file.url }}', '{{ assessment.assessment_file.name }}')">
+                                                                <i class="fas fa-eye me-1"></i>View Document
+                                                            </button>
+                                                        {% else %}
+                                                            <a href="{{ assessment.assessment_file.url }}" target="_blank" class="btn btn-outline-primary">
+                                                                <i class="fas fa-eye me-1"></i>View File
+                                                            </a>
+                                                        {% endif %}
+                                                        <a href="{{ assessment.assessment_file.url }}" download class="btn btn-outline-success">
+                                                            <i class="fas fa-download me-1"></i>Download
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                                {% else %}
+                                                <hr>
+                                                <strong>Supporting Documents:</strong>
+                                                <div class="border rounded p-2 mt-2 bg-light text-muted">
+                                                    <i class="fas fa-info-circle me-1"></i>No supporting documents uploaded
                                                 </div>
                                                 {% endif %}
                                             </div>
@@ -243,4 +297,154 @@
         </div>
     </div>
 </div>
+
+<!-- File Viewer Modal -->
+<div class="modal fade" id="fileViewerModal" tabindex="-1" aria-labelledby="fileViewerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="fileViewerModalLabel">
+                    <i class="fas fa-file me-2"></i>File Viewer
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="fileViewerContent" style="height: 80vh; overflow: auto;">
+                    <div class="d-flex justify-content-center align-items-center h-100">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a id="downloadFileLink" href="#" class="btn btn-primary" download>
+                    <i class="fas fa-download me-1"></i>Download File
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function viewPdfInModal(fileUrl, fileName) {
+    const modal = new bootstrap.Modal(document.getElementById('fileViewerModal'));
+    const modalTitle = document.getElementById('fileViewerModalLabel');
+    const content = document.getElementById('fileViewerContent');
+    const downloadLink = document.getElementById('downloadFileLink');
+    
+    modalTitle.innerHTML = `<i class="fas fa-file-pdf me-2 text-danger"></i>${fileName}`;
+    downloadLink.href = fileUrl;
+    downloadLink.setAttribute('download', fileName);
+    
+    // Embed PDF using iframe
+    content.innerHTML = `<iframe src="${fileUrl}" width="100%" height="100%" style="border: none;"></iframe>`;
+    
+    modal.show();
+}
+
+function viewExcelInModal(fileUrl, fileName) {
+    const modal = new bootstrap.Modal(document.getElementById('fileViewerModal'));
+    const modalTitle = document.getElementById('fileViewerModalLabel');
+    const content = document.getElementById('fileViewerContent');
+    const downloadLink = document.getElementById('downloadFileLink');
+    
+    modalTitle.innerHTML = `<i class="fas fa-file-excel me-2 text-success"></i>${fileName}`;
+    downloadLink.href = fileUrl;
+    downloadLink.setAttribute('download', fileName);
+    
+    content.innerHTML = `
+        <div class="p-3">
+            <div class="text-center py-5">
+                <div class="mb-4">
+                    <i class="fas fa-file-excel fa-4x text-success mb-3"></i>
+                    <h5>Excel File: ${fileName}</h5>
+                </div>
+                <div class="alert alert-info mb-4">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Excel File Preview</strong><br>
+                    Excel files cannot be previewed directly in the browser. Please download the file to view its contents.
+                </div>
+                <div class="d-grid gap-2 d-md-block">
+                    <a href="${fileUrl}" download="${fileName}" class="btn btn-success btn-lg">
+                        <i class="fas fa-download me-2"></i>Download Excel File
+                    </a>
+                    <button type="button" class="btn btn-outline-secondary btn-lg" data-bs-dismiss="modal">
+                        <i class="fas fa-times me-2"></i>Close
+                    </button>
+                </div>
+                <div class="mt-4">
+                    <small class="text-muted">
+                        <i class="fas fa-lightbulb me-1"></i>
+                        Tip: The file will open in Microsoft Excel, Google Sheets, or your default spreadsheet application.
+                    </small>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    modal.show();
+}
+
+function showExcelError(fileUrl, fileName) {
+    const content = document.getElementById('fileViewerContent');
+    content.innerHTML = `
+        <div class="p-3">
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>Unable to preview Excel file</strong><br>
+                The file cannot be previewed in the browser. This may be due to file permissions or format compatibility.
+                <br><br>
+                <a href="${fileUrl}" class="btn btn-primary btn-sm" download="${fileName}">
+                    <i class="fas fa-download me-1"></i>Download ${fileName}
+                </a>
+            </div>
+        </div>
+    `;
+}
+
+function viewWordInModal(fileUrl, fileName) {
+    const modal = new bootstrap.Modal(document.getElementById('fileViewerModal'));
+    const modalTitle = document.getElementById('fileViewerModalLabel');
+    const content = document.getElementById('fileViewerContent');
+    const downloadLink = document.getElementById('downloadFileLink');
+    
+    modalTitle.innerHTML = `<i class="fas fa-file-word me-2 text-primary"></i>${fileName}`;
+    downloadLink.href = fileUrl;
+    downloadLink.setAttribute('download', fileName);
+    
+    content.innerHTML = `
+        <div class="p-3">
+            <div class="text-center py-5">
+                <div class="mb-4">
+                    <i class="fas fa-file-word fa-4x text-primary mb-3"></i>
+                    <h5>Word Document: ${fileName}</h5>
+                </div>
+                <div class="alert alert-info mb-4">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Word Document Preview</strong><br>
+                    Word documents cannot be previewed directly in the browser. Please download the file to view its contents.
+                </div>
+                <div class="d-grid gap-2 d-md-block">
+                    <a href="${fileUrl}" download="${fileName}" class="btn btn-primary btn-lg">
+                        <i class="fas fa-download me-2"></i>Download Word Document
+                    </a>
+                    <button type="button" class="btn btn-outline-secondary btn-lg" data-bs-dismiss="modal">
+                        <i class="fas fa-times me-2"></i>Close
+                    </button>
+                </div>
+                <div class="mt-4">
+                    <small class="text-muted">
+                        <i class="fas fa-lightbulb me-1"></i>
+                        Tip: The file will open in Microsoft Word, Google Docs, or your default word processor.
+                    </small>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    modal.show();
+}
+</script>
 {% endblock %}

@@ -874,31 +874,77 @@ class Resource(models.Model):
         required_training = ResourceTrainingRequirement.objects.filter(resource=self)
         training_completed = []
         training_pending = []
+        training_records = []  # Store actual UserTraining record info
         
         for req in required_training:
             user_training = UserTraining.objects.filter(
                 user=user,
-                course=req.training_course,
+                training_course=req.training_course,
                 status='completed'
             ).first()
             
             if user_training and user_training.is_valid:
                 training_completed.append(req.training_course.title)
+                training_records.append({
+                    'course_title': req.training_course.title,
+                    'status': 'completed',
+                    'completed_at': user_training.completed_at,
+                    'expires_at': user_training.expires_at,
+                    'training_id': user_training.id
+                })
             else:
+                # Check if there's any training record at all
+                any_training = UserTraining.objects.filter(
+                    user=user,
+                    training_course=req.training_course
+                ).first()
+                
                 training_pending.append(req.training_course.title)
+                training_records.append({
+                    'course_title': req.training_course.title,
+                    'status': any_training.status if any_training else 'not_enrolled',
+                    'training_id': any_training.id if any_training else None,
+                    'enrolled_at': any_training.enrolled_at if any_training else None
+                })
+        
+        # Check if training is required either through specific courses or training level
+        has_specific_requirements = len(required_training) > 0
+        requires_training_level = self.required_training_level > user_profile.training_level
+        
+        if not has_specific_requirements and not requires_training_level:
+            # No training requirements at all
+            training_description = 'Equipment-specific training: Not required for this resource'
+            training_status = 'not_required'
+            training_completed_flag = True
+            training_required = False
+        elif not has_specific_requirements and requires_training_level:
+            # Training level requirement but no specific courses configured yet
+            training_description = f'Equipment-specific training: Level {self.required_training_level} required (current level: {user_profile.training_level})'
+            training_status = 'pending'
+            training_completed_flag = False
+            training_required = True
+        elif has_specific_requirements:
+            # Specific training courses configured
+            training_description = f'Equipment-specific training: {len(training_completed)} of {len(required_training)} courses completed'
+            training_status = 'completed' if len(training_pending) == 0 else 'pending'
+            training_completed_flag = len(training_pending) == 0
+            training_required = True
         
         training_stage = {
             'name': 'Equipment Training',
             'key': 'training',
-            'required': len(required_training) > 0,
-            'completed': len(training_pending) == 0 and len(required_training) > 0,
-            'status': 'completed' if len(training_pending) == 0 and len(required_training) > 0 else ('not_required' if len(required_training) == 0 else 'pending'),
+            'required': training_required,
+            'completed': training_completed_flag,
+            'status': training_status,
             'icon': 'bi-mortarboard',
-            'description': f'Equipment-specific training: {len(training_completed)} of {len(required_training)} courses completed',
+            'description': training_description,
             'details': {
                 'completed': training_completed,
                 'pending': training_pending,
-                'total_required': len(required_training)
+                'total_required': len(required_training),
+                'training_records': training_records,  # Include actual training record details
+                'required_level': self.required_training_level,
+                'user_level': user_profile.training_level
             }
         }
         progress['stages'].append(training_stage)

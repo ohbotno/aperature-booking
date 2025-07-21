@@ -86,10 +86,7 @@
                                         Training pending - You will be contacted with training details
                                     </div>
                                 {% elif has_pending_request %}
-                                    <div class="alert alert-warning persistent-alert">
-                                        <i class="bi bi-clock-fill me-2"></i>
-                                        Your access request is pending review
-                                    </div>
+                                    <!-- Removed duplicate pending request message - shown in main content area -->
                                 {% else %}
                                     <div class="alert alert-info">
                                         <i class="bi bi-lock-fill me-2"></i>
@@ -149,21 +146,45 @@
                                                 <!-- Stage Details -->
                                                 {% if stage.details and stage.key != 'admin_approval' %}
                                                 <div class="mt-1">
-                                                    {% if stage.details.pending %}
-                                                    <small class="text-muted d-block">
-                                                        <strong>Still needed:</strong>
-                                                        {% for item in stage.details.pending %}
-                                                            {{ item }}{% if not forloop.last %}, {% endif %}
+                                                    {% if stage.key == 'training' and stage.details.training_records %}
+                                                        <!-- Enhanced training details showing actual UserTraining status -->
+                                                        {% for record in stage.details.training_records %}
+                                                        <small class="d-block mb-1">
+                                                            <i class="bi {% if record.status == 'completed' %}bi-check-circle text-success{% elif record.status == 'enrolled' or record.status == 'in_progress' %}bi-clock text-warning{% else %}bi-circle text-muted{% endif %} me-1"></i>
+                                                            {{ record.course_title }}
+                                                            {% if record.status == 'completed' %}
+                                                                <span class="text-success">(Completed{% if record.completed_at %} {{ record.completed_at|date:"M j, Y" }}{% endif %})</span>
+                                                            {% elif record.status == 'enrolled' %}
+                                                                <span class="text-info">(Enrolled)</span>
+                                                            {% elif record.status == 'in_progress' %}
+                                                                <span class="text-warning">(In Progress)</span>
+                                                            {% elif record.status == 'failed' %}
+                                                                <span class="text-danger">(Failed - Retake Required)</span>
+                                                            {% elif record.status == 'expired' %}
+                                                                <span class="text-danger">(Expired - Renewal Required)</span>
+                                                            {% else %}
+                                                                <span class="text-muted">(Not Enrolled)</span>
+                                                            {% endif %}
+                                                        </small>
                                                         {% endfor %}
-                                                    </small>
-                                                    {% endif %}
-                                                    {% if stage.details.completed %}
-                                                    <small class="text-success d-block">
-                                                        <strong>Completed:</strong>
-                                                        {% for item in stage.details.completed %}
-                                                            {{ item }}{% if not forloop.last %}, {% endif %}
-                                                        {% endfor %}
-                                                    </small>
+                                                    {% else %}
+                                                        <!-- Standard details display -->
+                                                        {% if stage.details.pending %}
+                                                        <small class="text-muted d-block">
+                                                            <strong>Still needed:</strong>
+                                                            {% for item in stage.details.pending %}
+                                                                {{ item }}{% if not forloop.last %}, {% endif %}
+                                                            {% endfor %}
+                                                        </small>
+                                                        {% endif %}
+                                                        {% if stage.details.completed %}
+                                                        <small class="text-success d-block">
+                                                            <strong>Completed:</strong>
+                                                            {% for item in stage.details.completed %}
+                                                                {{ item }}{% if not forloop.last %}, {% endif %}
+                                                            {% endfor %}
+                                                        </small>
+                                                        {% endif %}
                                                     {% endif %}
                                                 </div>
                                                 {% endif %}
@@ -283,7 +304,42 @@
                                 {% elif has_pending_request %}
                                     <div class="alert alert-warning persistent-alert">
                                         <h6><i class="bi bi-clock-fill me-2"></i>Request Pending</h6>
-                                        <p class="mb-0">Your access request for this resource is currently being reviewed. You will be notified once a decision is made.</p>
+                                        <p class="mb-2">Your access request for this resource is currently being reviewed. You will be notified once a decision is made.</p>
+                                        
+                                        <!-- Combined Progress Summary -->
+                                        {% if approval_progress and approval_progress.stages %}
+                                        <div class="mt-3 pt-2 border-top">
+                                            <h6 class="small fw-medium mb-2">Requirements Progress:</h6>
+                                            {% for stage in approval_progress.stages %}
+                                                {% if stage.required and not stage.completed %}
+                                                    {% if stage.key == 'training' %}
+                                                    <div class="small mb-1">
+                                                        <i class="bi bi-mortarboard me-1"></i>
+                                                        <strong>Equipment Training:</strong> 
+                                                        {% if stage.details.training_records %}
+                                                            {{ stage.details.completed|length }}/{{ stage.details.total_required }} courses completed
+                                                        {% else %}
+                                                            No specific courses required yet
+                                                        {% endif %}
+                                                    </div>
+                                                    {% elif stage.key == 'risk_assessment' %}
+                                                    <div class="small mb-1">
+                                                        <i class="bi bi-shield-exclamation me-1"></i>
+                                                        <strong>Risk Assessment:</strong> {{ risk_assessment_status.completed }}/{{ required_risk_assessments.count }} completed
+                                                    </div>
+                                                    {% elif stage.key == 'induction' %}
+                                                    <div class="small mb-1">
+                                                        <i class="bi bi-person-check me-1"></i>
+                                                        <strong>Lab Induction:</strong> {{ stage.status|title }}
+                                                    </div>
+                                                    {% endif %}
+                                                {% endif %}
+                                            {% endfor %}
+                                            <div class="small text-muted mt-1">
+                                                Complete all requirements before your request can be approved.
+                                            </div>
+                                        </div>
+                                        {% endif %}
                                     </div>
                                 {% else %}
                                     <div class="alert alert-info">
@@ -311,20 +367,126 @@
                                     </div>
                                 {% endif %}
 
-                                <!-- Risk Assessment Requirements -->
+                                <!-- Lab Induction Action Section -->
+                                {% if not user_has_access and resource.requires_induction %}
+                                {% for stage in approval_progress.stages %}
+                                    {% if stage.key == 'induction' and stage.required and not stage.completed %}
+                                    <div class="mt-4" id="lab-induction-actions">
+                                        <h6 class="fw-bold text-primary mb-3">
+                                            <i class="bi bi-person-check me-2"></i>Lab Induction Required
+                                        </h6>
+                                        <div class="border rounded p-3">
+                                            <div class="d-flex justify-content-between align-items-start">
+                                                <div class="flex-grow-1">
+                                                    <h6 class="mb-1">{{ stage.name }}</h6>
+                                                    <div class="small text-muted mb-2">
+                                                        {{ stage.description }}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="d-grid gap-2 mt-2">
+                                                <a href="{% url 'booking:lab_admin_inductions' %}" class="btn btn-primary btn-sm">
+                                                    <i class="bi bi-person-plus me-1"></i>Request Lab Induction
+                                                </a>
+                                                <small class="text-muted">Contact lab administrator to schedule your general lab safety induction</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+                                {% endfor %}
+                                {% endif %}
+
+                                <!-- Equipment Training Action Section -->
+                                {% if not user_has_access %}
+                                {% for stage in approval_progress.stages %}
+                                    {% if stage.key == 'training' and stage.required and not stage.completed %}
+                                    <div class="mt-4" id="equipment-training-actions">
+                                        <h6 class="fw-bold text-warning mb-3">
+                                            <i class="bi bi-mortarboard me-2"></i>Equipment Training Required
+                                        </h6>
+                                        
+                                        {% if stage.details.training_records %}
+                                            {% for record in stage.details.training_records %}
+                                            <div class="border rounded p-3 mb-3">
+                                                <div class="d-flex justify-content-between align-items-start">
+                                                    <div class="flex-grow-1">
+                                                        <h6 class="mb-1">{{ record.course_title }}</h6>
+                                                        {% if record.status != 'not_enrolled' and record.status %}
+                                                        <div class="small mb-2">
+                                                            Status: 
+                                                            <span class="badge bg-{% if record.status == 'completed' %}success{% elif record.status == 'enrolled' or record.status == 'in_progress' %}warning{% elif record.status == 'failed' or record.status == 'expired' %}danger{% else %}secondary{% endif %}">
+                                                                {% if record.status == 'completed' %}Completed
+                                                                {% elif record.status == 'enrolled' %}Enrolled
+                                                                {% elif record.status == 'in_progress' %}In Progress
+                                                                {% elif record.status == 'failed' %}Failed
+                                                                {% elif record.status == 'expired' %}Expired
+                                                                {% endif %}
+                                                            </span>
+                                                        </div>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                <div class="d-grid gap-2 mt-2">
+                                                    {% if record.status == 'completed' %}
+                                                        <div class="btn btn-success btn-sm" disabled>
+                                                            <i class="bi bi-check-circle-fill me-1"></i>Completed
+                                                            {% if record.completed_at %}
+                                                                <small class="d-block mt-1 text-muted">{{ record.completed_at|date:"M j, Y" }}</small>
+                                                            {% endif %}
+                                                        </div>
+                                                    {% elif record.status == 'scheduled' %}
+                                                        <div class="btn btn-info btn-sm" disabled>
+                                                            <i class="bi bi-calendar-check me-1"></i>Training Scheduled
+                                                            {% if record.session_date %}
+                                                                <small class="d-block mt-1">{{ record.session_date|date:"M j, Y g:i A" }}</small>
+                                                            {% endif %}
+                                                        </div>
+                                                    {% elif record.status == 'enrolled' or record.status == 'in_progress' %}
+                                                        <a href="{% url 'booking:my_training' %}" class="btn btn-warning btn-sm">
+                                                            <i class="bi bi-arrow-right me-1"></i>Continue Training
+                                                        </a>
+                                                    {% elif record.status == 'failed' or record.status == 'expired' %}
+                                                        <div class="btn btn-secondary btn-sm" disabled>
+                                                            <i class="bi bi-x-circle me-1"></i>Training Pending - Contact Lab Admin
+                                                        </div>
+                                                    {% else %}
+                                                        <div class="small">
+                                                            <i class="bi bi-clock me-1"></i>Training Pending
+                                                            <div class="small text-muted">Awaiting training to be scheduled</div>
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                            {% endfor %}
+                                        {% else %}
+                                            <div class="border rounded p-3">
+                                                <div class="d-flex justify-content-between align-items-start">
+                                                    <div class="flex-grow-1">
+                                                        <h6 class="mb-1">Equipment Training</h6>
+                                                        <div class="small text-muted mb-2">
+                                                            No specific training courses configured yet for this resource.
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="mt-2">
+                                                    <div class="small">
+                                                        <i class="bi bi-clock me-1"></i>Training Pending
+                                                    </div>
+                                                    <small class="text-muted">Training courses will be scheduled by lab administrator</small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
+                                {% endfor %}
+                                {% endif %}
+
+                                <!-- Risk Assessment Action Section -->
                                 {% if not user_has_access and resource.requires_risk_assessment and required_risk_assessments and needs_risk_assessments %}
-                                <div class="mt-4" id="risk-assessments">
+                                <div class="mt-4" id="risk-assessments-actions">
                                     <h6 class="fw-bold text-danger mb-3">
                                         <i class="bi bi-shield-exclamation me-2"></i>Required Risk Assessments
                                     </h6>
-                                    <div class="alert alert-warning mb-3">
-                                        <div class="small mb-2">
-                                            <strong>Progress:</strong> {{ risk_assessment_status.completed }}/{{ required_risk_assessments.count }} completed
-                                        </div>
-                                        <div class="small text-muted">
-                                            Complete all risk assessments before accessing this resource.
-                                        </div>
-                                    </div>
                                     
                                     {% for assessment in required_risk_assessments %}
                                     <div class="border rounded p-3 mb-3">
@@ -390,6 +552,7 @@
                                     {% endfor %}
                                 </div>
                                 {% endif %}
+
                             </div>
                         </div>
                     {% endif %}
