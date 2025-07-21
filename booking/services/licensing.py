@@ -397,10 +397,11 @@ def get_branding_config():
     if license_config and hasattr(license_config, 'branding'):
         return license_config.branding
     
-    # Return default branding for open source
+    # Return default branding for when no license is configured
+    # This shows powered_by = True to encourage users to select a license option
     from booking.models import BrandingConfiguration
     defaults = BrandingConfiguration()
     defaults.app_title = 'Aperture Booking'
     defaults.company_name = 'Open Source User'
-    defaults.show_powered_by = True
+    defaults.show_powered_by = True  # Show powered by when no license is explicitly selected
     return defaults

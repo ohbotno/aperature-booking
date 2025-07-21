@@ -143,6 +143,49 @@ def license_status(request):
 
 
 @staff_member_required
+def license_select_open_source(request):
+    """Select open source license to remove licensing messages."""
+    if request.method == 'POST':
+        try:
+            with transaction.atomic():
+                # Deactivate any existing licenses
+                LicenseConfiguration.objects.filter(is_active=True).update(is_active=False)
+                
+                # Create open source license configuration
+                license_config = LicenseConfiguration.objects.create(
+                    license_key='OPEN_SOURCE_GPL3',
+                    license_type='open_source',
+                    organization_name='Open Source User',
+                    organization_slug='open-source',
+                    contact_email='user@example.com',
+                    is_active=True
+                )
+                
+                # Create default branding configuration for open source
+                BrandingConfiguration.objects.create(
+                    license=license_config,
+                    company_name='Open Source Lab',
+                    show_powered_by=False,  # Hide licensing messages for open source
+                )
+                
+                # Clear license cache
+                license_manager.clear_cache()
+                
+                messages.success(request, "Open Source license selected. Licensing messages have been removed.")
+                return redirect('booking:license_status')
+                
+        except Exception as e:
+            logger.error(f"Open source license selection failed: {e}")
+            messages.error(request, f"Failed to select open source license: {e}")
+    
+    context = {
+        'current_license': license_manager.get_current_license(),
+    }
+    
+    return render(request, 'licensing/select_open_source.html', context)
+
+
+@staff_member_required
 def license_activate(request):
     """Activate a license key."""
     if request.method == 'POST':
@@ -174,7 +217,7 @@ def license_activate(request):
                     license_manager.clear_cache()
                     
                     messages.success(request, f"License activated successfully for {license_config.organization_name}")
-                    return redirect('license_status')
+                    return redirect('booking:site_admin_license_management')
                     
             except Exception as e:
                 logger.error(f"License activation failed: {e}")
@@ -192,7 +235,7 @@ def license_configure(request):
     
     if not license_config:
         messages.error(request, "No active license found. Please activate a license first.")
-        return redirect('license_activate')
+        return redirect('booking:license_activate')
     
     # Get or create branding configuration
     try:
@@ -206,7 +249,7 @@ def license_configure(request):
             form.save()
             license_manager.clear_cache()
             messages.success(request, "Branding configuration updated successfully")
-            return redirect('license_status')
+            return redirect('booking:site_admin_license_management')
     else:
         form = BrandingConfigurationForm(instance=branding_config)
     
@@ -226,7 +269,7 @@ def license_validation_logs(request):
     
     if not license_config:
         messages.error(request, "No active license found.")
-        return redirect('license_status')
+        return redirect('booking:site_admin_license_management')
     
     logs = license_config.validation_logs.all()
     paginator = Paginator(logs, 50)
@@ -258,7 +301,7 @@ def license_validate_now(request):
         logger.error(f"Manual license validation failed: {e}")
         messages.error(request, f"License validation error: {e}")
     
-    return redirect('license_status')
+    return redirect('booking:site_admin_license_management')
 
 
 @csrf_exempt

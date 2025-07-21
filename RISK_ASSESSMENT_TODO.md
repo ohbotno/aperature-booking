@@ -14,7 +14,6 @@ The risk assessment logic has been implemented but the database field is tempora
 ### 1. Install Missing Dependencies
 ```bash
 pip install django-apscheduler
-```
 
 ### 2. Update the Resource Model
 Uncomment the field in `/booking/models.py` (lines 748-753):

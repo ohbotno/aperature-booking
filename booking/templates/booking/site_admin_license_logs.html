@@ -154,7 +154,7 @@
                             </thead>
                             <tbody>
                                 {% for log in page_obj %}
-                                <tr class="{% if log.result == 'failure' or log.result == 'error' %}table-danger{% elif log.result == 'success' %}table-success{% endif %}">
+                                <tr class="{% if log.result == 'failure' or log.result == 'error' %}table-danger{% endif %}">
                                     <td>
                                         <small>{{ log.created_at|date:"M j, Y" }}</small><br>
                                         <strong>{{ log.created_at|date:"H:i:s" }}</strong>
@@ -235,10 +235,10 @@
                         <ul class="pagination justify-content-center">
                             {% if page_obj.has_previous %}
                                 <li class="page-item">
-                                    <a class="page-link" href="?page=1{{ request.GET|urlencode_except:'page' }}">First</a>
+                                    <a class="page-link" href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
                                 </li>
                                 <li class="page-item">
-                                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}{{ request.GET|urlencode_except:'page' }}">Previous</a>
+                                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
                                 </li>
                             {% endif %}
 
@@ -249,17 +249,17 @@
                                     </li>
                                 {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
                                     <li class="page-item">
-                                        <a class="page-link" href="?page={{ num }}{{ request.GET|urlencode_except:'page' }}">{{ num }}</a>
+                                        <a class="page-link" href="?page={{ num }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
                                     </li>
                                 {% endif %}
                             {% endfor %}
 
                             {% if page_obj.has_next %}
                                 <li class="page-item">
-                                    <a class="page-link" href="?page={{ page_obj.next_page_number }}{{ request.GET|urlencode_except:'page' }}">Next</a>
+                                    <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
                                 </li>
                                 <li class="page-item">
-                                    <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{{ request.GET|urlencode_except:'page' }}">Last</a>
+                                    <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
                                 </li>
                             {% endif %}
                         </ul>

@@ -6626,6 +6626,57 @@ def site_admin_license_activate_view(request):
 
 
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_license_select_open_source_view(request):
+    """Site admin open source license selection page."""
+    try:
+        from ..services.licensing import license_manager
+        from ..models import LicenseConfiguration, BrandingConfiguration
+        from django.db import transaction
+        
+        if request.method == 'POST':
+            try:
+                with transaction.atomic():
+                    # Deactivate any existing licenses
+                    LicenseConfiguration.objects.filter(is_active=True).update(is_active=False)
+                    
+                    # Create open source license configuration
+                    license_config = LicenseConfiguration.objects.create(
+                        license_key='OPEN_SOURCE_GPL3',
+                        license_type='open_source',
+                        organization_name='Open Source User',
+                        organization_slug='open-source',
+                        contact_email='user@example.com',
+                        is_active=True
+                    )
+                    
+                    # Create default branding configuration for open source
+                    BrandingConfiguration.objects.create(
+                        license=license_config,
+                        company_name='Open Source Lab',
+                        show_powered_by=False,  # Hide licensing messages for open source
+                    )
+                    
+                    # Clear license cache
+                    license_manager.clear_cache()
+                    
+                    messages.success(request, "Open Source license selected. Licensing messages have been removed.")
+                    return redirect('booking:site_admin_license_management')
+                    
+            except Exception as e:
+                messages.error(request, f"Failed to select open source license: {e}")
+        
+        context = {
+            'current_license': license_manager.get_current_license(),
+        }
+        
+    except Exception as e:
+        messages.error(request, f"Error loading open source license selection: {e}")
+        return redirect('booking:site_admin_dashboard')
+    
+    return render(request, 'booking/site_admin_license_select_open_source.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
 def site_admin_license_validation_logs_view(request):
     """Site admin license validation logs page."""
     try:

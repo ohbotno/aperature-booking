@@ -19,6 +19,7 @@ from django.urls import reverse
 from django.conf import settings
 from django.utils import timezone
 from django.contrib import messages
+from django.core.cache import cache
 from booking.services.licensing import license_manager
 from datetime import timedelta
 import logging
@@ -44,8 +45,8 @@ class LicenseValidationMiddleware:
     
     def __init__(self, get_response):
         self.get_response = get_response
-        self.last_validation = None
-        self.validation_interval = timedelta(hours=1)  # Validate every hour
+        self.validation_interval = 3600 * 24  # Validate once per day (in seconds)
+        self.cache_key = 'license_middleware_last_validation'
     
     def __call__(self, request):
         # Skip validation for exempt URLs
@@ -75,16 +76,20 @@ class LicenseValidationMiddleware:
     
     def _validate_license(self, request) -> bool:
         """Validate license with caching to avoid excessive checks."""
-        now = timezone.now()
+        # Check cache for last validation time
+        last_validation_timestamp = cache.get(self.cache_key)
+        now = timezone.now().timestamp()
         
         # Only validate once per interval to avoid performance impact
-        if (self.last_validation and 
-            now - self.last_validation < self.validation_interval):
+        if last_validation_timestamp and (now - last_validation_timestamp < self.validation_interval):
+            # Still within validation interval, skip validation
             return True
         
         try:
             is_valid, error_msg = license_manager.validate_license()
-            self.last_validation = now
+            
+            # Update cache with current timestamp
+            cache.set(self.cache_key, now, self.validation_interval)
             
             if not is_valid:
                 logger.warning(f"License validation failed: {error_msg}")

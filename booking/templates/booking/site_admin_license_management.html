@@ -131,6 +131,14 @@
                 </div>
                 <div class="card-body">
                     <div class="row">
+                        {% if not license_config or license_config.license_type != 'open_source' %}
+                        <div class="col-md-3 mb-2">
+                            <a href="{% url 'booking:site_admin_license_select_open_source' %}" class="btn btn-success w-100">
+                                <i class="fas fa-balance-scale me-2"></i>
+                                Open Source
+                            </a>
+                        </div>
+                        {% endif %}
                         <div class="col-md-3 mb-2">
                             <a href="{% url 'booking:site_admin_license_activate' %}" class="btn btn-primary w-100">
                                 <i class="fas fa-key me-2"></i>

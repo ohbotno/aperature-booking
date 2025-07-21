@@ -15,6 +15,7 @@ https://aperture-booking.org/commercial
 """
 
 from django.urls import path, include
+from django.shortcuts import redirect
 from . import views
 
 app_name = 'booking'
@@ -201,16 +202,18 @@ urlpatterns = [
     # Site Admin License Management URLs
     path('site-admin/license/', views.site_admin_license_management_view, name='site_admin_license_management'),
     path('site-admin/license/activate/', views.site_admin_license_activate_view, name='site_admin_license_activate'),
+    path('site-admin/license/select-open-source/', views.site_admin_license_select_open_source_view, name='site_admin_license_select_open_source'),
     path('site-admin/license/branding/', views.site_admin_branding_config_view, name='site_admin_branding_config'),
     path('site-admin/license/logs/', views.site_admin_license_validation_logs_view, name='site_admin_license_logs'),
     path('site-admin/license/validate/ajax/', views.site_admin_license_validate_ajax, name='site_admin_license_validate_ajax'),
     path('site-admin/license/export/', views.site_admin_license_export_view, name='site_admin_license_export'),
     
-    # License Management URLs
-    path('license/', views.licensing.license_status, name='license_status'),
-    path('license/activate/', views.licensing.license_activate, name='license_activate'),
-    path('license/configure/', views.licensing.license_configure, name='license_configure'),
-    path('license/logs/', views.licensing.license_validation_logs, name='license_validation_logs'),
+    # License Management URLs (redirects to site-admin)
+    path('license/', lambda request: redirect('booking:site_admin_license_management'), name='license_status'),
+    path('license/activate/', lambda request: redirect('booking:site_admin_license_activate'), name='license_activate'),
+    path('license/select-open-source/', lambda request: redirect('booking:site_admin_license_select_open_source'), name='license_select_open_source'),
+    path('license/configure/', lambda request: redirect('booking:site_admin_license_management'), name='license_configure'),
+    path('license/logs/', lambda request: redirect('booking:site_admin_license_logs'), name='license_validation_logs'),
     path('license/validate/', views.licensing.license_validate_now, name='license_validate_now'),
     path('license/api/status/', views.licensing.license_api_status, name='license_api_status'),
     path('license/generate-key/', views.licensing.generate_license_key_view, name='generate_license_key'),
