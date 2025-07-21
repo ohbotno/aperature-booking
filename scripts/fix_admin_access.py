@@ -2,7 +2,7 @@
 """
 Quick fix script to grant site-admin access to the admin user.
 Run this from the project directory with the virtual environment activated:
-    python fix_admin_access.py
+    python scripts/fix_admin_access.py
 """
 
 import os
