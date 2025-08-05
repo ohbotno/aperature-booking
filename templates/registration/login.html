@@ -31,12 +31,12 @@
             <div class="col-md-6 col-lg-4">
                 <!-- Logo Section -->
                 <div class="text-center mb-4 {% if not messages %}mt-5{% endif %}">
-                    <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" style="max-width: 100%; height: auto;">
+                    <img src="{% if logo_url %}{{ logo_url }}{% else %}{% static 'images/logo.png' %}{% endif %}" alt="{{ app_title }}" style="max-width: 100%; height: auto;">
                 </div>
                 
                 <div class="card shadow">
                     <div class="card-header text-center bg-primary text-white">
-                        <h4 class="mb-0">Aperture Booking</h4>
+                        <h4 class="mb-0">{{ app_title }}</h4>
                     </div>
                     <div class="card-body">
                         <h5 id="signin-title" class="card-title text-center mb-4">Sign In</h5>
@@ -107,7 +107,7 @@
                 
                 <div class="text-center mt-3">
                     <small class="text-muted">
-                        Aperture Booking - A Lab booking system v{{ version }}
+                        {{ app_title }} - {{ lab_name }} v{{ version }}
                     </small>
                 </div>
             </div>

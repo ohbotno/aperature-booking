@@ -23,6 +23,20 @@ from .recurring import RecurringBookingPattern
 def get_logo_base64():
     """Get the logo as a base64 encoded string for email templates."""
     try:
+        # First try to get custom logo from branding configuration
+        from .models import LicenseConfiguration
+        try:
+            license_config = LicenseConfiguration.objects.filter(is_active=True).first()
+            if license_config and hasattr(license_config, 'branding') and license_config.branding.logo_primary:
+                logo_path = license_config.branding.logo_primary.path
+                if os.path.exists(logo_path):
+                    with open(logo_path, 'rb') as logo_file:
+                        logo_data = logo_file.read()
+                        return base64.b64encode(logo_data).decode('utf-8')
+        except Exception:
+            pass
+        
+        # Fallback to default logo
         logo_path = os.path.join(settings.STATIC_ROOT or 'static', 'images', 'logo.png')
         if not os.path.exists(logo_path):
             # Fallback to development path
@@ -35,6 +49,42 @@ def get_logo_base64():
     except Exception:
         pass
     return None
+
+
+def get_email_branding_context():
+    """Get branding context for email templates."""
+    from .models import LicenseConfiguration, LabSettings
+    
+    context = {
+        'app_title': 'Aperture Booking',
+        'company_name': 'Aperture Booking',
+        'lab_name': 'Aperture Booking',
+        'logo_base64': get_logo_base64(),
+        'support_email': 'support@aperture-booking.org',
+        'website_url': '',
+        'show_powered_by': True,
+    }
+    
+    try:
+        # Get lab settings
+        lab_name = LabSettings.get_lab_name()
+        context['lab_name'] = lab_name
+        
+        # Get branding from license configuration
+        license_config = LicenseConfiguration.objects.filter(is_active=True).first()
+        if license_config and hasattr(license_config, 'branding'):
+            branding = license_config.branding
+            context.update({
+                'app_title': branding.app_title,
+                'company_name': branding.company_name,
+                'support_email': branding.support_email or context['support_email'],
+                'website_url': branding.website_url,
+                'show_powered_by': branding.show_powered_by,
+            })
+    except Exception:
+        pass
+    
+    return context
 
 
 class UserRegistrationForm(UserCreationForm):
@@ -218,15 +268,20 @@ class UserRegistrationForm(UserCreationForm):
         if active_config:
             active_config.apply_to_settings()
         
-        subject = 'Verify your Aperture Booking account'
+        # Get branding context
+        branding_context = get_email_branding_context()
         
-        # Render email template
-        html_message = render_to_string('registration/verification_email.html', {
+        subject = f'Verify your {branding_context["app_title"]} account'
+        
+        # Render email template with branding context
+        email_context = {
             'user': user,
             'token': token.token,
             'domain': getattr(settings, 'SITE_DOMAIN', 'localhost:8000'),
-            'logo_base64': get_logo_base64(),
-        })
+            **branding_context  # Include all branding variables
+        }
+        
+        html_message = render_to_string('registration/verification_email.html', email_context)
         plain_message = strip_tags(html_message)
         
         try:
@@ -401,7 +456,10 @@ class CustomPasswordResetForm(PasswordResetForm):
         if active_config:
             active_config.apply_to_settings()
         
-        subject = 'Reset your Aperture Booking password'
+        # Get branding context
+        branding_context = get_email_branding_context()
+        
+        subject = f'Reset your {branding_context["app_title"]} password'
         
         # Get domain from request or settings
         if request:
@@ -409,14 +467,16 @@ class CustomPasswordResetForm(PasswordResetForm):
         else:
             domain = getattr(settings, 'SITE_DOMAIN', 'localhost:8000')
         
-        # Render email template
-        html_message = render_to_string('registration/password_reset_email.html', {
+        # Render email template with branding context
+        email_context = {
             'user': user,
             'token': token.token,
             'domain': domain,
             'protocol': 'https' if getattr(settings, 'USE_HTTPS', False) else 'http',
-            'logo_base64': get_logo_base64(),
-        })
+            **branding_context  # Include all branding variables
+        }
+        
+        html_message = render_to_string('registration/password_reset_email.html', email_context)
         plain_message = strip_tags(html_message)
         
         try:

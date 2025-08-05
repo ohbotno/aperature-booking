@@ -177,6 +177,7 @@ urlpatterns = [
     # Site Administration URLs (System Admin only)
     path('site-admin/', views.site_admin_dashboard_view, name='site_admin_dashboard'),
     path('site-admin/users/', views.site_admin_users_view, name='site_admin_users'),
+    path('site-admin/users/<int:user_id>/delete/', views.site_admin_user_delete_view, name='site_admin_user_delete'),
     path('site-admin/config/', views.site_admin_system_config_view, name='site_admin_config'),
     path('site-admin/lab-settings/', views.site_admin_lab_settings_view, name='site_admin_lab_settings'),
     path('site-admin/audit/', views.site_admin_audit_logs_view, name='site_admin_audit'),

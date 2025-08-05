@@ -137,6 +137,10 @@ def branding_context(request):
         
         branding = get_branding_config()
         
+        # Get logo URLs with fallbacks
+        logo_url = branding.logo_primary.url if branding.logo_primary else None
+        favicon_url = branding.logo_favicon.url if branding.logo_favicon else None
+        
         return {
             'branding': branding,
             'app_title': branding.app_title,
@@ -146,6 +150,12 @@ def branding_context(request):
             'accent_color': branding.color_accent,
             'show_powered_by': branding.show_powered_by,
             'custom_css_variables': branding.get_css_variables() if hasattr(branding, 'get_css_variables') else {},
+            'logo_url': logo_url,
+            'favicon_url': favicon_url,
+            'footer_text': branding.footer_text,
+            'support_email': branding.support_email,
+            'support_phone': branding.support_phone,
+            'website_url': branding.website_url,
         }
     except Exception:
         # Fallback to defaults

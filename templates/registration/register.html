@@ -1,7 +1,7 @@
 {% extends 'booking/base.html' %}
 {% load static %}
 
-{% block title %}Register - Aperture Booking{% endblock %}
+{% block title %}Register - {{ app_title }}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -9,10 +9,10 @@
         <div class="card shadow">
             <div class="card-header bg-primary text-white">
                 <h4 class="mb-0">
-                    <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" style="height: 24px; width: auto; margin-right: 8px;">
-                    Register for Aperture Booking
+                    <img src="{% if logo_url %}{{ logo_url }}{% else %}{% static 'images/logo.png' %}{% endif %}" alt="{{ app_title }}" style="height: 24px; width: auto; margin-right: 8px;">
+                    Register for {{ app_title }}
                 </h4>
-                <small class="text-muted">A Lab booking system v{{ version }}</small>
+                <small class="text-muted">{{ lab_name }} v{{ version }}</small>
             </div>
             <div class="card-body">
                 <form method="post" data-progress="true">

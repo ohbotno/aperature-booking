@@ -8,11 +8,29 @@
     <title>{% block title %}{{ lab_name }}{% endblock %}</title>
     
     <!-- Favicon -->
-    <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}">
-    <link rel="apple-touch-icon" href="{% static 'images/logo.png' %}">
-    <meta name="msapplication-TileImage" content="{% static 'images/logo.png' %}">
+    <link rel="icon" type="image/png" href="{% if favicon_url %}{{ favicon_url }}{% else %}{% static 'images/logo.png' %}{% endif %}">
+    <link rel="apple-touch-icon" href="{% if favicon_url %}{{ favicon_url }}{% else %}{% static 'images/logo.png' %}{% endif %}">
+    <meta name="msapplication-TileImage" content="{% if favicon_url %}{{ favicon_url }}{% else %}{% static 'images/logo.png' %}{% endif %}">
     <meta name="msapplication-TileColor" content="#ffffff">
     <meta name="theme-color" content="#ffffff">
+    
+    <!-- Prevent theme flicker - this runs before anything else loads -->
+    <script>
+        (function() {
+            // Get theme from localStorage or use server-provided default
+            var storedTheme = localStorage.getItem('theme');
+            var serverTheme = '{{ user_theme_preference|default:"light" }}';
+            var theme = storedTheme || serverTheme;
+            
+            // Resolve system theme
+            if (theme === 'system') {
+                theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            
+            // Apply theme immediately
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -28,14 +46,53 @@
     <link href="{% static 'css/dark-mode.css' %}" rel="stylesheet">
     
     <style>
-        /* Prevent theme flash by setting initial colors based on server-side theme */
+        /* Critical dark theme styles to prevent flash */
+        html {
+            background-color: #ffffff;
+            transition: background-color 0s;
+        }
+        
         html[data-theme="dark"] {
             background-color: #1a1a1a !important;
+        }
+        
+        body {
+            background-color: #ffffff;
+            color: #000000;
+            transition: none;
         }
         
         html[data-theme="dark"] body {
             background-color: #1a1a1a !important;
             color: #ffffff !important;
+        }
+        
+        /* Critical navbar styles for dark theme */
+        .navbar {
+            transition: none;
+        }
+        
+        html[data-theme="dark"] .navbar {
+            background-color: #212529 !important;
+        }
+        
+        html[data-theme="dark"] .navbar-dark {
+            background-color: #212529 !important;
+        }
+        
+        html[data-theme="dark"] .bg-dark {
+            background-color: #212529 !important;
+        }
+        
+        /* Critical sidebar styles for dark theme */
+        html[data-theme="dark"] .sidebar {
+            background-color: #2b2b2b !important;
+            color: #ffffff !important;
+        }
+        
+        /* Smooth transition after initial load - but not for critical elements */
+        body *:not(.navbar):not(.sidebar) {
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
         
         body {
@@ -214,7 +271,7 @@
     <nav class="navbar navbar-dark bg-dark fixed-top" role="navigation" aria-label="Main navigation">
         <div class="container-fluid">
             <a class="navbar-brand" href="{% url 'booking:calendar' %}">
-                <img src="{% static 'images/logo.png' %}" alt="{{ lab_name }}" style="height: 32px; width: auto; margin-right: 8px;">
+                <img src="{% if logo_url %}{{ logo_url }}{% else %}{% static 'images/logo.png' %}{% endif %}" alt="{{ lab_name }}" style="height: 32px; width: auto; margin-right: 8px;">
                 <span class="fw-bold">{{ lab_name }}</span>
                 <small class="text-muted ms-2" style="font-size: 0.7em;">Booking system v{{ version }}</small>
             </a>
@@ -571,8 +628,8 @@
                             <div class="col-md-6">
                                 {% if show_powered_by %}
                                 <div class="d-flex align-items-center mb-2">
-                                    <img src="{% static 'images/logo.png' %}" alt="Aperture Booking" height="24" class="me-2">
-                                    <strong>Aperture Booking</strong>&nbsp;v{{ version }}
+                                    <img src="{% if logo_url %}{{ logo_url }}{% else %}{% static 'images/logo.png' %}{% endif %}" alt="{{ app_title }}" height="24" class="me-2">
+                                    <strong>{{ app_title }}</strong>&nbsp;v{{ version }}
                                 </div>
                                 <p class="text-muted small mb-2">
                                     Laboratory resource booking and management system
@@ -584,7 +641,7 @@
                                 </p>
                                 {% else %}
                                 <div class="d-flex align-items-center mb-2">
-                                    <strong>Aperture Booking</strong>&nbsp;v{{ version }}
+                                    <strong>{{ app_title }}</strong>&nbsp;v{{ version }}
                                 </div>
                                 <p class="text-muted small mb-2">
                                     Laboratory resource booking and management system
@@ -599,14 +656,27 @@
                                     <div class="col-md-6">
                                         <h6 class="fw-bold mb-2">Support</h6>
                                         <ul class="list-unstyled small">
+                                            {% if show_powered_by %}
                                             <li><a href="https://docs.aperture-booking.org" class="text-decoration-none text-muted">Documentation</a></li>
                                             <li><a href="https://github.com/aperture-booking/aperture-booking/discussions" class="text-decoration-none text-muted">Community Forum</a></li>
                                             <li><a href="mailto:support@aperture-booking.org" class="text-decoration-none text-muted">Email Support</a></li>
+                                            {% else %}
+                                            {% if branding.support_email %}
+                                            <li><a href="mailto:{{ branding.support_email }}" class="text-decoration-none text-muted">Email Support</a></li>
+                                            {% endif %}
+                                            {% if branding.website_url %}
+                                            <li><a href="{{ branding.website_url }}" class="text-decoration-none text-muted">Website</a></li>
+                                            {% endif %}
+                                            {% if branding.support_phone %}
+                                            <li><span class="text-muted"><i class="bi bi-telephone me-1"></i>{{ branding.support_phone }}</span></li>
+                                            {% endif %}
+                                            {% endif %}
                                         </ul>
                                     </div>
                                     <div class="col-md-6">
                                         <h6 class="fw-bold mb-2">Contribute</h6>
                                         <ul class="list-unstyled small">
+                                            {% if show_powered_by %}
                                             <li><a href="https://github.com/aperture-booking/aperture-booking" class="text-decoration-none text-muted">Source Code</a></li>
                                             <li><a href="https://github.com/aperture-booking/aperture-booking/issues/new?template=bug_report.md" class="text-decoration-none text-muted">
                                                 <i class="bi bi-bug me-1"></i>Report Bug
@@ -614,6 +684,7 @@
                                             <li><a href="https://github.com/aperture-booking/aperture-booking/issues/new?template=feature_request.md" class="text-decoration-none text-muted">
                                                 <i class="bi bi-lightbulb me-1"></i>Request Feature
                                             </a></li>
+                                            {% endif %}
                                         </ul>
                                     </div>
                                 </div>
@@ -629,7 +700,11 @@
                                     </small>
                                     {% else %}
                                     <small class="text-muted">
-                                        {{ lab_name|default:"Laboratory Booking System" }}
+                                        {% if footer_text %}
+                                            {{ footer_text }}
+                                        {% else %}
+                                            {{ company_name|default:lab_name|default:"Laboratory Booking System" }}
+                                        {% endif %}
                                     </small>
                                     {% endif %}
                                     <div class="d-flex align-items-center">

@@ -6861,6 +6861,86 @@ def site_admin_users_view(request):
 
 
 @user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
+def site_admin_user_delete_view(request, user_id):
+    """Delete user interface with confirmation."""
+    from django.contrib import messages
+    from django.db import transaction
+    from django.contrib.auth.models import User
+    from booking.models import UserProfile, Booking, ResourceAccess, UserTraining
+    
+    user_to_delete = get_object_or_404(User, id=user_id)
+    
+    # Prevent deletion of the current user
+    if user_to_delete == request.user:
+        messages.error(request, "You cannot delete your own account.")
+        return redirect('booking:site_admin_users')
+    
+    # Prevent deletion of other sysadmins unless current user is superuser
+    if (hasattr(user_to_delete, 'userprofile') and 
+        user_to_delete.userprofile.role == 'sysadmin' and 
+        not request.user.is_superuser):
+        messages.error(request, "You cannot delete other system administrators.")
+        return redirect('booking:site_admin_users')
+    
+    if request.method == 'POST':
+        try:
+            with transaction.atomic():
+                # Get user info for confirmation message
+                username = user_to_delete.username
+                full_name = user_to_delete.get_full_name()
+                
+                # Delete the user (CASCADE relationships will be handled automatically)
+                user_to_delete.delete()
+                
+                messages.success(
+                    request, 
+                    f'User "{username}" ({full_name}) has been permanently deleted.'
+                )
+                
+                return redirect('booking:site_admin_users')
+                
+        except Exception as e:
+            messages.error(
+                request, 
+                f'Error deleting user: {str(e)}'
+            )
+            return redirect('booking:site_admin_users')
+    
+    # Calculate impact for GET request (confirmation page)
+    try:
+        bookings_count = Booking.objects.filter(user=user_to_delete).count()
+        active_bookings_count = Booking.objects.filter(
+            user=user_to_delete, 
+            status__in=['approved', 'pending']
+        ).count()
+        resource_access_count = ResourceAccess.objects.filter(user=user_to_delete).count()
+        training_records_count = UserTraining.objects.filter(user=user_to_delete).count()
+        
+        # Check if user is referenced in any SET_NULL relationships
+        approved_bookings_count = Booking.objects.filter(approved_by=user_to_delete).count()
+        
+    except Exception:
+        # Fallback values if queries fail
+        bookings_count = 0
+        active_bookings_count = 0
+        resource_access_count = 0
+        training_records_count = 0
+        approved_bookings_count = 0
+    
+    context = {
+        'user_to_delete': user_to_delete,
+        'bookings_count': bookings_count,
+        'active_bookings_count': active_bookings_count,
+        'resource_access_count': resource_access_count,
+        'training_records_count': training_records_count,
+        'approved_bookings_count': approved_bookings_count,
+        'can_delete': active_bookings_count == 0,  # Only allow deletion if no active bookings
+    }
+    
+    return render(request, 'booking/site_admin_user_confirm_delete.html', context)
+
+
+@user_passes_test(lambda u: hasattr(u, 'userprofile') and u.userprofile.role == 'sysadmin')
 def site_admin_system_config_view(request):
     """System configuration interface."""
     from django.conf import settings

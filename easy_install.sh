@@ -445,10 +445,25 @@ EOF
 
 # Configure Nginx
 print_status "Configuring Nginx..."
+
+# First, ensure client_max_body_size is set in the main nginx.conf
+print_status "Adding client_max_body_size to nginx.conf..."
+if ! grep -q "client_max_body_size" /etc/nginx/nginx.conf; then
+    # Add client_max_body_size to the http section
+    sed -i '/^http {/a\    client_max_body_size 100M;' /etc/nginx/nginx.conf
+    print_status "Added client_max_body_size 100M to nginx.conf"
+else
+    print_status "client_max_body_size already configured in nginx.conf"
+fi
+
+# Create the site configuration
 cat > /etc/nginx/sites-available/aperture-booking <<EOF
 server {
     listen 80;
     server_name $DOMAIN;
+    
+    # Also set client_max_body_size in server block for redundancy
+    client_max_body_size 100M;
 
     location /static/ {
         alias $INSTALL_DIR/staticfiles/;
@@ -471,6 +486,15 @@ EOF
 # Enable Nginx site
 ln -sf /etc/nginx/sites-available/aperture-booking /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
+
+# Test nginx configuration
+print_status "Testing nginx configuration..."
+if nginx -t; then
+    print_status "Nginx configuration is valid"
+else
+    print_error "Nginx configuration test failed"
+    exit 1
+fi
 
 # Set permissions
 print_status "Setting permissions..."
