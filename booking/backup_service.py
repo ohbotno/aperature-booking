@@ -1,9 +1,9 @@
 # booking/backup_service.py
 """
-Backup management service for the Aperture Booking.
+Backup management service for the Aperature Booking.
 
-This file is part of the Aperture Booking.
-Copyright (C) 2025 Aperture Booking Contributors
+This file is part of the Aperature Booking.
+Copyright (C) 2025 Aperature Booking Contributors
 
 This software is dual-licensed:
 1. GNU General Public License v3.0 (GPL-3.0) - for open source use
@@ -11,7 +11,7 @@ This software is dual-licensed:
 
 For GPL-3.0 license terms, see LICENSE file.
 For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
-https://aperture-booking.org/commercial
+https://aperature-booking.org/commercial
 """
 
 import os
@@ -484,7 +484,7 @@ class BackupService:
             'total_size': backup_info['total_size'],
             'django_version': getattr(settings, 'DJANGO_VERSION', 'unknown'),
             'python_version': f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
-            'created_by': 'Aperture Booking Backup Service'
+            'created_by': 'Aperature Booking Backup Service'
         }
         
         manifest_file = os.path.join(backup_path, 'backup_manifest.json')
@@ -1424,7 +1424,7 @@ Error Details:
 
 Please check the backup system and resolve any issues.
 
-This is an automated message from the Aperture Booking backup system.
+This is an automated message from the Aperature Booking backup system.
             """.strip()
             
             send_mail(

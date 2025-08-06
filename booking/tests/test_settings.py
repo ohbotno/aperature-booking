@@ -1,5 +1,5 @@
 """
-Test settings for Aperture Booking tests.
+Test settings for Aperature Booking tests.
 Minimal settings configuration for running tests without external dependencies.
 """
 
@@ -146,4 +146,4 @@ BACKUP_RETENTION_DAYS = 30
 
 # Update system settings
 UPDATE_CHECK_INTERVAL_HOURS = 24
-GITHUB_REPO = 'ohbotno/aperture-booking'
+GITHUB_REPO = 'ohbotno/aperature-booking'

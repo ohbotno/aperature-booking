@@ -1,16 +1,16 @@
 #!/bin/bash
 """
-Gunicorn startup script for Aperture Booking.
+Gunicorn startup script for Aperature Booking.
 
 This script starts Gunicorn with the appropriate settings for production.
 """
 
 # Configuration
-NAME="aperture-booking"
-DJANGODIR="/opt/aperture-booking"
-SOCKFILE="/var/run/aperture-booking/gunicorn.sock"
-USER="aperture-booking"
-GROUP="aperture-booking"
+NAME="aperature-booking"
+DJANGODIR="/opt/aperature-booking"
+SOCKFILE="/var/run/aperature-booking/gunicorn.sock"
+USER="aperature-booking"
+GROUP="aperature-booking"
 NUM_WORKERS=3
 DJANGO_SETTINGS_MODULE="aperture_booking.settings_production"
 DJANGO_WSGI_MODULE="aperture_booking.wsgi"

@@ -225,7 +225,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateSubmitButton() {
         if (hasTrainingYes && hasTrainingYes.checked) {
             submitButton.innerHTML = '<i class="bi bi-send me-1"></i>Submit Training Verification';
-            submitButton.className = 'btn btn-warning';
+            submitButton.className = 'btn btn-primary';
         } else if (hasTrainingNo && hasTrainingNo.checked) {
             submitButton.innerHTML = '<i class="bi bi-book me-1"></i>Request Training';
             submitButton.className = 'btn btn-info';

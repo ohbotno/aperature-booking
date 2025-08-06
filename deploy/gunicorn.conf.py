@@ -1,5 +1,5 @@
 """
-Gunicorn configuration file for Aperture Booking production deployment.
+Gunicorn configuration file for Aperature Booking production deployment.
 
 This configuration file provides production-ready settings for running
 Django with Gunicorn WSGI server.
@@ -38,17 +38,17 @@ group = os.environ.get('GUNICORN_GROUP', 'www-data')
 tmp_upload_dir = None
 
 # Logging
-accesslog = os.environ.get('GUNICORN_ACCESS_LOG', '/var/log/aperture-booking/gunicorn-access.log')
-errorlog = os.environ.get('GUNICORN_ERROR_LOG', '/var/log/aperture-booking/gunicorn-error.log')
+accesslog = os.environ.get('GUNICORN_ACCESS_LOG', '/var/log/aperature-booking/gunicorn-access.log')
+errorlog = os.environ.get('GUNICORN_ERROR_LOG', '/var/log/aperature-booking/gunicorn-error.log')
 loglevel = os.environ.get('GUNICORN_LOG_LEVEL', 'info')
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
 # Process naming
-proc_name = 'aperture-booking'
+proc_name = 'aperature-booking'
 
 # Server mechanics
 daemon = False
-pidfile = os.environ.get('GUNICORN_PID_FILE', '/var/run/aperture-booking/gunicorn.pid')
+pidfile = os.environ.get('GUNICORN_PID_FILE', '/var/run/aperature-booking/gunicorn.pid')
 umask = 0o077
 tmp_upload_dir = None
 
@@ -69,7 +69,7 @@ if os.environ.get('DJANGO_DEBUG', 'False').lower() == 'true':
 # Health check endpoint
 def when_ready(server):
     """Called just after the server is started."""
-    server.log.info("Aperture Booking server is ready. Server: %s", server.address)
+    server.log.info("Aperature Booking server is ready. Server: %s", server.address)
 
 def worker_int(worker):
     """Called just after a worker has been killed."""

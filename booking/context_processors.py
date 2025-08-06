@@ -1,8 +1,8 @@
 """
-Context processors for the Aperture Booking.
+Context processors for the Aperature Booking.
 
-This file is part of the Aperture Booking.
-Copyright (C) 2025 Aperture Booking Contributors
+This file is part of the Aperature Booking.
+Copyright (C) 2025 Aperature Booking Contributors
 
 This software is dual-licensed:
 1. GNU General Public License v3.0 (GPL-3.0) - for open source use
@@ -10,7 +10,7 @@ This software is dual-licensed:
 
 For GPL-3.0 license terms, see LICENSE file.
 For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
-https://aperture-booking.org/commercial
+https://aperature-booking.org/commercial
 """
 
 from django.db.models import Q
@@ -161,7 +161,7 @@ def branding_context(request):
         # Fallback to defaults
         return {
             'branding': None,
-            'app_title': 'Aperture Booking',
+            'app_title': 'Aperature Booking',
             'company_name': 'Open Source User',
             'primary_color': '#007bff',
             'secondary_color': '#6c757d', 
@@ -180,7 +180,7 @@ def lab_settings_context(request):
     except Exception:
         # Fallback to default
         return {
-            'lab_name': 'Aperture Booking',
+            'lab_name': 'Aperature Booking',
         }
 
 

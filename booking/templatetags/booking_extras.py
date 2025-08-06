@@ -2,8 +2,8 @@
 """
 Template tags and filters for booking-related functionality.
 
-This file is part of the Aperture Booking.
-Copyright (C) 2025 Aperture Booking Contributors
+This file is part of the Aperature Booking.
+Copyright (C) 2025 Aperature Booking Contributors
 
 This software is dual-licensed:
 1. GNU General Public License v3.0 (GPL-3.0) - for open source use
@@ -11,7 +11,7 @@ This software is dual-licensed:
 
 For GPL-3.0 license terms, see LICENSE file.
 For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
-https://aperture-booking.org/commercial
+https://aperature-booking.org/commercial
 """
 
 from django import template
@@ -140,6 +140,43 @@ def get_form_field(form, field_name):
         return form[field_name]
     except KeyError:
         return None
+
+
+@register.filter
+def get_item(dictionary, key):
+    """
+    Get an item from a dictionary by key. Usage: {{ dict|get_item:key }}
+    This allows dynamic dictionary access in templates.
+    """
+    try:
+        if hasattr(dictionary, 'get'):
+            return dictionary.get(key)
+        else:
+            return dictionary[key]
+    except (KeyError, TypeError):
+        return None
+
+
+@register.filter
+def make_query_string(query_dict):
+    """
+    Convert a QueryDict to a query string. Usage: {{ request.GET|make_query_string }}
+    This creates URL parameters from GET parameters, excluding 'page'.
+    """
+    try:
+        from django.http import QueryDict
+        
+        # Create a copy and remove 'page' parameter for pagination
+        params = query_dict.copy()
+        if 'page' in params:
+            del params['page']
+        
+        # Convert to query string
+        if params:
+            return '&' + params.urlencode()
+        return ''
+    except (AttributeError, TypeError):
+        return ''
 
 
 @register.simple_tag

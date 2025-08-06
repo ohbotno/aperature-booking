@@ -1,5 +1,5 @@
 """
-Comprehensive view tests for Aperture Booking system.
+Comprehensive view tests for Aperature Booking system.
 Tests all pages, forms, and user interactions.
 """
 from django.test import TestCase, Client
@@ -25,7 +25,7 @@ class HomePageTests(TestCase):
         """Test home page loads without errors."""
         response = self.client.get('/')
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Aperture Booking')
+        self.assertContains(response, 'Aperature Booking')
     
     def test_home_page_navigation_links(self):
         """Test navigation links are present."""
@@ -389,7 +389,7 @@ class AdminTests(TestCase):
         UpdateInfo.objects.create(
             current_version='1.0.0',
             available_version='1.0.1',
-            github_repo='ohbotno/aperture-booking'
+            github_repo='ohbotno/aperature-booking'
         )
         
         response = self.client.get(reverse('site_admin_updates'))

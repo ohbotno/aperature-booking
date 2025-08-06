@@ -57,7 +57,7 @@
                         <div class="mb-3">
                             <label for="id_app_title" class="form-label">Application Title</label>
                             <input type="text" class="form-control" id="id_app_title" name="app_title" 
-                                   value="{{ form.app_title.value|default:'Aperture Booking' }}"
+                                   value="{{ form.app_title.value|default:'Aperature Booking' }}"
                                    {% if not enabled_features.custom_branding %}disabled{% endif %}>
                             <div class="form-text">The main title displayed in the browser and navigation.</div>
                         </div>
@@ -147,7 +147,7 @@
                                    {% if form.show_powered_by.value %}checked{% endif %}
                                    {% if not enabled_features.custom_branding %}disabled{% endif %}>
                             <label class="form-check-label" for="id_show_powered_by">
-                                Show "Powered by Aperture Booking"
+                                Show "Powered by Aperature Booking"
                             </label>
                             <div class="form-text">Display attribution in the footer.</div>
                         </div>

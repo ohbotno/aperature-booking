@@ -64,13 +64,13 @@ class Migration(migrations.Migration):
                     "conflict_resolution",
                     models.CharField(
                         choices=[
-                            ("aperture_wins", "Aperture Booking wins"),
+                            ("aperture_wins", "Aperature Booking wins"),
                             ("google_wins", "Google Calendar wins"),
                             ("ask_user", "Ask user each time"),
                             ("skip", "Skip conflicting events"),
                         ],
                         default="skip",
-                        help_text="How to handle conflicts between Aperture and Google Calendar",
+                        help_text="How to handle conflicts between Aperature and Google Calendar",
                         max_length=20,
                     ),
                 ),
@@ -184,7 +184,7 @@ class Migration(migrations.Migration):
                     "sync_direction",
                     models.CharField(
                         choices=[
-                            ("one_way", "One-way (Aperture → Google)"),
+                            ("one_way", "One-way (Aperature → Google)"),
                             ("two_way", "Two-way sync"),
                         ],
                         default="one_way",

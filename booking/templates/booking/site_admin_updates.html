@@ -126,7 +126,7 @@
                         {% if update_status.update_available and update_status.status == 'available' %}
                         <div class="d-grid gap-2 mb-3">
                             <button type="submit" name="action" value="download_update" 
-                                    class="btn btn-warning">
+                                    class="btn btn-primary">
                                 <i class="fas fa-download me-2"></i>
                                 Download Update
                             </button>
@@ -196,7 +196,7 @@
                             <div class="col-md-8 mb-3">
                                 <label for="github_repo" class="form-label">GitHub Repository</label>
                                 <input type="text" class="form-control" name="github_repo" 
-                                       value="{{ update_status.github_repo|default:'ohbotno/aperture-booking' }}"
+                                       value="{{ update_status.github_repo|default:'ohbotno/aperature-booking' }}"
                                        placeholder="username/repository-name" required>
                                 <div class="form-text">
                                     GitHub repository in format: username/repository-name
@@ -281,7 +281,7 @@
                                     </td>
                                     <td>
                                         {% if update.backup_created and update.result == 'success' %}
-                                            <button class="btn btn-sm btn-outline-warning" 
+                                            <button class="btn btn-sm btn-outline-secondary" 
                                                     onclick="rollbackUpdate({{ update.id }})"
                                                     title="Rollback to this version">
                                                 <i class="fas fa-undo"></i>

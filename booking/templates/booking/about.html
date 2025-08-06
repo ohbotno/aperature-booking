@@ -143,7 +143,7 @@
             {% else %}
                 <div class="alert alert-info text-center py-5 persistent-alert">
                     <i class="fas fa-info-circle fa-3x mb-3"></i>
-                    <h4>Welcome to Aperture Booking</h4>
+                    <h4>Welcome to Aperature Booking</h4>
                     <p class="mb-4">The about page content is not yet configured.</p>
                     {% if user.is_staff or user.userprofile.role in 'technician,sysadmin' %}
                         <a href="{% url 'booking:about_edit' %}" class="btn btn-primary">

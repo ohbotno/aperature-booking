@@ -1,5 +1,5 @@
 """
-Integration tests for complete workflows in Aperture Booking system.
+Integration tests for complete workflows in Aperature Booking system.
 Tests end-to-end functionality across multiple components.
 """
 from django.test import TestCase, Client, TransactionTestCase
@@ -426,7 +426,7 @@ class SystemAdministrationWorkflowTests(TransactionTestCase):
         
         # 4. Admin configures update settings
         response = self.client.post(reverse('configure_updates'), {
-            'github_repo': 'ohbotno/aperture-booking',
+            'github_repo': 'ohbotno/aperature-booking',
             'auto_check': True,
             'check_interval': 24,
             'notification_email': self.admin.email
@@ -434,7 +434,7 @@ class SystemAdministrationWorkflowTests(TransactionTestCase):
         self.assertEqual(response.status_code, 200)
         
         update_info.refresh_from_db()
-        self.assertEqual(update_info.github_repo, 'ohbotno/aperture-booking')
+        self.assertEqual(update_info.github_repo, 'ohbotno/aperature-booking')
         self.assertTrue(update_info.auto_check)
     
     def test_complete_analytics_workflow(self):

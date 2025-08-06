@@ -797,7 +797,7 @@ class Migration(migrations.Migration):
                 (
                     "github_repo",
                     models.CharField(
-                        default="ohbotno/aperture-booking",
+                        default="ohbotno/aperature-booking",
                         help_text="GitHub repository (username/repo-name)",
                         max_length=100,
                     ),
@@ -1657,7 +1657,7 @@ class Migration(migrations.Migration):
                 (
                     "app_title",
                     models.CharField(
-                        default="Aperture Booking",
+                        default="Aperature Booking",
                         help_text="Application name shown in browser title and headers",
                         max_length=100,
                     ),
@@ -1760,7 +1760,7 @@ class Migration(migrations.Migration):
                     "show_powered_by",
                     models.BooleanField(
                         default=True,
-                        help_text="Show 'Powered by Aperture Booking' in footer",
+                        help_text="Show 'Powered by Aperature Booking' in footer",
                     ),
                 ),
                 (

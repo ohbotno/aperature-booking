@@ -1,17 +1,17 @@
 #!/bin/bash
 """
-Update script for Aperture Booking production deployment.
+Update script for Aperature Booking production deployment.
 
-This script safely updates an existing Aperture Booking installation.
+This script safely updates an existing Aperature Booking installation.
 """
 
 set -e  # Exit on any error
 
 # Configuration
-APP_NAME="aperture-booking"
-APP_USER="aperture-booking"
-APP_DIR="/opt/aperture-booking"
-BACKUP_DIR="/opt/aperture-booking/backups"
+APP_NAME="aperature-booking"
+APP_USER="aperature-booking"
+APP_DIR="/opt/aperature-booking"
+BACKUP_DIR="/opt/aperature-booking/backups"
 
 # Colors for output
 RED='\033[0;31m'
@@ -68,8 +68,8 @@ create_backup() {
 stop_services() {
     log_info "Stopping services..."
     
-    systemctl stop aperture-booking.service
-    systemctl stop aperture-booking-scheduler.service
+    systemctl stop aperature-booking.service
+    systemctl stop aperature-booking-scheduler.service
     
     log_success "Services stopped"
 }
@@ -119,9 +119,9 @@ update_services() {
     log_info "Updating systemd services..."
     
     # Copy updated service files
-    cp "$APP_DIR/deploy/aperture-booking.service" "/etc/systemd/system/"
-    cp "$APP_DIR/deploy/aperture-booking.socket" "/etc/systemd/system/"
-    cp "$APP_DIR/deploy/aperture-booking-scheduler.service" "/etc/systemd/system/"
+    cp "$APP_DIR/deploy/aperature-booking.service" "/etc/systemd/system/"
+    cp "$APP_DIR/deploy/aperature-booking.socket" "/etc/systemd/system/"
+    cp "$APP_DIR/deploy/aperature-booking-scheduler.service" "/etc/systemd/system/"
     
     # Reload systemd
     systemctl daemon-reload
@@ -133,9 +133,9 @@ update_services() {
 start_services() {
     log_info "Starting services..."
     
-    systemctl start aperture-booking.socket
-    systemctl start aperture-booking.service
-    systemctl start aperture-booking-scheduler.service
+    systemctl start aperature-booking.socket
+    systemctl start aperature-booking.service
+    systemctl start aperature-booking-scheduler.service
     
     # Reload nginx
     systemctl reload nginx
@@ -148,19 +148,19 @@ verify_deployment() {
     log_info "Verifying deployment..."
     
     # Check service status
-    if systemctl is-active --quiet aperture-booking.service; then
-        log_success "Aperture Booking service is running"
+    if systemctl is-active --quiet aperature-booking.service; then
+        log_success "Aperature Booking service is running"
     else
-        log_error "Aperture Booking service failed to start"
-        log_info "Check logs: journalctl -u aperture-booking.service"
+        log_error "Aperature Booking service failed to start"
+        log_info "Check logs: journalctl -u aperature-booking.service"
         exit 1
     fi
     
-    if systemctl is-active --quiet aperture-booking-scheduler.service; then
+    if systemctl is-active --quiet aperature-booking-scheduler.service; then
         log_success "Scheduler service is running"
     else
         log_warning "Scheduler service is not running"
-        log_info "Check logs: journalctl -u aperture-booking-scheduler.service"
+        log_info "Check logs: journalctl -u aperature-booking-scheduler.service"
     fi
     
     # Test HTTP response
@@ -169,7 +169,7 @@ verify_deployment() {
         log_success "Application is responding to HTTP requests"
     else
         log_warning "Application may not be responding properly"
-        log_info "Check Nginx logs: tail -f /var/log/nginx/aperture-booking.error.log"
+        log_info "Check Nginx logs: tail -f /var/log/nginx/aperature-booking.error.log"
     fi
     
     log_success "Deployment verification complete"
@@ -180,8 +180,8 @@ rollback() {
     log_error "Update failed. Starting rollback..."
     
     # Stop services
-    systemctl stop aperture-booking.service
-    systemctl stop aperture-booking-scheduler.service
+    systemctl stop aperature-booking.service
+    systemctl stop aperature-booking-scheduler.service
     
     # Find latest backup
     LATEST_BACKUP=$(ls -t "$APP_DIR".backup.* 2>/dev/null | head -n1)
@@ -192,9 +192,9 @@ rollback() {
         mv "$LATEST_BACKUP" "$APP_DIR"
         
         # Restart services
-        systemctl start aperture-booking.socket
-        systemctl start aperture-booking.service
-        systemctl start aperture-booking-scheduler.service
+        systemctl start aperature-booking.socket
+        systemctl start aperature-booking.service
+        systemctl start aperature-booking-scheduler.service
         
         log_success "Rollback completed"
     else
@@ -205,7 +205,7 @@ rollback() {
 
 # Main update function
 main() {
-    log_info "Starting Aperture Booking update..."
+    log_info "Starting Aperature Booking update..."
     
     check_root
     
@@ -226,15 +226,15 @@ main() {
     log_success "Update completed successfully!"
     echo
     echo "=============================================="
-    echo "Aperture Booking Update Complete"
+    echo "Aperature Booking Update Complete"
     echo "=============================================="
     echo
     echo "Application URL: http://$(hostname -I | awk '{print $1}')"
     echo "Admin URL: http://$(hostname -I | awk '{print $1}')/admin/"
     echo
     echo "If you experience any issues:"
-    echo "1. Check service logs: journalctl -u aperture-booking.service"
-    echo "2. Check Nginx logs: tail -f /var/log/nginx/aperture-booking.error.log"
+    echo "1. Check service logs: journalctl -u aperature-booking.service"
+    echo "2. Check Nginx logs: tail -f /var/log/nginx/aperature-booking.error.log"
     echo "3. Check application logs: tail -f $APP_DIR/logs/aperture_booking.log"
     echo
 }

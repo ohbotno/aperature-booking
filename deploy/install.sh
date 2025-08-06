@@ -1,18 +1,18 @@
 #!/bin/bash
 """
-Production installation script for Aperture Booking.
+Production installation script for Aperature Booking.
 
-This script installs and configures Aperture Booking for production deployment
+This script installs and configures Aperature Booking for production deployment
 on Ubuntu/Debian systems with Nginx + Gunicorn.
 """
 
 set -e  # Exit on any error
 
 # Configuration
-APP_NAME="aperture-booking"
-APP_USER="aperture-booking"
-APP_GROUP="aperture-booking"
-APP_DIR="/opt/aperture-booking"
+APP_NAME="aperature-booking"
+APP_USER="aperature-booking"
+APP_GROUP="aperature-booking"
+APP_DIR="/opt/aperature-booking"
 NGINX_AVAILABLE="/etc/nginx/sites-available"
 NGINX_ENABLED="/etc/nginx/sites-enabled"
 SYSTEMD_DIR="/etc/systemd/system"
@@ -127,7 +127,7 @@ setup_app_directory() {
 
 # Install Python application
 install_application() {
-    log_info "Installing Aperture Booking application..."
+    log_info "Installing Aperature Booking application..."
     
     # Copy application files (assuming script is run from project root)
     if [[ -f "manage.py" ]]; then
@@ -193,7 +193,7 @@ DB_PORT=5432
 EMAIL_HOST=localhost
 EMAIL_PORT=587
 EMAIL_USE_TLS=True
-DEFAULT_FROM_EMAIL=noreply@aperture-booking.com
+DEFAULT_FROM_EMAIL=noreply@aperature-booking.com
 TIME_ZONE=UTC
 LANGUAGE_CODE=en-gb
 EOF
@@ -221,15 +221,15 @@ install_systemd_services() {
     log_info "Installing systemd services..."
     
     # Copy service files
-    cp "$APP_DIR/deploy/aperture-booking.service" "$SYSTEMD_DIR/"
-    cp "$APP_DIR/deploy/aperture-booking.socket" "$SYSTEMD_DIR/"
-    cp "$APP_DIR/deploy/aperture-booking-scheduler.service" "$SYSTEMD_DIR/"
+    cp "$APP_DIR/deploy/aperature-booking.service" "$SYSTEMD_DIR/"
+    cp "$APP_DIR/deploy/aperature-booking.socket" "$SYSTEMD_DIR/"
+    cp "$APP_DIR/deploy/aperature-booking-scheduler.service" "$SYSTEMD_DIR/"
     
     # Reload systemd and enable services
     systemctl daemon-reload
-    systemctl enable aperture-booking.socket
-    systemctl enable aperture-booking.service
-    systemctl enable aperture-booking-scheduler.service
+    systemctl enable aperature-booking.socket
+    systemctl enable aperature-booking.service
+    systemctl enable aperature-booking-scheduler.service
     
     log_success "Systemd services installed"
 }
@@ -261,9 +261,9 @@ start_services() {
     systemctl start redis-server
     systemctl enable redis-server
     
-    systemctl start aperture-booking.socket
-    systemctl start aperture-booking.service
-    systemctl start aperture-booking-scheduler.service
+    systemctl start aperature-booking.socket
+    systemctl start aperature-booking.service
+    systemctl start aperature-booking-scheduler.service
     
     systemctl reload nginx
     systemctl enable nginx
@@ -287,7 +287,7 @@ display_completion() {
     log_success "Installation completed successfully!"
     echo
     echo "=============================================="
-    echo "Aperture Booking Installation Complete"
+    echo "Aperature Booking Installation Complete"
     echo "=============================================="
     echo
     echo "Application URL: http://$(hostname -I | awk '{print $1}')"
@@ -296,12 +296,12 @@ display_completion() {
     echo "Configuration files:"
     echo "  - Application: $APP_DIR/.env"
     echo "  - Nginx: $NGINX_AVAILABLE/$APP_NAME"
-    echo "  - Systemd: $SYSTEMD_DIR/aperture-booking.*"
+    echo "  - Systemd: $SYSTEMD_DIR/aperature-booking.*"
     echo
     echo "Log files:"
     echo "  - Application: $APP_DIR/logs/"
     echo "  - Nginx: /var/log/nginx/"
-    echo "  - Systemd: journalctl -u aperture-booking"
+    echo "  - Systemd: journalctl -u aperature-booking"
     echo
     echo "Next steps:"
     echo "1. Edit $APP_DIR/.env with your production settings"
@@ -316,7 +316,7 @@ display_completion() {
 
 # Main installation function
 main() {
-    log_info "Starting Aperture Booking installation..."
+    log_info "Starting Aperature Booking installation..."
     
     check_root
     detect_os

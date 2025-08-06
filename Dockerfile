@@ -1,4 +1,4 @@
-# Production Dockerfile for Aperture Booking
+# Production Dockerfile for Aperature Booking
 # Multi-stage build for optimized production image
 
 # Build stage
@@ -58,13 +58,13 @@ RUN mkdir -p /app/staticfiles /app/media /app/logs /app/backups \
 COPY --chown=app:app . /app/
 
 # Copy configuration files
-COPY deploy/nginx-docker.conf /etc/nginx/sites-available/aperture-booking
-COPY deploy/supervisord.conf /etc/supervisor/conf.d/aperture-booking.conf
+COPY deploy/nginx-docker.conf /etc/nginx/sites-available/aperature-booking
+COPY deploy/supervisord.conf /etc/supervisor/conf.d/aperature-booking.conf
 COPY deploy/gunicorn.conf.py /app/gunicorn.conf.py
 
-# Remove default nginx site and enable aperture-booking
+# Remove default nginx site and enable aperature-booking
 RUN rm -f /etc/nginx/sites-enabled/default && \
-    ln -s /etc/nginx/sites-available/aperture-booking /etc/nginx/sites-enabled/
+    ln -s /etc/nginx/sites-available/aperature-booking /etc/nginx/sites-enabled/
 
 # Set working directory
 WORKDIR /app

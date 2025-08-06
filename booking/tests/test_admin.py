@@ -313,7 +313,7 @@ class UpdateSystemTests(TestCase):
         UpdateInfo.objects.create(
             current_version='1.0.0',
             available_version='1.0.1',
-            github_repo='ohbotno/aperture-booking',
+            github_repo='ohbotno/aperature-booking',
             last_checked=datetime.now()
         )
         
@@ -335,7 +335,7 @@ class UpdateSystemTests(TestCase):
     def test_update_configuration(self):
         """Test update configuration."""
         response = self.client.post(reverse('configure_updates'), {
-            'github_repo': 'ohbotno/aperture-booking',
+            'github_repo': 'ohbotno/aperature-booking',
             'auto_check': True,
             'check_interval': 24,
             'notification_email': 'admin@example.com'
@@ -343,7 +343,7 @@ class UpdateSystemTests(TestCase):
         self.assertEqual(response.status_code, 200)
         
         update_info = UpdateInfo.objects.first()
-        self.assertEqual(update_info.github_repo, 'ohbotno/aperture-booking')
+        self.assertEqual(update_info.github_repo, 'ohbotno/aperature-booking')
         self.assertTrue(update_info.auto_check)
     
     def test_update_history_display(self):

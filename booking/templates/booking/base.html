@@ -445,12 +445,12 @@
                         {% endif %}
                         <li><hr class="dropdown-divider"></li>
                         <li>
-                            <a class="dropdown-item" href="https://github.com/aperture-booking/aperture-booking/issues/new?template=bug_report.md" target="_blank">
+                            <a class="dropdown-item" href="https://github.com/ohbotno/aperature-booking/issues/new?template=bug_report.md" target="_blank">
                                 <i class="bi bi-bug me-2"></i>Report Bug
                             </a>
                         </li>
                         <li>
-                            <a class="dropdown-item" href="https://docs.aperture-booking.org" target="_blank">
+                            <a class="dropdown-item" href="https://docs.aperature-booking.org" target="_blank">
                                 <i class="bi bi-question-circle me-2"></i>Help & Documentation
                             </a>
                         </li>
@@ -532,6 +532,12 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if request.resolver_match.url_name == 'manage_bookings' %}active{% endif %}" 
+                               href="{% url 'booking:manage_bookings' %}">
+                                <i class="fas fa-tasks"></i> Manage Bookings
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if 'lab_admin_resources' in request.resolver_match.url_name %}active{% endif %}" 
                                href="{% url 'booking:lab_admin_resources' %}">
                                 <i class="fas fa-cogs"></i> Resource Management
@@ -546,7 +552,7 @@
                         <li class="nav-item">
                             <a class="nav-link {% if request.resolver_match.url_name == 'lab_admin_inductions' %}active{% endif %}" 
                                href="{% url 'booking:lab_admin_inductions' %}">
-                                <i class="fas fa-shield-alt"></i> Lab H&S Inductions
+                                <i class="fas fa-shield-alt"></i> Lab Inductions
                             </a>
                         </li>
                         <li class="nav-item">
@@ -577,12 +583,6 @@
                             <a class="nav-link {% if 'lab_admin_maintenance' in request.resolver_match.url_name %}active{% endif %}" 
                                href="{% url 'booking:lab_admin_maintenance' %}">
                                 <i class="fas fa-wrench"></i> Maintenance Periods
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.resolver_match.url_name == 'manage_bookings' %}active{% endif %}" 
-                               href="{% url 'booking:manage_bookings' %}">
-                                <i class="fas fa-tasks"></i> Manage Bookings
                             </a>
                         </li>
                         <li class="nav-item">
@@ -636,7 +636,7 @@
                                 </p>
                                 <p class="text-muted small mb-0">
                                     &copy; 2025 OhBotNo Ltd. 
-                                    <a href="https://github.com/aperture-booking/aperture-booking/blob/main/LICENSE" class="text-decoration-none">GPL-3.0</a> / 
+                                    <a href="https://github.com/ohbotno/aperature-booking/blob/main/LICENSE" class="text-decoration-none">GPL-3.0</a> / 
                                     <a href="{% url 'booking:about' %}" class="text-decoration-none">Commercial License</a>
                                 </p>
                                 {% else %}
@@ -657,9 +657,9 @@
                                         <h6 class="fw-bold mb-2">Support</h6>
                                         <ul class="list-unstyled small">
                                             {% if show_powered_by %}
-                                            <li><a href="https://docs.aperture-booking.org" class="text-decoration-none text-muted">Documentation</a></li>
-                                            <li><a href="https://github.com/aperture-booking/aperture-booking/discussions" class="text-decoration-none text-muted">Community Forum</a></li>
-                                            <li><a href="mailto:support@aperture-booking.org" class="text-decoration-none text-muted">Email Support</a></li>
+                                            <li><a href="https://docs.aperature-booking.org" class="text-decoration-none text-muted">Documentation</a></li>
+                                            <li><a href="https://github.com/ohbotno/aperature-booking/discussions" class="text-decoration-none text-muted">Community Forum</a></li>
+                                            <li><a href="mailto:support@aperature-booking.org" class="text-decoration-none text-muted">Email Support</a></li>
                                             {% else %}
                                             {% if branding.support_email %}
                                             <li><a href="mailto:{{ branding.support_email }}" class="text-decoration-none text-muted">Email Support</a></li>
@@ -677,11 +677,11 @@
                                         <h6 class="fw-bold mb-2">Contribute</h6>
                                         <ul class="list-unstyled small">
                                             {% if show_powered_by %}
-                                            <li><a href="https://github.com/aperture-booking/aperture-booking" class="text-decoration-none text-muted">Source Code</a></li>
-                                            <li><a href="https://github.com/aperture-booking/aperture-booking/issues/new?template=bug_report.md" class="text-decoration-none text-muted">
+                                            <li><a href="https://github.com/ohbotno/aperature-booking" class="text-decoration-none text-muted">Source Code</a></li>
+                                            <li><a href="https://github.com/ohbotno/aperature-booking/issues/new?template=bug_report.md" class="text-decoration-none text-muted">
                                                 <i class="bi bi-bug me-1"></i>Report Bug
                                             </a></li>
-                                            <li><a href="https://github.com/aperture-booking/aperture-booking/issues/new?template=feature_request.md" class="text-decoration-none text-muted">
+                                            <li><a href="https://github.com/ohbotno/aperature-booking/issues/new?template=feature_request.md" class="text-decoration-none text-muted">
                                                 <i class="bi bi-lightbulb me-1"></i>Request Feature
                                             </a></li>
                                             {% endif %}
@@ -722,7 +722,7 @@
                                             </a>
                                         {% endif %}
                                         {% if user.is_authenticated %}
-                                            <a href="{% url 'booking:my_reported_issues' %}" class="btn btn-sm btn-outline-warning" title="My Reported Issues">
+                                            <a href="{% url 'booking:my_reported_issues' %}" class="btn btn-sm btn-outline-secondary" title="My Reported Issues">
                                                 <i class="bi bi-exclamation-triangle"></i>
                                             </a>
                                         {% endif %}

@@ -1,6 +1,6 @@
-# Aperture Booking v1.3.0
+# Aperature Booking v1.3.0
 
-A comprehensive laboratory resource booking system designed for academic institutions. Built with Django, Aperture Booking provides conflict-free scheduling, collaborative booking management, and detailed analytics for efficient lab resource utilization.
+A comprehensive laboratory resource booking system designed for academic institutions. Built with Django, Aperature Booking provides conflict-free scheduling, collaborative booking management, and detailed analytics for efficient lab resource utilization.
 
 [![License: Dual](https://img.shields.io/badge/License-Dual%20(GPL%2FCommercial)-blue.svg)](LICENSING.md)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -32,8 +32,8 @@ A comprehensive laboratory resource booking system designed for academic institu
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/ohbotno/aperture-booking.git
-cd aperture-booking/
+git clone https://github.com/ohbotno/aperature-booking.git
+cd aperature-booking/
 ```
 
 2. **Set up Python environment**
@@ -55,37 +55,37 @@ python manage.py create_email_templates
 python manage.py runserver
 ```
 
-Visit http://127.0.0.1:8000 to access Aperture Booking.
+Visit http://127.0.0.1:8000 to access Aperature Booking.
 
 ### Production Deployment
 
 For automated production deployment:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ohbotno/aperture-booking/main/easy_install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ohbotno/aperature-booking/main/easy_install.sh | sudo bash
 ```
 
 This script handles all dependencies, database setup, SSL certificates, and service configuration.
 
 ## License
 
-Aperture Booking is available under **dual licensing**:
+Aperature Booking is available under **dual licensing**:
 
 ### Open Source License (GPL-3.0) - FREE
 - ✅ Full-featured lab booking system
 - ✅ Commercial use allowed
 - ✅ Complete source code access
-- ❗ Must retain "Aperture Booking" branding
+- ❗ Must retain "Aperature Booking" branding
 
 ### Commercial License - PAID
-- 🎨 Remove all Aperture Booking branding
+- 🎨 Remove all Aperature Booking branding
 - 🏷️ Add your own branding and customization
 - 💼 Professional support included
 - 🔒 No GPL obligations
 
 **Pricing:** Starting at £1,599/year
 
-📋 **[View Complete Licensing Guide](LICENSING.md)** | 💼 **[Get Commercial License](mailto:commercial@aperture-booking.org)**
+📋 **[View Complete Licensing Guide](LICENSING.md)** | 💼 **[Get Commercial License](mailto:commercial@aperature-booking.org)**
 
 ---
 
-Made with ❤️ for the academic community | [Documentation](https://docs.aperture-booking.org) | [Support](https://github.com/ohbotno/aperture-booking/issues)
+Made with ❤️ for the academic community | [Documentation](https://docs.aperature-booking.org) | [Support](https://github.com/ohbotno/aperature-booking/issues)

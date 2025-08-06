@@ -1,6 +1,6 @@
 #!/bin/bash
 """
-SSL/HTTPS setup script for Aperture Booking.
+SSL/HTTPS setup script for Aperature Booking.
 
 This script configures SSL certificates using Let's Encrypt or custom certificates.
 """
@@ -8,7 +8,7 @@ This script configures SSL certificates using Let's Encrypt or custom certificat
 set -e  # Exit on any error
 
 # Configuration
-APP_NAME="aperture-booking"
+APP_NAME="aperature-booking"
 NGINX_AVAILABLE="/etc/nginx/sites-available"
 NGINX_ENABLED="/etc/nginx/sites-enabled"
 
@@ -129,8 +129,8 @@ setup_custom_ssl() {
     chmod 600 "$KEY_DIR/$APP_NAME.key"
     
     # Update Nginx configuration to use custom certificates
-    sed -i "s|ssl_certificate /etc/ssl/certs/aperture-booking.crt;|ssl_certificate $CERT_DIR/$APP_NAME.crt;|g" "$NGINX_AVAILABLE/$APP_NAME"
-    sed -i "s|ssl_certificate_key /etc/ssl/private/aperture-booking.key;|ssl_certificate_key $KEY_DIR/$APP_NAME.key;|g" "$NGINX_AVAILABLE/$APP_NAME"
+    sed -i "s|ssl_certificate /etc/ssl/certs/aperature-booking.crt;|ssl_certificate $CERT_DIR/$APP_NAME.crt;|g" "$NGINX_AVAILABLE/$APP_NAME"
+    sed -i "s|ssl_certificate_key /etc/ssl/private/aperature-booking.key;|ssl_certificate_key $KEY_DIR/$APP_NAME.key;|g" "$NGINX_AVAILABLE/$APP_NAME"
     
     log_success "Custom SSL certificate installed"
 }
@@ -160,7 +160,7 @@ setup_self_signed() {
 enable_django_https() {
     log_info "Enabling HTTPS in Django settings..."
     
-    ENV_FILE="/opt/aperture-booking/.env"
+    ENV_FILE="/opt/aperature-booking/.env"
     
     if [[ -f "$ENV_FILE" ]]; then
         # Update or add HTTPS setting
@@ -181,7 +181,7 @@ switch_to_https_config() {
     log_info "Switching to HTTPS Nginx configuration..."
     
     # Use the full HTTPS configuration
-    cp "/opt/aperture-booking/deploy/nginx.conf" "$NGINX_AVAILABLE/$APP_NAME"
+    cp "/opt/aperature-booking/deploy/nginx.conf" "$NGINX_AVAILABLE/$APP_NAME"
     
     # Update domain name
     sed -i "s/server_name _;/server_name $DOMAIN;/g" "$NGINX_AVAILABLE/$APP_NAME"
@@ -228,7 +228,7 @@ display_ssl_status() {
     echo
     echo "Configuration files:"
     echo "  - Nginx: $NGINX_AVAILABLE/$APP_NAME"
-    echo "  - Django: /opt/aperture-booking/.env"
+    echo "  - Django: /opt/aperature-booking/.env"
     echo
     echo "Test your SSL configuration:"
     echo "  - Browser: https://$DOMAIN"
@@ -240,7 +240,7 @@ display_ssl_status() {
 # Main menu
 show_menu() {
     echo "=============================================="
-    echo "Aperture Booking SSL Setup"
+    echo "Aperature Booking SSL Setup"
     echo "=============================================="
     echo
     echo "Choose SSL certificate type:"
@@ -254,7 +254,7 @@ show_menu() {
 
 # Main function
 main() {
-    log_info "Starting SSL setup for Aperture Booking..."
+    log_info "Starting SSL setup for Aperature Booking..."
     
     check_root
     get_domain
@@ -291,7 +291,7 @@ main() {
     switch_to_https_config
     
     # Restart services
-    systemctl restart aperture-booking.service
+    systemctl restart aperature-booking.service
     systemctl reload nginx
     
     test_ssl
@@ -308,7 +308,7 @@ case "${1:-}" in
         setup_letsencrypt
         enable_django_https
         switch_to_https_config
-        systemctl restart aperture-booking.service
+        systemctl restart aperature-booking.service
         systemctl reload nginx
         test_ssl
         display_ssl_status

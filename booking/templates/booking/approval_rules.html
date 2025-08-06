@@ -96,7 +96,7 @@
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <div class="card bg-warning text-white">
+                    <div class="card bg-warning">
                         <div class="card-body">
                             <div class="d-flex align-items-center">
                                 <i class="fas fa-user-check fa-2x me-3"></i>
@@ -254,7 +254,7 @@
                                     <i class="fas fa-play"></i> Test
                                 </button>
                                 {% if rule.is_active %}
-                                <button class="btn btn-sm btn-outline-warning" onclick="toggleRule({{ rule.id }}, false)">
+                                <button class="btn btn-sm btn-outline-secondary" onclick="toggleRule({{ rule.id }}, false)">
                                     <i class="fas fa-pause"></i> Disable
                                 </button>
                                 {% else %}
@@ -553,7 +553,7 @@ function testRule(ruleId) {
 
 function toggleRule(ruleId, activate) {
     if (confirm(`Are you sure you want to ${activate ? 'enable' : 'disable'} this rule?`)) {
-        fetch(`/approval-rules/${ruleId}/toggle/`, {
+        fetch(`/lab-admin/approval-rules/${ruleId}/toggle/`, {
             method: 'POST',
             headers: {
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,

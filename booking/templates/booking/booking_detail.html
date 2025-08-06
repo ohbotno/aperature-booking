@@ -178,7 +178,7 @@
                             </a>
                             
                             {% if booking.is_recurring %}
-                                <a href="{% url 'booking:cancel_recurring' booking.pk %}" class="btn btn-outline-warning">
+                                <a href="{% url 'booking:cancel_recurring' booking.pk %}" class="btn btn-outline-secondary">
                                     <i class="bi bi-arrow-repeat"></i> Cancel Series
                                 </a>
                             {% endif %}
@@ -213,11 +213,8 @@
                 {% endif %}
                 
                 <div class="d-grid gap-2 mt-3">
-                    <a href="{% url 'booking:calendar' %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-calendar3"></i> Back to Calendar
-                    </a>
-                    <a href="{% url 'booking:dashboard' %}" class="btn btn-outline-secondary">
-                        <i class="bi bi-speedometer2"></i> Dashboard
+                    <a href="{% url 'booking:manage_bookings' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-list-ul"></i> Back to Bookings
                     </a>
                 </div>
             </div>

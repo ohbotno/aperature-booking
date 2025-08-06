@@ -1,25 +1,25 @@
-# Aperture Booking Dual Licensing
+# Aperature Booking Dual Licensing
 
-Aperture Booking is available under a **dual licensing model** designed to support both open source adoption and commercial customization.
+Aperature Booking is available under a **dual licensing model** designed to support both open source adoption and commercial customization.
 
 ## 📋 Licensing Options
 
 ### 1. Open Source License - GPL-3.0 (Branded Version)
 
-**For:** Everyone who wants to use Aperture Booking with the official branding
+**For:** Everyone who wants to use Aperature Booking with the official branding
 
 **License:** GNU General Public License v3.0 (GPL-3.0)
 
 **What you get:**
 - ✅ Full featured laboratory booking system
-- ✅ "Aperture Booking" branded interface
+- ✅ "Aperature Booking" branded interface
 - ✅ Complete source code access
 - ✅ Community support and contributions
 - ✅ Free updates and improvements
 - ✅ Use for any purpose (commercial or non-commercial)
 
 **Obligations:**
-- 📋 Keep "Aperture Booking" branding and credits
+- 📋 Keep "Aperature Booking" branding and credits
 - 📋 Source code must be made available when distributing
 - 📋 Derivative works must be licensed under GPL-3.0
 - 📋 License and copyright notices must be preserved
@@ -28,18 +28,18 @@ Aperture Booking is available under a **dual licensing model** designed to suppo
 - Universities and research institutions
 - Small businesses and startups
 - Open source projects
-- Organizations comfortable with Aperture Booking branding
+- Organizations comfortable with Aperature Booking branding
 - Anyone wanting a free, full-featured solution
 
 ### 2. Commercial White-Label License
 
 **For:** Organizations that need custom branding and white-label rights
 
-**License:** Aperture Booking Commercial License Agreement
+**License:** Aperature Booking Commercial License Agreement
 
 **What you get:**
 - ✅ **Full white-label customization rights**
-- ✅ **Remove "Aperture Booking" branding**
+- ✅ **Remove "Aperature Booking" branding**
 - ✅ **Add your own logo, colors, and branding**
 - ✅ **Distribute under your own product name**
 - ✅ **Professional support and priority updates**
@@ -62,7 +62,7 @@ Aperture Booking is available under a **dual licensing model** designed to suppo
 ## 🤔 Which License Should I Choose?
 
 ### Choose GPL-3.0 (Free) if you:
-- Are comfortable with "Aperture Booking" branding
+- Are comfortable with "Aperature Booking" branding
 - Want a completely free, full-featured solution
 - Are an educational or research institution
 - Don't need custom branding or logos
@@ -70,7 +70,7 @@ Aperture Booking is available under a **dual licensing model** designed to suppo
 - Want to contribute back to the community
 
 ### Choose Commercial White-Label License if you:
-- Need to remove "Aperture Booking" branding
+- Need to remove "Aperature Booking" branding
 - Want to use your own logo and company colors
 - Are building a product to sell to clients
 - Need to distribute under your own product name
@@ -118,8 +118,8 @@ Aperture Booking is available under a **dual licensing model** designed to suppo
 
 For commercial licensing inquiries:
 
-- **Email:** commercial@aperture-booking.org
-- **Website:** https://aperture-booking.org/commercial
+- **Email:** commercial@aperature-booking.org
+- **Website:** https://aperature-booking.org/commercial
 - **Phone:** [TO BE ADDED]
 
 We offer:
@@ -132,7 +132,7 @@ We offer:
 
 ### For GPL-3.0 Users
 
-When using Aperture Booking under GPL-3.0:
+When using Aperature Booking under GPL-3.0:
 
 1. **Include license notice** in all distributions
 2. **Provide source code** when distributing binaries
@@ -141,7 +141,7 @@ When using Aperture Booking under GPL-3.0:
 
 ### For Commercial License Users
 
-When using Aperture Booking under Commercial License:
+When using Aperature Booking under Commercial License:
 
 1. **Include attribution notice** in distributions
 2. **Respect trademark restrictions**
@@ -160,7 +160,7 @@ When using Aperture Booking under Commercial License:
 - Apply GPL-3.0 license to all distributions
 - Comply with GPL source disclosure requirements
 
-## 🤝 Contributing to Aperture Booking
+## 🤝 Contributing to Aperature Booking
 
 ### Contributor License Agreement (CLA)
 
@@ -202,6 +202,6 @@ The CLA allows us to:
 
 ---
 
-**Questions?** Contact us at commercial@aperture-booking.org for licensing guidance.
+**Questions?** Contact us at commercial@aperature-booking.org for licensing guidance.
 
 *Last updated: January 2025*

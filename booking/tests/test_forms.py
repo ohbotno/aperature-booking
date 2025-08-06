@@ -1,5 +1,5 @@
 """
-Test cases for all forms in the Aperture Booking system.
+Test cases for all forms in the Aperature Booking system.
 """
 from django.test import TestCase
 from django.contrib.auth.models import User
@@ -479,7 +479,7 @@ class UpdateConfigurationFormTests(TestCase):
     def test_valid_update_configuration(self):
         """Test valid update configuration form."""
         form_data = {
-            'github_repo': 'ohbotno/aperture-booking',
+            'github_repo': 'ohbotno/aperature-booking',
             'auto_check': True,
             'check_interval': 24,
             'notification_email': 'admin@example.com',
@@ -503,7 +503,7 @@ class UpdateConfigurationFormTests(TestCase):
     def test_invalid_email_format(self):
         """Test invalid email format in notification email."""
         form_data = {
-            'github_repo': 'ohbotno/aperture-booking',
+            'github_repo': 'ohbotno/aperature-booking',
             'auto_check': True,
             'check_interval': 24,
             'notification_email': 'invalid-email-format',
@@ -516,7 +516,7 @@ class UpdateConfigurationFormTests(TestCase):
     def test_invalid_check_interval(self):
         """Test invalid check interval validation."""
         form_data = {
-            'github_repo': 'ohbotno/aperture-booking',
+            'github_repo': 'ohbotno/aperature-booking',
             'auto_check': True,
             'check_interval': 0,  # Invalid interval
             'notification_email': 'admin@example.com'

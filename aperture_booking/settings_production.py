@@ -1,5 +1,5 @@
 """
-Production settings for Aperture Booking.
+Production settings for Aperature Booking.
 
 This file contains settings optimized for production deployment.
 Copy this to settings_local.py and customize for your environment.
@@ -107,7 +107,7 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 
 # Default from email
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@aperture-booking.com')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@aperature-booking.com')
 SERVER_EMAIL = os.environ.get('SERVER_EMAIL', DEFAULT_FROM_EMAIL)
 
 # Logging
@@ -171,7 +171,7 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 
 # Admin and managers
 ADMINS = [
-    ('Admin', os.environ.get('ADMIN_EMAIL', 'admin@aperture-booking.com')),
+    ('Admin', os.environ.get('ADMIN_EMAIL', 'admin@aperature-booking.com')),
 ]
 MANAGERS = ADMINS
 

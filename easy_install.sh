@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Aperture Booking - Minimal Installation Script
-# This script performs a bare-bones installation of Aperture Booking
+# Aperature Booking - Minimal Installation Script
+# This script performs a bare-bones installation of Aperature Booking
 # Components: Nginx, PostgreSQL, Python, and the application code
 
 set -e  # Exit on any error
@@ -58,7 +58,7 @@ if test -z "$DOMAIN"; then
 fi
 
 if test -z "$INSTALL_DIR"; then
-    INSTALL_DIR="/opt/aperture-booking"
+    INSTALL_DIR="/opt/aperature-booking"
 fi
 
 # For non-interactive installation, try to detect the server IP
@@ -234,14 +234,14 @@ else
 fi
 
 # Clone the repository
-print_status "Cloning Aperture Booking from GitHub..."
+print_status "Cloning Aperature Booking from GitHub..."
 if [ -d "$INSTALL_DIR" ]; then
     print_warning "Directory $INSTALL_DIR already exists"
     print_status "Removing existing directory..."
     rm -rf "$INSTALL_DIR"
 fi
 
-git clone https://github.com/ohbotno/aperture-booking.git "$INSTALL_DIR"
+git clone https://github.com/ohbotno/aperature-booking.git "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 # Create virtual environment
@@ -426,9 +426,9 @@ python manage.py create_email_templates || true
 
 # Create systemd service
 print_status "Creating systemd service..."
-cat > /etc/systemd/system/aperture-booking.service <<EOF
+cat > /etc/systemd/system/aperature-booking.service <<EOF
 [Unit]
-Description=Aperture Booking
+Description=Aperature Booking
 After=network.target postgresql.service
 
 [Service]
@@ -457,7 +457,7 @@ else
 fi
 
 # Create the site configuration
-cat > /etc/nginx/sites-available/aperture-booking <<EOF
+cat > /etc/nginx/sites-available/aperature-booking <<EOF
 server {
     listen 80;
     server_name $DOMAIN;
@@ -484,7 +484,7 @@ server {
 EOF
 
 # Enable Nginx site
-ln -sf /etc/nginx/sites-available/aperture-booking /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/aperature-booking /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
 # Test nginx configuration
@@ -508,23 +508,23 @@ chmod -R 755 "$INSTALL_DIR/static/" "$INSTALL_DIR/staticfiles/"
 chown -R www-data:www-data "$INSTALL_DIR/static/" "$INSTALL_DIR/staticfiles/"
 
 # Reload services
-print_status "Starting Aperture Booking service..."
+print_status "Starting Aperature Booking service..."
 systemctl daemon-reload
-systemctl enable aperture-booking
-systemctl start aperture-booking
+systemctl enable aperature-booking
+systemctl start aperature-booking
 
 # Restart the service to load the new .env file
-print_status "Restarting Aperture Booking service to load .env configuration..."
-systemctl restart aperture-booking
+print_status "Restarting Aperature Booking service to load .env configuration..."
+systemctl restart aperature-booking
 systemctl restart nginx
 
 # Final status check
 print_status "Checking service status..."
-if systemctl is-active --quiet aperture-booking; then
-    print_status "Aperture Booking is running"
+if systemctl is-active --quiet aperature-booking; then
+    print_status "Aperature Booking is running"
 else
-    print_error "Aperture Booking failed to start"
-    journalctl -u aperture-booking -n 50
+    print_error "Aperature Booking failed to start"
+    journalctl -u aperature-booking -n 50
 fi
 
 echo ""

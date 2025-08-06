@@ -77,7 +77,7 @@
         </div>
         
         <div class="col-lg-3 col-md-6 mb-3">
-            <div class="card bg-warning text-white">
+            <div class="card bg-warning">
                 <div class="card-body">
                     <div class="d-flex justify-content-between">
                         <div>
@@ -161,7 +161,7 @@
                                     <button type="button" class="btn btn-success" id="bulkEnableBtn">
                                         <i class="fas fa-play me-1"></i>Enable
                                     </button>
-                                    <button type="button" class="btn btn-warning" id="bulkDisableBtn">
+                                    <button type="button" class="btn btn-secondary" id="bulkDisableBtn">
                                         <i class="fas fa-pause me-1"></i>Disable
                                     </button>
                                     <button type="button" class="btn btn-danger" id="bulkDeleteBtn">
@@ -275,7 +275,7 @@
                                                         title="Edit Schedule">
                                                     <i class="fas fa-edit"></i>
                                                 </button>
-                                                <button class="btn btn-outline-warning" 
+                                                <button class="btn btn-outline-secondary" 
                                                         onclick="toggleSchedule({{ schedule.id }})" 
                                                         title="{% if schedule.enabled %}Disable{% else %}Enable{% endif %} Schedule">
                                                     <i class="fas fa-{% if schedule.enabled %}pause{% else %}play{% endif %}"></i>

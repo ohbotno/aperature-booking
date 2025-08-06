@@ -1,5 +1,6 @@
 {% extends 'booking/base.html' %}
 {% load static %}
+{% load booking_extras %}
 
 {% block title %}Risk Assessments - {{ lab_name }}{% endblock %}
 
@@ -185,7 +186,7 @@
                                         <i class="fas fa-check"></i> Completed
                                     </span>
                                     {% elif user_assessment.status == 'submitted' %}
-                                    <span class="btn btn-warning btn-sm disabled">
+                                    <span class="btn btn-secondary btn-sm disabled">
                                         <i class="fas fa-clock"></i> Under Review
                                     </span>
                                     {% elif user_assessment.status == 'in_progress' %}

@@ -2,8 +2,8 @@
 """
 URL configuration for the booking app.
 
-This file is part of the Aperture Booking.
-Copyright (C) 2025 Aperture Booking Contributors
+This file is part of the Aperature Booking.
+Copyright (C) 2025 Aperature Booking Contributors
 
 This software is dual-licensed:
 1. GNU General Public License v3.0 (GPL-3.0) - for open source use
@@ -11,7 +11,7 @@ This software is dual-licensed:
 
 For GPL-3.0 license terms, see LICENSE file.
 For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
-https://aperture-booking.org/commercial
+https://aperature-booking.org/commercial
 """
 
 from django.urls import path, include
@@ -48,6 +48,7 @@ urlpatterns = [
     path('booking/<int:pk>/', views.booking_detail_view, name='booking_detail'),
     path('booking/<int:pk>/edit/', views.edit_booking_view, name='edit_booking'),
     path('booking/<int:pk>/cancel/', views.cancel_booking_view, name='cancel_booking'),
+    path('booking/<int:pk>/delete/', views.delete_booking_view, name='delete_booking'),
     path('booking/<int:pk>/duplicate/', views.duplicate_booking_view, name='duplicate_booking'),
     path('booking/<int:booking_pk>/recurring/', views.create_recurring_booking_view, name='create_recurring'),
     path('booking/<int:booking_pk>/cancel-series/', views.cancel_recurring_series_view, name='cancel_recurring'),
@@ -64,7 +65,7 @@ urlpatterns = [
     
     # Bulk operations URLs
     path('bookings/bulk/', views.bulk_booking_operations_view, name='bulk_operations'),
-    path('manage/', views.booking_management_view, name='manage_bookings'),
+    path('lab-admin/manage/', views.booking_management_view, name='manage_bookings'),
     path('my-bookings/', views.my_bookings_view, name='my_bookings'),
     
     # Notification URLs
@@ -117,11 +118,11 @@ urlpatterns = [
     path('resources/<int:resource_id>/training-requirements/', views.resource_training_requirements_view, name='resource_training_requirements'),
     
     # Approval Statistics URLs
-    path('statistics/', views.approval_statistics_view, name='approval_statistics'),
+    path('lab-admin/statistics/', views.approval_statistics_view, name='approval_statistics'),
     
     # Approval Rules URLs
-    path('approval-rules/', views.approval_rules_view, name='approval_rules'),
-    path('approval-rules/<int:rule_id>/toggle/', views.approval_rule_toggle_view, name='approval_rule_toggle'),
+    path('lab-admin/approval-rules/', views.approval_rules_view, name='approval_rules'),
+    path('lab-admin/approval-rules/<int:rule_id>/toggle/', views.approval_rule_toggle_view, name='approval_rule_toggle'),
     
     # Lab Admin URLs
     path('lab-admin/', views.lab_admin_dashboard_view, name='lab_admin_dashboard'),
@@ -129,11 +130,22 @@ urlpatterns = [
     path('lab-admin/training/', views.lab_admin_training_view, name='lab_admin_training'),
     path('lab-admin/risk-assessments/', views.lab_admin_risk_assessments_view, name='lab_admin_risk_assessments'),
     path('lab-admin/users/', views.lab_admin_users_view, name='lab_admin_users'),
+    path('lab-admin/users/<int:user_id>/', views.lab_admin_user_detail_view, name='lab_admin_user_detail'),
+    path('lab-admin/users/<int:user_id>/edit/', views.lab_admin_user_edit_view, name='lab_admin_user_edit'),
+    path('lab-admin/users/<int:user_id>/delete/', views.lab_admin_user_delete_view, name='lab_admin_user_delete'),
+    path('lab-admin/users/<int:user_id>/toggle/', views.lab_admin_user_toggle_view, name='lab_admin_user_toggle'),
+    path('lab-admin/users/add/', views.lab_admin_user_add_view, name='lab_admin_user_add'),
+    path('lab-admin/users/bulk-import/', views.lab_admin_users_bulk_import_view, name='lab_admin_users_bulk_import'),
+    path('lab-admin/users/bulk-action/', views.lab_admin_users_bulk_action_view, name='lab_admin_users_bulk_action'),
+    path('lab-admin/users/export/', views.lab_admin_users_export_view, name='lab_admin_users_export'),
     path('lab-admin/resources/', views.lab_admin_resources_view, name='lab_admin_resources'),
     path('lab-admin/resources/add/', views.lab_admin_add_resource_view, name='lab_admin_add_resource'),
+    path('lab-admin/resources/bulk-import/', views.lab_admin_resources_bulk_import_view, name='lab_admin_resources_bulk_import'),
     path('lab-admin/resources/<int:resource_id>/edit/', views.lab_admin_edit_resource_view, name='lab_admin_edit_resource'),
     path('lab-admin/resources/<int:resource_id>/checklist/', views.lab_admin_resource_checklist_view, name='lab_admin_resource_checklist'),
     path('lab-admin/resources/<int:resource_id>/delete/', views.lab_admin_delete_resource_view, name='lab_admin_delete_resource'),
+    path('lab-admin/resources/<int:resource_id>/close/', views.lab_admin_close_resource_view, name='lab_admin_close_resource'),
+    path('lab-admin/resources/<int:resource_id>/open/', views.lab_admin_open_resource_view, name='lab_admin_open_resource'),
     
     # Training requirement API endpoints
     path('lab-admin/resources/<int:resource_id>/training-requirements/add/', views.add_training_requirement_api, name='lab_admin_add_training_requirement'),
@@ -245,7 +257,7 @@ urlpatterns = [
     
     # Resource Issue Reporting URLs
     path('resources/<int:resource_id>/report-issue/', views.report_resource_issue, name='report_resource_issue'),
-    path('issues/', views.issues_dashboard, name='issues_dashboard'),
+    path('lab-admin/issues/', views.issues_dashboard, name='issues_dashboard'),
     path('issues/<int:issue_id>/', views.issue_detail, name='issue_detail'),
     path('my-issues/', views.my_reported_issues, name='my_reported_issues'),
     

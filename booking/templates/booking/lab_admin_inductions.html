@@ -37,7 +37,7 @@
                 </div>
                 
                 <div class="col-md-4">
-                    <div class="card bg-warning text-white">
+                    <div class="card bg-warning">
                         <div class="card-body">
                             <div class="d-flex align-items-center">
                                 <i class="fas fa-clock fa-2x me-3"></i>
@@ -160,7 +160,7 @@
                                     <td>
                                         <div class="btn-group btn-group-sm" role="group">
                                             {% if user.userprofile.is_inducted %}
-                                                <button type="button" class="btn btn-outline-warning" 
+                                                <button type="button" class="btn btn-outline-secondary" 
                                                         onclick="toggleInduction('{{ user.id }}', '{{ user.get_full_name|default:user.username }}', false)">
                                                     <i class="fas fa-times"></i> Mark Not Inducted
                                                 </button>
@@ -280,7 +280,7 @@ function toggleInduction(userId, userName, markAsInducted) {
         modalText.textContent = `Are you sure you want to mark ${userName} as not inducted? This will revoke their ability to request access to lab resources.`;
         modalAction.value = 'mark_not_inducted';
         modalConfirmBtn.textContent = 'Mark Not Inducted';
-        modalConfirmBtn.className = 'btn btn-warning';
+        modalConfirmBtn.className = 'btn btn-secondary';
     }
     
     modalUserId.value = userId;

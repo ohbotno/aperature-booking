@@ -249,8 +249,8 @@ function downloadKey() {
 
 function emailKey() {
     const key = document.getElementById('generatedKey').value;
-    const subject = 'Your Aperture Booking License Key';
-    const body = `Your license key for Aperture Booking:\n\n${key}\n\nPlease keep this key secure and follow the activation instructions provided.`;
+    const subject = 'Your Aperature Booking License Key';
+    const body = `Your license key for Aperature Booking:\n\n${key}\n\nPlease keep this key secure and follow the activation instructions provided.`;
     
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }

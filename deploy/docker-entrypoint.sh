@@ -1,6 +1,6 @@
 #!/bin/bash
 """
-Docker entrypoint script for Aperture Booking.
+Docker entrypoint script for Aperature Booking.
 
 This script initializes the Django application in a Docker container.
 """
@@ -112,7 +112,7 @@ start_scheduler() {
 
 # Main initialization
 main() {
-    log_info "Starting Aperture Booking initialization..."
+    log_info "Starting Aperature Booking initialization..."
     
     # Setup logging
     setup_logging

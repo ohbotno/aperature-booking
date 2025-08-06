@@ -1,11 +1,11 @@
-# Aperture Booking White-Label Edition
+# Aperature Booking White-Label Edition
 
-Transform Aperture Booking into YOUR laboratory management solution with complete branding customization rights.
+Transform Aperature Booking into YOUR laboratory management solution with complete branding customization rights.
 
 ## 🎨 Why Choose White-Label Edition?
 
 ### Your Brand, Your Product
-- **Complete Rebranding**: Remove all "Aperture Booking" references
+- **Complete Rebranding**: Remove all "Aperature Booking" references
 - **Custom Logo & Colors**: Full visual customization
 - **Your Product Name**: Distribute under your own brand
 - **Professional Appearance**: Maintain your corporate identity
@@ -28,7 +28,7 @@ Transform Aperture Booking into YOUR laboratory management solution with complet
 **Perfect for small companies and startups**
 
 **White-Label Rights:**
-- ✅ Remove "Aperture Booking" branding
+- ✅ Remove "Aperature Booking" branding
 - ✅ Add your logo and company colors
 - ✅ Custom product name
 - ✅ Up to 25 users
@@ -156,7 +156,7 @@ Specialized solutions for healthcare and research:
 ## 🚀 Getting Started
 
 ### 1. Contact Our Sales Team
-- **Email**: commercial@aperture-booking.org
+- **Email**: commercial@aperature-booking.org
 - **Phone**: [TO BE ADDED]
 - **Schedule Demo**: [Calendar link TBA]
 
@@ -204,12 +204,12 @@ Our team provides:
 ## 📞 Contact Information
 
 ### Sales Inquiries
-- **Email**: commercial@aperture-booking.org
-- **Website**: https://aperture-booking.org/commercial
+- **Email**: commercial@aperature-booking.org
+- **Website**: https://aperature-booking.org/commercial
 - **LinkedIn**: [Company LinkedIn]
 
 ### Technical Discussions
-- **Email**: enterprise@aperture-booking.org
+- **Email**: enterprise@aperature-booking.org
 - **Technical Demo**: Schedule architecture review
 - **Integration Support**: API and system integration
 
@@ -222,12 +222,12 @@ Our team provides:
 
 Ready to transform your laboratory management? Here's how to get started:
 
-1. **[Schedule a Demo](mailto:commercial@aperture-booking.org?subject=Commercial%20Demo%20Request)** - See Aperture Booking in action
-2. **[Request Quote](mailto:commercial@aperture-booking.org?subject=Commercial%20License%20Quote)** - Get pricing for your specific needs
-3. **[Technical Consultation](mailto:enterprise@aperture-booking.org?subject=Technical%20Consultation)** - Discuss architecture and integration
+1. **[Schedule a Demo](mailto:commercial@aperature-booking.org?subject=Commercial%20Demo%20Request)** - See Aperature Booking in action
+2. **[Request Quote](mailto:commercial@aperature-booking.org?subject=Commercial%20License%20Quote)** - Get pricing for your specific needs
+3. **[Technical Consultation](mailto:enterprise@aperature-booking.org?subject=Technical%20Consultation)** - Discuss architecture and integration
 
 ---
 
-**Transform your laboratory management today with Aperture Booking Commercial Edition.**
+**Transform your laboratory management today with Aperature Booking Commercial Edition.**
 
 *Professional. Scalable. Enterprise-ready.*

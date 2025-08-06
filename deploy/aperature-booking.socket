@@ -1,8 +1,8 @@
 [Unit]
-Description=Aperture Booking Gunicorn socket
+Description=Aperature Booking Gunicorn socket
 
 [Socket]
-ListenStream=/var/run/aperture-booking/gunicorn.sock
+ListenStream=/var/run/aperature-booking/gunicorn.sock
 # Our service won't need permissions for the socket, since it
 # inherits the file descriptor by socket activation
 # only the nginx daemon will need access to the socket

@@ -30,7 +30,7 @@ class ICSCalendarGenerator:
             site = Site.objects.get_current()
             return f"https://{site.domain}"
         except:
-            return "https://aperture-booking.local"
+            return "https://aperature-booking.local"
     
     def generate_user_calendar(self, user, include_past=False, days_ahead=90):
         """Generate ICS calendar for a specific user's bookings."""
@@ -50,7 +50,7 @@ class ICSCalendarGenerator:
         end_date = now + timedelta(days=days_ahead)
         bookings_qs = bookings_qs.filter(start_time__lte=end_date)
         
-        return self._generate_ics(bookings_qs, f"My Aperture Bookings - {user.get_full_name()}")
+        return self._generate_ics(bookings_qs, f"My Aperature Bookings - {user.get_full_name()}")
     
     def generate_resource_calendar(self, resource, days_ahead=90, include_maintenance=True):
         """Generate ICS calendar for a specific resource's bookings and maintenance."""
@@ -79,7 +79,7 @@ class ICSCalendarGenerator:
         return self._generate_ics_with_maintenance(
             bookings_qs, 
             maintenance_qs, 
-            f"{resource.name} - Aperture Booking"
+            f"{resource.name} - Aperature Booking"
         )
     
     def _generate_ics(self, bookings_qs, calendar_name):
@@ -91,11 +91,11 @@ class ICSCalendarGenerator:
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//Aperture Booking//Calendar Sync//EN",
+            "PRODID:-//Aperature Booking//Calendar Sync//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
             f"X-WR-CALNAME:{calendar_name}",
-            f"X-WR-CALDESC:Aperture Booking System Calendar",
+            f"X-WR-CALDESC:Aperature Booking System Calendar",
             "X-WR-TIMEZONE:UTC",
             "X-PUBLISHED-TTL:PT1H",  # Refresh every hour
         ]
@@ -294,7 +294,7 @@ class ICSCalendarGenerator:
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//Aperture Booking//Calendar Invitation//EN",
+            "PRODID:-//Aperature Booking//Calendar Invitation//EN",
             "CALSCALE:GREGORIAN",
             f"METHOD:{method}",
             f"X-WR-CALNAME:Booking Invitation - {booking.title}",
@@ -311,7 +311,7 @@ class ICSCalendarGenerator:
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//Aperture Booking//Maintenance Invitation//EN",
+            "PRODID:-//Aperature Booking//Maintenance Invitation//EN",
             "CALSCALE:GREGORIAN",
             f"METHOD:{method}",
             f"X-WR-CALNAME:Maintenance Notification - {maintenance.title}",

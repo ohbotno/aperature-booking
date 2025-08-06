@@ -1,5 +1,5 @@
 """
-Booking conflict detection and resolution for the Aperture Booking.
+Booking conflict detection and resolution for the Aperature Booking.
 
 This module handles the detection of booking conflicts and provides
 interfaces for resolving them through various strategies.

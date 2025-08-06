@@ -1,6 +1,6 @@
 # Scripts Directory
 
-This directory contains utility scripts for Aperture Booking administration and maintenance.
+This directory contains utility scripts for Aperature Booking administration and maintenance.
 
 ## Available Scripts
 

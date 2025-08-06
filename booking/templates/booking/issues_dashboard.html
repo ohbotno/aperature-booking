@@ -140,7 +140,7 @@
                                             {% endif %}
                                         </td>
                                         <td>
-                                            <span class="badge bg-{{ issue.get_severity_color }}">
+                                            <span class="badge bg-{{ issue.get_severity_color }}{% if issue.get_severity_color == 'warning' %} text-dark{% endif %}">
                                                 {{ issue.get_severity_display }}
                                             </span>
                                         </td>
@@ -160,7 +160,7 @@
                                         <td>
                                             {{ issue.age_in_days }} day{{ issue.age_in_days|pluralize }}
                                             {% if issue.is_overdue %}
-                                                <i class="bi bi-clock text-warning ms-1" title="Overdue"></i>
+                                                <i class="bi bi-clock text-danger ms-1" title="Overdue"></i>
                                             {% endif %}
                                         </td>
                                         <td>

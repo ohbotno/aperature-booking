@@ -1,9 +1,9 @@
 # booking/models.py
 """
-Core models for the Aperture Booking.
+Core models for the Aperature Booking.
 
-This file is part of the Aperture Booking.
-Copyright (C) 2025 Aperture Booking Contributors
+This file is part of the Aperature Booking.
+Copyright (C) 2025 Aperature Booking Contributors
 
 This software is dual-licensed:
 1. GNU General Public License v3.0 (GPL-3.0) - for open source use
@@ -11,7 +11,7 @@ This software is dual-licensed:
 
 For GPL-3.0 license terms, see LICENSE file.
 For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
-https://aperture-booking.org/commercial
+https://aperature-booking.org/commercial
 """
 
 from django.db import models
@@ -83,7 +83,7 @@ class LabSettings(models.Model):
     
     lab_name = models.CharField(
         max_length=100, 
-        default="Aperture Booking",
+        default="Aperature Booking",
         help_text="Name of your lab or facility (displayed throughout the application)"
     )
     is_active = models.BooleanField(
@@ -115,7 +115,7 @@ class LabSettings(models.Model):
     def get_lab_name(cls):
         """Get the current lab name, with fallback to default."""
         settings = cls.get_active()
-        return settings.lab_name if settings else "Aperture Booking"
+        return settings.lab_name if settings else "Aperature Booking"
 
 
 class NotificationPreference(models.Model):
@@ -751,6 +751,23 @@ class Resource(models.Model):
     )
     max_booking_hours = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    is_closed = models.BooleanField(
+        default=False,
+        help_text="Temporarily close this resource to prevent new bookings"
+    )
+    closed_reason = models.TextField(
+        blank=True,
+        help_text="Reason for closing the resource (optional)"
+    )
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='closed_resources',
+        help_text="User who closed the resource"
+    )
     image = models.ImageField(upload_to='resources/', blank=True, null=True, help_text="Resource image")
     
     # Sign-off checklist configuration
@@ -1061,6 +1078,27 @@ class Resource(models.Model):
     def active_checklist_items_count(self):
         """Get count of active checklist items assigned to this resource."""
         return self.checklist_items.filter(is_active=True).count()
+    
+    def is_available_for_booking(self):
+        """Check if resource is available for new bookings."""
+        return self.is_active and not self.is_closed
+    
+    def close_resource(self, user, reason=None):
+        """Close the resource to prevent new bookings."""
+        from django.utils import timezone
+        self.is_closed = True
+        self.closed_reason = reason or ""
+        self.closed_at = timezone.now()
+        self.closed_by = user
+        self.save()
+    
+    def open_resource(self):
+        """Reopen the resource for bookings."""
+        self.is_closed = False
+        self.closed_reason = ""
+        self.closed_at = None
+        self.closed_by = None
+        self.save()
 
 
 class ResourceAccess(models.Model):
@@ -4097,7 +4135,7 @@ class PDFExportSettings(models.Model):
                 preserve_colors=True,
                 multi_page_support=True,
                 compress_pdf=False,
-                organization_name="Aperture Booking"
+                organization_name="Aperature Booking"
             )
     
     def to_json(self):
@@ -4611,7 +4649,7 @@ Configuration Details:
 If you received this email, the configuration is working correctly!
 
 --
-Aperture Booking System
+Aperature Booking System
             """.strip()
             
             send_mail(
@@ -5196,7 +5234,7 @@ class UpdateInfo(models.Model):
     
     # Settings
     auto_check_enabled = models.BooleanField(default=True, help_text="Automatically check for updates")
-    github_repo = models.CharField(max_length=100, default="ohbotno/aperture-booking", 
+    github_repo = models.CharField(max_length=100, default="ohbotno/aperature-booking", 
                                  help_text="GitHub repository (username/repo-name)")
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -5218,7 +5256,7 @@ class UpdateInfo(models.Model):
             id=1,
             defaults={
                 'current_version': __version__,  # Use version from __init__.py
-                'github_repo': 'your-username/aperture-booking'
+                'github_repo': 'your-username/aperature-booking'
             }
         )
         return instance
@@ -5468,7 +5506,7 @@ class BrandingConfiguration(models.Model):
     # Basic branding
     app_title = models.CharField(
         max_length=100,
-        default='Aperture Booking',
+        default='Aperature Booking',
         help_text="Application name shown in browser title and headers"
     )
     company_name = models.CharField(
@@ -5550,7 +5588,7 @@ class BrandingConfiguration(models.Model):
     # Feature toggles
     show_powered_by = models.BooleanField(
         default=True,
-        help_text="Show 'Powered by Aperture Booking' in footer"
+        help_text="Show 'Powered by Aperature Booking' in footer"
     )
     enable_public_registration = models.BooleanField(
         default=True,
@@ -5933,7 +5971,7 @@ class GoogleCalendarIntegration(models.Model):
     sync_direction = models.CharField(
         max_length=20,
         choices=[
-            ('one_way', 'One-way (Aperture → Google)'),
+            ('one_way', 'One-way (Aperature → Google)'),
             ('two_way', 'Two-way sync'),
         ],
         default='one_way',
@@ -6089,7 +6127,7 @@ class CalendarSyncPreferences(models.Model):
     ]
     
     CONFLICT_RESOLUTION_CHOICES = [
-        ('aperture_wins', 'Aperture Booking wins'),
+        ('aperture_wins', 'Aperature Booking wins'),
         ('google_wins', 'Google Calendar wins'),
         ('ask_user', 'Ask user each time'),
         ('skip', 'Skip conflicting events'),
@@ -6128,7 +6166,7 @@ class CalendarSyncPreferences(models.Model):
         max_length=20,
         choices=CONFLICT_RESOLUTION_CHOICES,
         default='skip',
-        help_text="How to handle conflicts between Aperture and Google Calendar"
+        help_text="How to handle conflicts between Aperature and Google Calendar"
     )
     
     # Calendar appearance

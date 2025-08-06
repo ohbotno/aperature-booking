@@ -56,11 +56,11 @@ def get_email_branding_context():
     from .models import LicenseConfiguration, LabSettings
     
     context = {
-        'app_title': 'Aperture Booking',
-        'company_name': 'Aperture Booking',
-        'lab_name': 'Aperture Booking',
+        'app_title': 'Aperature Booking',
+        'company_name': 'Aperature Booking',
+        'lab_name': 'Aperature Booking',
         'logo_base64': get_logo_base64(),
-        'support_email': 'support@aperture-booking.org',
+        'support_email': 'support@aperature-booking.org',
         'website_url': '',
         'show_powered_by': True,
     }
@@ -589,12 +589,12 @@ class BookingForm(forms.ModelForm):
             try:
                 user_profile = self.user.userprofile
                 available_resources = []
-                for resource in Resource.objects.filter(is_active=True):
+                for resource in Resource.objects.filter(is_active=True, is_closed=False):
                     if resource.is_available_for_user(user_profile):
                         available_resources.append(resource.pk)
                 self.fields['resource'].queryset = Resource.objects.filter(pk__in=available_resources)
             except:
-                self.fields['resource'].queryset = Resource.objects.filter(is_active=True)
+                self.fields['resource'].queryset = Resource.objects.filter(is_active=True, is_closed=False)
     
     def clean(self):
         cleaned_data = super().clean()
@@ -603,6 +603,13 @@ class BookingForm(forms.ModelForm):
         resource = cleaned_data.get('resource')
         override_conflicts = cleaned_data.get('override_conflicts', False)
         override_message = cleaned_data.get('override_message', '')
+        
+        # Check if resource is closed
+        if resource and resource.is_closed:
+            raise forms.ValidationError(
+                f"The resource '{resource.name}' is temporarily closed for bookings."
+                + (f" Reason: {resource.closed_reason}" if resource.closed_reason else "")
+            )
         
         if start_time and end_time:
             # Make timezone-aware if needed
@@ -859,12 +866,12 @@ class BookingTemplateForm(forms.ModelForm):
             try:
                 user_profile = self.user.userprofile
                 available_resources = []
-                for resource in Resource.objects.filter(is_active=True):
+                for resource in Resource.objects.filter(is_active=True, is_closed=False):
                     if resource.is_available_for_user(user_profile):
                         available_resources.append(resource.pk)
                 self.fields['resource'].queryset = Resource.objects.filter(pk__in=available_resources)
             except:
-                self.fields['resource'].queryset = Resource.objects.filter(is_active=True)
+                self.fields['resource'].queryset = Resource.objects.filter(is_active=True, is_closed=False)
     
     def clean(self):
         cleaned_data = super().clean()
@@ -2434,6 +2441,6 @@ class CalendarSyncPreferencesForm(forms.ModelForm):
         }
         help_texts = {
             'auto_sync_timing': 'How often to automatically sync your bookings with Google Calendar',
-            'conflict_resolution': 'What to do when there are conflicts between Aperture and Google Calendar',
+            'conflict_resolution': 'What to do when there are conflicts between Aperature and Google Calendar',
             'event_prefix': 'Text to add before Google Calendar event titles (optional)',
         }

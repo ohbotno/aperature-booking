@@ -1,5 +1,6 @@
 {% extends 'booking/base.html' %}
 {% load static %}
+{% load booking_extras %}
 
 {% block title %}Feature Not Available - {{ block.super }}{% endblock %}
 
@@ -49,7 +50,7 @@
                                             <i class="fas fa-times-circle text-muted me-2"></i>
                                         {% endif %}
                                         <span class="{% if not enabled %}text-muted{% endif %}">
-                                            {{ feature|title|replace:"_"," " }}
+                                            {{ feature|title|replace:"_, " }}
                                         </span>
                                     </div>
                                 {% endfor %}
@@ -88,7 +89,7 @@
                                     <i class="fas fa-info-circle me-1"></i>License Details
                                 </a>
                             {% endif %}
-                            <a href="mailto:support@aperture-booking.org?subject=License Upgrade Request" class="btn btn-outline-success">
+                            <a href="mailto:support@aperature-booking.org?subject=License Upgrade Request" class="btn btn-outline-success">
                                 <i class="fas fa-envelope me-1"></i>Contact Support
                             </a>
                         </div>

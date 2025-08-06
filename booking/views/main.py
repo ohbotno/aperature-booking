@@ -1,9 +1,9 @@
 # booking/views.py
 """
-API views for the Aperture Booking.
+API views for the Aperature Booking.
 
-This file is part of the Aperture Booking.
-Copyright (C) 2025 Aperture Booking Contributors
+This file is part of the Aperature Booking.
+Copyright (C) 2025 Aperature Booking Contributors
 
 This software is dual-licensed:
 1. GNU General Public License v3.0 (GPL-3.0) - for open source use
@@ -11,7 +11,7 @@ This software is dual-licensed:
 
 For GPL-3.0 license terms, see LICENSE file.
 For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
-https://aperture-booking.org/commercial
+https://aperature-booking.org/commercial
 """
 
 from rest_framework import viewsets, status, permissions
@@ -28,6 +28,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Q, Count, Max
 from datetime import datetime, timedelta
+import json
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
 from ..forms import ChecklistItemForm
@@ -1822,8 +1823,8 @@ def resource_detail_view(request, resource_id):
     if training_completed:
         has_pending_training = False
     
-    # If user can view calendar, show calendar view
-    if can_view_calendar:
+    # If user can view calendar and resource is not closed, show calendar view
+    if can_view_calendar and not resource.is_closed:
         return render(request, 'booking/resource_detail.html', {
             'resource': resource,
             'user_has_access': user_has_access,
@@ -2611,6 +2612,48 @@ def cancel_booking_view(request, pk):
             return redirect('booking:booking_detail', pk=pk)
     
     return render(request, 'booking/cancel_booking.html', {
+        'booking': booking,
+    })
+
+
+@login_required
+def delete_booking_view(request, pk):
+    """Delete a booking permanently (only for cancelled/completed bookings)."""
+    booking = get_object_or_404(Booking, pk=pk)
+    
+    # Check permissions
+    try:
+        user_profile = request.user.userprofile
+        can_delete = (booking.user == request.user or 
+                     user_profile.role in ['technician', 'sysadmin'])
+    except UserProfile.DoesNotExist:
+        can_delete = booking.user == request.user
+    
+    if not can_delete:
+        messages.error(request, 'You do not have permission to delete this booking.')
+        return redirect('booking:booking_detail', pk=pk)
+    
+    # Only allow deletion of cancelled or completed bookings
+    if booking.status not in ['cancelled', 'completed']:
+        messages.error(request, 'Only cancelled or completed bookings can be deleted.')
+        return redirect('booking:booking_detail', pk=pk)
+    
+    if request.method == 'POST':
+        confirm = request.POST.get('confirm_delete')
+        if confirm == 'yes':
+            booking_title = booking.title
+            booking.delete()
+            messages.success(request, f'Booking "{booking_title}" has been permanently deleted.')
+            
+            # Redirect based on user role
+            if hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['technician', 'sysadmin']:
+                return redirect('booking:manage_bookings')
+            else:
+                return redirect('booking:my_bookings')
+        else:
+            return redirect('booking:booking_detail', pk=pk)
+    
+    return render(request, 'booking/delete_booking.html', {
         'booking': booking,
     })
 
@@ -3909,6 +3952,11 @@ def risk_assessments_view(request):
     elif status_filter == 'expired':
         risk_assessments = risk_assessments.filter(valid_until__lt=timezone.now().date())
     
+    # Filter by user (for viewing a specific user's risk assessments)
+    user_filter = request.GET.get('user')
+    if user_filter:
+        risk_assessments = risk_assessments.filter(created_by_id=user_filter)
+    
     # Order by creation date
     risk_assessments = risk_assessments.order_by('-created_at')
     
@@ -3930,7 +3978,7 @@ def risk_assessments_view(request):
         }
     
     # Filter options
-    assessment_types = RiskAssessment.ASSESSMENT_TYPE_CHOICES
+    assessment_types = RiskAssessment.ASSESSMENT_TYPES
     resources = Resource.objects.filter(is_active=True).order_by('name')
     
     context = {
@@ -5198,8 +5246,20 @@ def lab_admin_users_view(request):
     users = User.objects.select_related('userprofile').order_by('username')
     
     # Apply filters
+    is_active_filter = request.GET.get('is_active')
     role_filter = request.GET.get('role')
     search_query = request.GET.get('search')
+    
+    # Clean up empty values
+    if search_query:
+        search_query = search_query.strip()
+        if not search_query:
+            search_query = None
+    
+    if is_active_filter == 'true':
+        users = users.filter(is_active=True)
+    elif is_active_filter == 'false':
+        users = users.filter(is_active=False)
     
     if role_filter:
         users = users.filter(userprofile__role=role_filter)
@@ -5222,12 +5282,619 @@ def lab_admin_users_view(request):
     
     context = {
         'users': page_obj,
+        'is_active_filter': is_active_filter,
         'role_filter': role_filter,
         'search_query': search_query,
         'role_choices': role_choices,
     }
     
     return render(request, 'booking/lab_admin_users.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_user_detail_view(request, user_id):
+    """Get user details for viewing."""
+    try:
+        user = User.objects.select_related('userprofile').get(id=user_id)
+        
+        # Prepare user data
+        user_data = {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'is_active': user.is_active,
+            'date_joined': user.date_joined,
+            'last_login': user.last_login,
+        }
+        
+        if hasattr(user, 'userprofile'):
+            user_data.update({
+                'role': user.userprofile.role,
+                'phone': user.userprofile.phone,
+                'department': user.userprofile.department.name if user.userprofile.department else None,
+                'email_verified': user.userprofile.email_verified,
+                'is_inducted': user.userprofile.is_inducted,
+            })
+        
+        # Render HTML for modal
+        html = f"""
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Basic Information</h6>
+                <dl class="row">
+                    <dt class="col-sm-4">Username:</dt>
+                    <dd class="col-sm-8">{user.username}</dd>
+                    <dt class="col-sm-4">Full Name:</dt>
+                    <dd class="col-sm-8">{user.get_full_name() or '-'}</dd>
+                    <dt class="col-sm-4">Email:</dt>
+                    <dd class="col-sm-8">{user.email}</dd>
+                    <dt class="col-sm-4">Status:</dt>
+                    <dd class="col-sm-8">
+                        {'<span class="badge bg-success">Active</span>' if user.is_active else '<span class="badge bg-danger">Inactive</span>'}
+                    </dd>
+                </dl>
+            </div>
+            <div class="col-md-6">
+                <h6>Profile Information</h6>
+                <dl class="row">
+                    <dt class="col-sm-4">Role:</dt>
+                    <dd class="col-sm-8">{user.userprofile.get_role_display() if hasattr(user, 'userprofile') else '-'}</dd>
+                    <dt class="col-sm-4">Department:</dt>
+                    <dd class="col-sm-8">{user_data.get('department', '-')}</dd>
+                    <dt class="col-sm-4">Phone:</dt>
+                    <dd class="col-sm-8">{user_data.get('phone', '-')}</dd>
+                    <dt class="col-sm-4">Email Verified:</dt>
+                    <dd class="col-sm-8">
+                        {'<span class="badge bg-success">Yes</span>' if user_data.get('email_verified') else '<span class="badge bg-warning text-dark">No</span>'}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+        <hr>
+        <div class="row">
+            <div class="col-12">
+                <h6>Account Activity</h6>
+                <dl class="row">
+                    <dt class="col-sm-3">Date Joined:</dt>
+                    <dd class="col-sm-9">{user.date_joined.strftime('%B %d, %Y at %I:%M %p')}</dd>
+                    <dt class="col-sm-3">Last Login:</dt>
+                    <dd class="col-sm-9">{user.last_login.strftime('%B %d, %Y at %I:%M %p') if user.last_login else 'Never'}</dd>
+                </dl>
+            </div>
+        </div>
+        """
+        
+        return JsonResponse({
+            'success': True,
+            'user': user_data,
+            'html': html
+        })
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User not found'})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_user_edit_view(request, user_id):
+    """Edit user details."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'})
+    
+    try:
+        user = User.objects.get(id=user_id)
+        
+        # Update user fields
+        user.username = request.POST.get('username', user.username)
+        user.email = request.POST.get('email', user.email)
+        user.first_name = request.POST.get('first_name', user.first_name)
+        user.last_name = request.POST.get('last_name', user.last_name)
+        user.is_active = request.POST.get('is_active') == 'on'
+        user.save()
+        
+        # Update or create user profile
+        if hasattr(user, 'userprofile'):
+            profile = user.userprofile
+        else:
+            from booking.models import UserProfile
+            profile = UserProfile(user=user)
+        
+        profile.role = request.POST.get('role', profile.role)
+        profile.phone = request.POST.get('phone', profile.phone)
+        profile.save()
+        
+        messages.success(request, f'User {user.username} updated successfully.')
+        return JsonResponse({'success': True})
+        
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User not found'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_user_delete_view(request, user_id):
+    """Delete a user."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'})
+    
+    try:
+        from django.db import transaction
+        from booking.models import Booking, ResourceAccess, TrainingRequest, RiskAssessment
+        
+        user = User.objects.get(id=user_id)
+        
+        # Don't allow deleting superusers
+        if user.is_superuser:
+            return JsonResponse({'success': False, 'error': 'Cannot delete superuser accounts'})
+        
+        # Don't allow self-deletion
+        if user.id == request.user.id:
+            return JsonResponse({'success': False, 'error': 'Cannot delete your own account'})
+        
+        # Check for related data
+        related_data = []
+        
+        # Check for active bookings
+        active_bookings = Booking.objects.filter(user=user, status__in=['pending', 'approved']).count()
+        if active_bookings > 0:
+            related_data.append(f'{active_bookings} active booking(s)')
+        
+        # Check for resource access
+        resource_access = ResourceAccess.objects.filter(user=user).count()
+        if resource_access > 0:
+            related_data.append(f'{resource_access} resource access permission(s)')
+        
+        # Check for training requests
+        training_requests = TrainingRequest.objects.filter(user=user).count()
+        if training_requests > 0:
+            related_data.append(f'{training_requests} training request(s)')
+        
+        # Check for risk assessments
+        try:
+            risk_assessments = RiskAssessment.objects.filter(created_by=user).count()
+            if risk_assessments > 0:
+                related_data.append(f'{risk_assessments} risk assessment(s)')
+        except:
+            # Model might not exist or have different fields
+            pass
+        
+        # Check for other important relationships
+        from booking.models import AccessRequest, WaitingListEntry
+        
+        access_requests = AccessRequest.objects.filter(user=user).count()
+        if access_requests > 0:
+            related_data.append(f'{access_requests} access request(s)')
+            
+        waiting_list = WaitingListEntry.objects.filter(user=user).count()
+        if waiting_list > 0:
+            related_data.append(f'{waiting_list} waiting list entries')
+        
+        if related_data:
+            return JsonResponse({
+                'success': False, 
+                'error': f'Cannot delete user. They have: {", ".join(related_data)}. Please reassign or remove these items first.'
+            })
+        
+        username = user.username
+        
+        # Use transaction to ensure all deletions succeed or none do
+        with transaction.atomic():
+            # Delete user profile if exists
+            if hasattr(user, 'userprofile'):
+                user.userprofile.delete()
+            
+            # Delete the user
+            user.delete()
+        
+        messages.success(request, f'User {username} has been deleted.')
+        return JsonResponse({'success': True})
+        
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User not found'})
+    except Exception as e:
+        # For debugging, let's provide more detail about the constraint error
+        error_msg = str(e)
+        if 'FOREIGN KEY constraint failed' in error_msg:
+            return JsonResponse({
+                'success': False, 
+                'error': 'Cannot delete user due to existing data dependencies. Please contact system administrator to review user data.'
+            })
+        return JsonResponse({'success': False, 'error': error_msg})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_user_toggle_view(request, user_id):
+    """Toggle user active status."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'})
+    
+    try:
+        user = User.objects.get(id=user_id)
+        
+        # Don't allow toggling superusers
+        if user.is_superuser:
+            return JsonResponse({'success': False, 'error': 'Cannot modify superuser accounts'})
+        
+        # Don't allow self-deactivation
+        if user.id == request.user.id and not json.loads(request.body).get('active', True):
+            return JsonResponse({'success': False, 'error': 'Cannot deactivate your own account'})
+        
+        data = json.loads(request.body)
+        user.is_active = data.get('active', True)
+        user.save()
+        
+        action = 'activated' if user.is_active else 'deactivated'
+        messages.success(request, f'User {user.username} has been {action}.')
+        return JsonResponse({'success': True})
+        
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User not found'})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_user_add_view(request):
+    """Add a new user."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'})
+    
+    try:
+        from django.contrib.auth.forms import UserCreationForm
+        from booking.models import UserProfile
+        
+        # Validate passwords match
+        password1 = request.POST.get('password1')
+        password2 = request.POST.get('password2')
+        if password1 != password2:
+            return JsonResponse({'success': False, 'error': 'Passwords do not match'})
+        
+        # Check if username already exists
+        username = request.POST.get('username')
+        if User.objects.filter(username=username).exists():
+            return JsonResponse({'success': False, 'error': 'Username already exists'})
+        
+        # Create user
+        user = User.objects.create_user(
+            username=username,
+            email=request.POST.get('email'),
+            password=password1,
+            first_name=request.POST.get('first_name'),
+            last_name=request.POST.get('last_name'),
+        )
+        user.is_active = request.POST.get('is_active') == 'on'
+        user.save()
+        
+        # Create user profile
+        UserProfile.objects.create(
+            user=user,
+            role=request.POST.get('role'),
+            phone=request.POST.get('phone', ''),
+        )
+        
+        messages.success(request, f'User {user.username} created successfully.')
+        return JsonResponse({'success': True})
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_users_bulk_import_view(request):
+    """Bulk import users from CSV."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'})
+    
+    try:
+        import csv
+        from io import StringIO
+        from booking.models import UserProfile
+        
+        csv_file = request.FILES.get('csv_file')
+        if not csv_file:
+            return JsonResponse({'success': False, 'error': 'No file uploaded'})
+        
+        # Check file size
+        if csv_file.size > 5 * 1024 * 1024:  # 5MB limit
+            return JsonResponse({'success': False, 'error': 'File too large (max 5MB)'})
+        
+        # Read CSV with better error handling
+        try:
+            file_data = csv_file.read().decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                csv_file.seek(0)
+                file_data = csv_file.read().decode('latin-1')
+            except:
+                return JsonResponse({'success': False, 'error': 'Unable to decode file. Please ensure it\'s a valid UTF-8 or Latin-1 encoded CSV file.'})
+        
+        # Parse CSV
+        try:
+            csv_reader = csv.DictReader(StringIO(file_data))
+            rows = list(csv_reader)
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': f'Invalid CSV format: {str(e)}'})
+        
+        if not rows:
+            return JsonResponse({'success': False, 'error': 'CSV file is empty or has no data rows'})
+        
+        # Check required columns
+        required_columns = ['username']
+        first_row = rows[0]
+        missing_columns = [col for col in required_columns if col not in first_row]
+        if missing_columns:
+            return JsonResponse({
+                'success': False, 
+                'error': f'Missing required columns: {", ".join(missing_columns)}. Available columns: {", ".join(first_row.keys())}'
+            })
+        
+        created = 0
+        updated = 0
+        errors = []
+        row_num = 1  # Start from 1 (header is row 0)
+        
+        for row in rows:
+            row_num += 1
+            try:
+                username = row.get('username', '').strip()
+                if not username:
+                    errors.append(f'Row {row_num}: Missing username')
+                    continue
+                
+                email = row.get('email', '').strip()
+                first_name = row.get('first_name', '').strip()
+                last_name = row.get('last_name', '').strip()
+                role = row.get('role', 'researcher').strip()
+                
+                if User.objects.filter(username=username).exists():
+                    if request.POST.get('update_existing') == 'on':
+                        user = User.objects.get(username=username)
+                        
+                        # Update user fields
+                        if email:
+                            user.email = email
+                        if first_name:
+                            user.first_name = first_name
+                        if last_name:
+                            user.last_name = last_name
+                        user.save()
+                        
+                        # Update or create profile
+                        if hasattr(user, 'userprofile'):
+                            if role:
+                                user.userprofile.role = role
+                                user.userprofile.save()
+                        else:
+                            UserProfile.objects.create(
+                                user=user,
+                                role=role,
+                            )
+                        
+                        updated += 1
+                    else:
+                        errors.append(f'Row {row_num}: User {username} already exists')
+                else:
+                    # Create new user
+                    from django.contrib.auth.models import make_password
+                    import secrets
+                    import string
+                    
+                    # Generate random password
+                    password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+                    
+                    user = User.objects.create_user(
+                        username=username,
+                        email=email,
+                        password=password,
+                        first_name=first_name,
+                        last_name=last_name,
+                    )
+                    
+                    # Create user profile (use get_or_create to avoid duplicates)
+                    profile, created_profile = UserProfile.objects.get_or_create(
+                        user=user,
+                        defaults={
+                            'role': role,
+                            'phone': '',  # Default empty phone
+                            'is_inducted': False,
+                            'email_verified': False,
+                        }
+                    )
+                    
+                    # If profile existed, update the role
+                    if not created_profile and role:
+                        profile.role = role
+                        profile.save()
+                    
+                    created += 1
+                    
+            except Exception as e:
+                errors.append(f'Row {row_num}: Error processing - {str(e)}')
+        
+        # Prepare response
+        response_data = {
+            'success': True,
+            'created': created,
+            'updated': updated,
+        }
+        
+        if errors:
+            response_data['errors'] = errors
+            response_data['message'] = f'Processed with {len(errors)} error(s)'
+        
+        return JsonResponse(response_data)
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': f'Import failed: {str(e)}'})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_users_bulk_action_view(request):
+    """Perform bulk actions on multiple users."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'})
+    
+    try:
+        from django.db import transaction
+        
+        data = json.loads(request.body)
+        action = data.get('action')
+        user_ids = data.get('user_ids', [])
+        
+        if not action or not user_ids:
+            return JsonResponse({'success': False, 'error': 'Missing action or user IDs'})
+        
+        if action not in ['activate', 'deactivate', 'delete']:
+            return JsonResponse({'success': False, 'error': 'Invalid action'})
+        
+        # Get users (exclude superusers and current user for safety)
+        users = User.objects.filter(
+            id__in=user_ids,
+            is_superuser=False
+        ).exclude(id=request.user.id)
+        
+        if not users.exists():
+            return JsonResponse({'success': False, 'error': 'No valid users found'})
+        
+        processed = 0
+        errors = []
+        
+        with transaction.atomic():
+            for user in users:
+                try:
+                    if action == 'activate':
+                        user.is_active = True
+                        user.save()
+                        processed += 1
+                        
+                    elif action == 'deactivate':
+                        user.is_active = False
+                        user.save()
+                        processed += 1
+                        
+                    elif action == 'delete':
+                        # Check for dependencies like we do in single delete
+                        from booking.models import Booking, ResourceAccess, TrainingRequest, AccessRequest, WaitingListEntry
+                        
+                        # Check for blocking relationships
+                        active_bookings = Booking.objects.filter(user=user, status__in=['pending', 'approved']).count()
+                        if active_bookings > 0:
+                            errors.append(f'{user.username}: Has {active_bookings} active booking(s)')
+                            continue
+                        
+                        resource_access = ResourceAccess.objects.filter(user=user).count()
+                        if resource_access > 0:
+                            errors.append(f'{user.username}: Has {resource_access} resource access permission(s)')
+                            continue
+                        
+                        training_requests = TrainingRequest.objects.filter(user=user).count()
+                        if training_requests > 0:
+                            errors.append(f'{user.username}: Has {training_requests} training request(s)')
+                            continue
+                        
+                        access_requests = AccessRequest.objects.filter(user=user).count()
+                        if access_requests > 0:
+                            errors.append(f'{user.username}: Has {access_requests} access request(s)')
+                            continue
+                        
+                        waiting_list = WaitingListEntry.objects.filter(user=user).count()
+                        if waiting_list > 0:
+                            errors.append(f'{user.username}: Has {waiting_list} waiting list entries')
+                            continue
+                        
+                        # Safe to delete
+                        if hasattr(user, 'userprofile'):
+                            user.userprofile.delete()
+                        user.delete()
+                        processed += 1
+                        
+                except Exception as e:
+                    errors.append(f'{user.username}: {str(e)}')
+        
+        # Create success message
+        messages.success(request, f'Bulk {action} completed: {processed} user(s) processed')
+        
+        response_data = {
+            'success': True,
+            'processed': processed,
+            'action': action
+        }
+        
+        if errors:
+            response_data['errors'] = errors
+        
+        return JsonResponse(response_data)
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': f'Bulk action failed: {str(e)}'})
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_users_export_view(request):
+    """Export users to CSV."""
+    import csv
+    from django.http import HttpResponse
+    
+    # Create response
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="users_export.csv"'
+    
+    # Get filtered users
+    users = User.objects.select_related('userprofile').order_by('username')
+    
+    # Apply filters
+    is_active_filter = request.GET.get('is_active')
+    if is_active_filter == 'true':
+        users = users.filter(is_active=True)
+    elif is_active_filter == 'false':
+        users = users.filter(is_active=False)
+    
+    role_filter = request.GET.get('role')
+    if role_filter:
+        users = users.filter(userprofile__role=role_filter)
+    
+    search_query = request.GET.get('search')
+    # Clean up empty values
+    if search_query:
+        search_query = search_query.strip()
+        if not search_query:
+            search_query = None
+    
+    if search_query:
+        users = users.filter(
+            Q(username__icontains=search_query) |
+            Q(first_name__icontains=search_query) |
+            Q(last_name__icontains=search_query) |
+            Q(email__icontains=search_query)
+        )
+    
+    # Write CSV
+    writer = csv.writer(response)
+    writer.writerow(['username', 'email', 'first_name', 'last_name', 'role', 'department', 'is_active', 'email_verified', 'date_joined'])
+    
+    for user in users:
+        writer.writerow([
+            user.username,
+            user.email,
+            user.first_name,
+            user.last_name,
+            user.userprofile.get_role_display() if hasattr(user, 'userprofile') else '',
+            user.userprofile.department.name if hasattr(user, 'userprofile') and user.userprofile.department else '',
+            'Yes' if user.is_active else 'No',
+            'Yes' if hasattr(user, 'userprofile') and user.userprofile.email_verified else 'No',
+            user.date_joined.strftime('%Y-%m-%d'),
+        ])
+    
+    return response
 
 
 @login_required
@@ -5243,6 +5910,12 @@ def lab_admin_resources_view(request):
     resource_type_filter = request.GET.get('type')
     search_query = request.GET.get('search')
     status_filter = request.GET.get('status', 'all')
+    
+    # Clean up empty search values
+    if search_query:
+        search_query = search_query.strip()
+        if not search_query:
+            search_query = None
     
     if resource_type_filter:
         resources = resources.filter(resource_type=resource_type_filter)
@@ -5276,6 +5949,150 @@ def lab_admin_resources_view(request):
     }
     
     return render(request, 'booking/lab_admin_resources.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_resources_bulk_import_view(request):
+    """Bulk import resources from CSV."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'})
+    
+    try:
+        import csv
+        from io import StringIO
+        from booking.models import Resource
+        
+        csv_file = request.FILES.get('csv_file')
+        if not csv_file:
+            return JsonResponse({'success': False, 'error': 'No file uploaded'})
+        
+        # Check file size
+        if csv_file.size > 5 * 1024 * 1024:  # 5MB limit
+            return JsonResponse({'success': False, 'error': 'File too large (max 5MB)'})
+        
+        # Read CSV with better error handling
+        try:
+            file_data = csv_file.read().decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                csv_file.seek(0)
+                file_data = csv_file.read().decode('latin-1')
+            except:
+                return JsonResponse({'success': False, 'error': 'Unable to decode file. Please ensure it\'s a valid UTF-8 or Latin-1 encoded CSV file.'})
+        
+        # Parse CSV
+        try:
+            csv_reader = csv.DictReader(StringIO(file_data))
+            rows = list(csv_reader)
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': f'Invalid CSV format: {str(e)}'})
+        
+        if not rows:
+            return JsonResponse({'success': False, 'error': 'CSV file is empty or has no data rows'})
+        
+        # Check required columns
+        required_columns = ['name', 'resource_type']
+        first_row = rows[0]
+        missing_columns = [col for col in required_columns if col not in first_row]
+        if missing_columns:
+            return JsonResponse({
+                'success': False, 
+                'error': f'Missing required columns: {", ".join(missing_columns)}. Available columns: {", ".join(first_row.keys())}'
+            })
+        
+        # Valid resource types
+        valid_resource_types = [choice[0] for choice in Resource.RESOURCE_TYPES]
+        
+        created = 0
+        updated = 0
+        errors = []
+        row_num = 1  # Start from 1 (header is row 0)
+        
+        for row in rows:
+            row_num += 1
+            try:
+                name = row.get('name', '').strip()
+                if not name:
+                    errors.append(f'Row {row_num}: Missing name')
+                    continue
+                
+                resource_type = row.get('resource_type', '').strip().lower()
+                if not resource_type:
+                    errors.append(f'Row {row_num}: Missing resource_type')
+                    continue
+                
+                if resource_type not in valid_resource_types:
+                    errors.append(f'Row {row_num}: Invalid resource_type "{resource_type}". Valid types: {", ".join(valid_resource_types)}')
+                    continue
+                
+                description = row.get('description', '').strip()
+                location = row.get('location', '').strip()
+                capacity_str = row.get('capacity', '').strip()
+                is_active_str = row.get('is_active', 'true').strip().lower()
+                
+                # Parse capacity
+                capacity = 1  # default
+                if capacity_str:
+                    try:
+                        capacity = int(capacity_str)
+                        if capacity < 1:
+                            capacity = 1
+                    except ValueError:
+                        errors.append(f'Row {row_num}: Invalid capacity "{capacity_str}", using default of 1')
+                        capacity = 1
+                
+                # Parse is_active
+                is_active = is_active_str in ['true', '1', 'yes', 'active']
+                
+                if Resource.objects.filter(name=name).exists():
+                    if request.POST.get('update_existing') == 'on':
+                        resource = Resource.objects.get(name=name)
+                        
+                        # Update resource fields
+                        resource.resource_type = resource_type
+                        if description:
+                            resource.description = description
+                        if location:
+                            resource.location = location
+                        resource.capacity = capacity
+                        resource.is_active = is_active
+                        resource.save()
+                        
+                        updated += 1
+                    else:
+                        errors.append(f'Row {row_num}: Resource "{name}" already exists')
+                else:
+                    # Create new resource
+                    resource = Resource.objects.create(
+                        name=name,
+                        resource_type=resource_type,
+                        description=description,
+                        location=location,
+                        capacity=capacity,
+                        is_active=is_active,
+                    )
+                    
+                    created += 1
+                    
+            except Exception as e:
+                errors.append(f'Row {row_num}: Error processing - {str(e)}')
+        
+        # Prepare response
+        response_data = {
+            'success': True,
+            'created': created,
+            'updated': updated,
+        }
+        
+        if errors:
+            response_data['errors'] = errors
+            response_data['message'] = f'Processed with {len(errors)} error(s)'
+        
+        return JsonResponse(response_data)
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': f'Import failed: {str(e)}'})
 
 
 @login_required
@@ -5381,6 +6198,40 @@ def lab_admin_delete_resource_view(request, resource_id):
     }
     
     return render(request, 'booking/lab_admin_resource_delete.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+def lab_admin_close_resource_view(request, resource_id):
+    """Close a resource to prevent new bookings."""
+    from booking.models import Resource
+    
+    resource = get_object_or_404(Resource, id=resource_id)
+    
+    if request.method == 'POST':
+        reason = request.POST.get('reason', '').strip()
+        resource.close_resource(request.user, reason)
+        messages.success(request, f'Resource "{resource.name}" has been closed to prevent new bookings.')
+        return redirect('booking:lab_admin_resources')
+    
+    context = {
+        'resource': resource,
+    }
+    
+    return render(request, 'booking/lab_admin_resource_close.html', context)
+
+
+@login_required
+@user_passes_test(is_lab_admin)
+@require_http_methods(["POST"])
+def lab_admin_open_resource_view(request, resource_id):
+    """Reopen a closed resource for bookings."""
+    from booking.models import Resource
+    
+    resource = get_object_or_404(Resource, id=resource_id)
+    resource.open_resource()
+    messages.success(request, f'Resource "{resource.name}" has been reopened for bookings.')
+    return redirect('booking:lab_admin_resources')
 
 
 @login_required
@@ -7130,7 +7981,7 @@ def site_admin_lab_settings_view(request):
     lab_settings = LabSettings.get_active()
     if not lab_settings:
         lab_settings = LabSettings.objects.create(
-            lab_name="Aperture Booking",
+            lab_name="Aperature Booking",
             is_active=True
         )
     
@@ -7534,11 +8385,11 @@ def site_admin_test_email_view(request):
         start_time = time.time()
         
         # Test with simple send_mail
-        subject = 'Aperture Booking - Email Configuration Test'
+        subject = 'Aperature Booking - Email Configuration Test'
         message = f"""
 Email Configuration Test
 
-This is a test email sent from the Aperture Booking system to verify email configuration.
+This is a test email sent from the Aperature Booking system to verify email configuration.
 
 Test Details:
 - Sent at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}
@@ -7551,7 +8402,7 @@ Test Details:
 If you received this email, your email configuration is working correctly!
 
 --
-Aperture Booking System
+Aperature Booking System
         """.strip()
         
         send_mail(
@@ -7602,7 +8453,7 @@ Aperture Booking System
 <body>
     <div class="container">
         <div class="header">
-            <h2>🧪 Aperture Booking - HTML Email Test</h2>
+            <h2>🧪 Aperature Booking - HTML Email Test</h2>
         </div>
         
         <div class="success">
@@ -7610,7 +8461,7 @@ Aperture Booking System
             Your email system can successfully send and render HTML emails.
         </div>
         
-        <p>This is an HTML test email sent from the <strong>Aperture Booking</strong> system.</p>
+        <p>This is an HTML test email sent from the <strong>Aperature Booking</strong> system.</p>
         
         <div class="info">
             <strong>Test Information:</strong><br>
@@ -7625,7 +8476,7 @@ Aperture Booking System
         <p>If you can see this formatted email with colors and styling, your HTML email configuration is working correctly!</p>
         
         <div class="footer">
-            <p>This email was automatically generated by the Aperture Booking system for testing purposes.</p>
+            <p>This email was automatically generated by the Aperature Booking system for testing purposes.</p>
         </div>
     </div>
 </body>
@@ -7635,7 +8486,7 @@ Aperture Booking System
         text_content = f"""
 HTML Email Configuration Test
 
-This is an HTML test email sent from the Aperture Booking system.
+This is an HTML test email sent from the Aperature Booking system.
 
 Test Details:
 - Sent at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S %Z')}
@@ -7648,11 +8499,11 @@ Test Details:
 If you received this email with proper HTML formatting, your email configuration supports HTML emails!
 
 --
-Aperture Booking System
+Aperature Booking System
         """.strip()
         
         email = EmailMultiAlternatives(
-            subject='Aperture Booking - HTML Email Configuration Test',
+            subject='Aperature Booking - HTML Email Configuration Test',
             body=text_content,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[test_email]

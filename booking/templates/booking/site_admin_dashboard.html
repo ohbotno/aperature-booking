@@ -108,7 +108,7 @@
         </div>
         
         <div class="col-lg-3 col-md-6 mb-3">
-            <div class="card bg-warning text-white">
+            <div class="card bg-warning">
                 <div class="card-body">
                     <div class="d-flex justify-content-between">
                         <div>
@@ -145,7 +145,7 @@
                             <i class="fas fa-tools me-2"></i>
                             Manage Resources
                         </a>
-                        <a href="{% url 'booking:lab_admin_access_requests' %}" class="btn btn-outline-warning">
+                        <a href="{% url 'booking:lab_admin_access_requests' %}" class="btn btn-outline-primary">
                             <i class="fas fa-key me-2"></i>
                             Review Access Requests
                             {% if stats.pending_access_requests > 0 %}
@@ -156,7 +156,7 @@
                             <i class="fas fa-cog me-2"></i>
                             System Configuration
                         </a>
-                        <a href="{% url 'booking:site_admin_academic_hierarchy' %}" class="btn btn-outline-warning">
+                        <a href="{% url 'booking:site_admin_academic_hierarchy' %}" class="btn btn-outline-primary">
                             <i class="fas fa-sitemap me-2"></i>
                             Academic Hierarchy
                         </a>
@@ -462,7 +462,7 @@
                                 </p>
                                 <hr>
                                 <div class="d-flex gap-2">
-                                    <a href="{% url 'booking:site_admin_updates' %}" class="btn btn-warning btn-sm">
+                                    <a href="{% url 'booking:site_admin_updates' %}" class="btn btn-primary btn-sm">
                                         <i class="fas fa-download me-1"></i>
                                         Download Update
                                     </a>

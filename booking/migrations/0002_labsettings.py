@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
                 (
                     "lab_name",
                     models.CharField(
-                        default="Aperture Booking",
+                        default="Aperature Booking",
                         help_text="Name of your lab or facility (displayed throughout the application)",
                         max_length=100,
                     ),

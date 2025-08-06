@@ -8,7 +8,7 @@ def create_default_labsettings(apps, schema_editor):
     LabSettings = apps.get_model('booking', 'LabSettings')
     if not LabSettings.objects.exists():
         LabSettings.objects.create(
-            lab_name="Aperture Booking",
+            lab_name="Aperature Booking",
             is_active=True
         )
 

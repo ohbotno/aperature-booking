@@ -2,8 +2,8 @@
 """
 License validation and feature gating service for white-label deployments.
 
-This file is part of the Aperture Booking.
-Copyright (C) 2025 Aperture Booking Contributors
+This file is part of the Aperature Booking.
+Copyright (C) 2025 Aperature Booking Contributors
 
 This software is dual-licensed:
 1. GNU General Public License v3.0 (GPL-3.0) - for open source use
@@ -11,7 +11,7 @@ This software is dual-licensed:
 
 For GPL-3.0 license terms, see LICENSE file.
 For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
-https://aperture-booking.org/commercial
+https://aperature-booking.org/commercial
 """
 
 import hashlib
@@ -255,7 +255,7 @@ class LicenseManager:
             payload = {
                 'license_key': license_config.license_key,
                 'domain': self._get_current_domain(),
-                'product': 'aperture-booking',
+                'product': 'aperature-booking',
                 'version': getattr(settings, 'VERSION', '1.0.0'),
             }
             
@@ -401,7 +401,7 @@ def get_branding_config():
     # This shows powered_by = True to encourage users to select a license option
     from booking.models import BrandingConfiguration
     defaults = BrandingConfiguration()
-    defaults.app_title = 'Aperture Booking'
+    defaults.app_title = 'Aperature Booking'
     defaults.company_name = 'Open Source User'
     defaults.show_powered_by = True  # Show powered by when no license is explicitly selected
     return defaults

@@ -2,11 +2,11 @@ APERTURE BOOKING COMMERCIAL LICENSE AGREEMENT
 
 Version 1.0, January 2025
 
-Copyright (C) 2025 Aperture Booking Contributors
+Copyright (C) 2025 Aperature Booking Contributors
 
 IMPORTANT: READ THIS LICENSE AGREEMENT CAREFULLY BEFORE USING THE SOFTWARE.
 
-This Commercial License Agreement ("Agreement") is a legal agreement between you (either an individual or a single entity, "Licensee") and the copyright holders of Aperture Booking ("Licensor") for the use of Aperture Booking software and associated documentation ("Software").
+This Commercial License Agreement ("Agreement") is a legal agreement between you (either an individual or a single entity, "Licensee") and the copyright holders of Aperature Booking ("Licensor") for the use of Aperature Booking software and associated documentation ("Software").
 
 BY INSTALLING, COPYING, OR OTHERWISE USING THE SOFTWARE, YOU AGREE TO BE BOUND BY THE TERMS OF THIS AGREEMENT.
 
@@ -15,7 +15,7 @@ BY INSTALLING, COPYING, OR OTHERWISE USING THE SOFTWARE, YOU AGREE TO BE BOUND B
 Subject to the terms and conditions of this Agreement, Licensor hereby grants to Licensee a non-exclusive, non-transferable white-label commercial license to:
 
 a) Use, modify, and create derivative works of the Software
-b) Remove all "Aperture Booking" branding, logos, and references
+b) Remove all "Aperature Booking" branding, logos, and references
 c) Add Licensee's own branding, logos, colors, and product name
 d) Distribute the Software under Licensee's own product name
 e) Sublicense the Software to end users as Licensee's own product
@@ -23,7 +23,7 @@ e) Sublicense the Software to end users as Licensee's own product
 2. WHITE-LABEL RIGHTS
 
 This license specifically permits:
-- Complete removal of "Aperture Booking" branding
+- Complete removal of "Aperature Booking" branding
 - Addition of Licensee's own logo, colors, and styling
 - Distribution under Licensee's own product name
 - Marketing and selling as Licensee's own development
@@ -47,7 +47,7 @@ Under this Commercial License, Licensee is NOT subject to the obligations of the
 
 5. ATTRIBUTION
 
-Under this White-Label Commercial License, Licensee is NOT required to include any attribution notices, "Powered by" statements, or references to Aperture Booking in distributions or marketing materials.
+Under this White-Label Commercial License, Licensee is NOT required to include any attribution notices, "Powered by" statements, or references to Aperature Booking in distributions or marketing materials.
 
 6. SUPPORT AND MAINTENANCE
 
@@ -81,8 +81,8 @@ White-label licensing fees and terms:
 - Enterprise License: Custom pricing (unlimited users)
 
 For white-label licensing inquiries, please contact:
-Email: commercial@aperture-booking.org
-Website: https://aperture-booking.org/commercial
+Email: commercial@aperature-booking.org
+Website: https://aperature-booking.org/commercial
 
 ---
 

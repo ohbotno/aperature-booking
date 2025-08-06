@@ -127,7 +127,7 @@ def check_permissions():
     # Check if static root is readable by web server
     if not os.access(static_root, os.R_OK):
         print(f"❌ Static root not readable: {static_root}")
-        print("   Run: sudo chown -R www-data:www-data /opt/aperture-booking/staticfiles")
+        print("   Run: sudo chown -R www-data:www-data /opt/aperature-booking/staticfiles")
         return False
     
     # Check some critical files
@@ -168,7 +168,7 @@ def display_summary():
     
     print("\n📋 Next Steps:")
     print("1. Ensure Nginx is configured to serve static files")
-    print("2. Check file permissions: sudo chown -R www-data:www-data /opt/aperture-booking/staticfiles")
+    print("2. Check file permissions: sudo chown -R www-data:www-data /opt/aperature-booking/staticfiles")
     print("3. Test static file serving: curl http://yoursite.com/static/admin/css/base.css")
     print("4. Monitor Nginx access logs for 404s on static files")
 

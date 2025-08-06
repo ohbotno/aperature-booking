@@ -22,7 +22,7 @@
                     <button type="button" class="btn btn-success" id="bulk-approve-btn" disabled>
                         <i class="bi bi-check-circle"></i> Approve Selected
                     </button>
-                    <button type="button" class="btn btn-warning" id="bulk-reject-btn" disabled>
+                    <button type="button" class="btn btn-secondary" id="bulk-reject-btn" disabled>
                         <i class="bi bi-x-circle"></i> Reject Selected
                     </button>
                     <button type="button" class="btn btn-danger" id="bulk-cancel-btn" disabled>
@@ -149,7 +149,19 @@
                                 <br><small class="text-muted">{{ booking.start_time|time:"H:i" }} - {{ booking.end_time|time:"H:i" }}</small>
                             </td>
                             <td>
-                                <span class="badge bg-{{ booking.status }}">{{ booking.get_status_display }}</span>
+                                {% if booking.status == 'approved' %}
+                                    <span class="badge bg-success">{{ booking.get_status_display }}</span>
+                                {% elif booking.status == 'pending' %}
+                                    <span class="badge bg-warning text-dark">{{ booking.get_status_display }}</span>
+                                {% elif booking.status == 'cancelled' %}
+                                    <span class="badge bg-danger">{{ booking.get_status_display }}</span>
+                                {% elif booking.status == 'rejected' %}
+                                    <span class="badge bg-secondary">{{ booking.get_status_display }}</span>
+                                {% elif booking.status == 'completed' %}
+                                    <span class="badge bg-info">{{ booking.get_status_display }}</span>
+                                {% else %}
+                                    <span class="badge bg-light text-dark">{{ booking.get_status_display }}</span>
+                                {% endif %}
                                 {% if booking.approved_by %}
                                     <br><small class="text-muted">by {{ booking.approved_by.get_full_name|default:booking.approved_by.username }}</small>
                                 {% endif %}
@@ -160,16 +172,23 @@
                             <td>
                                 <div class="btn-group btn-group-sm" role="group">
                                     <a href="{% url 'booking:booking_detail' booking.pk %}" 
-                                       class="btn btn-outline-primary" title="View">
+                                       class="btn btn-outline-primary" title="View Details">
                                         <i class="bi bi-eye"></i>
                                     </a>
+                                    
+                                    {% if booking.status != 'cancelled' and booking.status != 'completed' %}
+                                        <a href="{% url 'booking:edit_booking' booking.pk %}" 
+                                           class="btn btn-outline-info" title="Edit Booking">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                    {% endif %}
                                     
                                     {% if booking.status == 'pending' %}
                                         <button type="button" class="btn btn-outline-success" 
                                                 onclick="singleAction('approve', {{ booking.pk }})" title="Approve">
                                             <i class="bi bi-check"></i>
                                         </button>
-                                        <button type="button" class="btn btn-outline-warning" 
+                                        <button type="button" class="btn btn-outline-secondary" 
                                                 onclick="singleAction('reject', {{ booking.pk }})" title="Reject">
                                             <i class="bi bi-x"></i>
                                         </button>
@@ -177,10 +196,17 @@
                                     
                                     {% if booking.can_be_cancelled %}
                                         <button type="button" class="btn btn-outline-danger" 
-                                                onclick="singleAction('cancel', {{ booking.pk }})" title="Cancel">
+                                                onclick="singleAction('cancel', {{ booking.pk }})" title="Cancel Booking">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     {% endif %}
+                                    
+                                    <button type="button" class="btn btn-outline-danger" 
+                                            onclick="confirmDelete({{ booking.pk }}, '{{ booking.title|escapejs }}')" 
+                                            title="Delete Booking"
+                                            {% if booking.status not in 'cancelled,completed' %}disabled{% endif %}>
+                                        <i class="bi bi-trash-fill"></i>
+                                    </button>
                                 </div>
                             </td>
                         </tr>
@@ -367,6 +393,54 @@ function singleAction(action, bookingId) {
     
     const confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
     confirmModal.show();
+}
+
+function confirmDelete(bookingId, bookingTitle) {
+    document.getElementById('confirm-message').innerHTML = 
+        `Are you sure you want to permanently delete the booking "<strong>${bookingTitle}</strong>"?<br><br>
+         <div class="alert alert-danger mt-2 mb-0">
+             <i class="bi bi-exclamation-triangle me-2"></i>
+             <strong>Warning:</strong> This will permanently remove the booking from the system. This action cannot be undone.
+         </div>`;
+    
+    document.getElementById('confirm-action').onclick = function() {
+        // Create a form to handle the delete action
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/booking/${bookingId}/delete/`;
+        
+        // Add CSRF token
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrfmiddlewaretoken';
+        csrfInput.value = csrfToken;
+        form.appendChild(csrfInput);
+        
+        // Add confirmation input
+        const confirmInput = document.createElement('input');
+        confirmInput.type = 'hidden';
+        confirmInput.name = 'confirm_delete';
+        confirmInput.value = 'yes';
+        form.appendChild(confirmInput);
+        
+        document.body.appendChild(form);
+        form.submit();
+    };
+    
+    // Change the confirm button to be more prominent for delete action
+    const confirmButton = document.getElementById('confirm-action');
+    confirmButton.className = 'btn btn-danger';
+    confirmButton.innerHTML = '<i class="bi bi-trash-fill me-1"></i>Delete Permanently';
+    
+    const confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
+    confirmModal.show();
+    
+    // Reset the button when modal is hidden
+    document.getElementById('confirmModal').addEventListener('hidden.bs.modal', function() {
+        confirmButton.className = 'btn btn-danger';
+        confirmButton.innerHTML = 'Confirm';
+    }, { once: true });
 }
 </script>
 {% endblock %}

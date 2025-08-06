@@ -1,5 +1,6 @@
 {% extends 'booking/base.html' %}
 {% load static %}
+{% load booking_extras %}
 
 {% block title %}Approval Statistics - {{ lab_name }}{% endblock %}
 
@@ -117,7 +118,13 @@
                                     <p class="metric-value text-success">{{ summary.approval_rate|floatformat:1 }}%</p>
                                     <p class="metric-label">Approval Rate</p>
                                     <span class="trend-indicator trend-{{ summary.approval_trend }}">
-                                        <i class="fas fa-arrow-{{ summary.approval_trend|yesno:'up,down,right' }}"></i>
+                                        {% if summary.approval_trend == 'up' %}
+                                        <i class="fas fa-arrow-up"></i>
+                                        {% elif summary.approval_trend == 'down' %}
+                                        <i class="fas fa-arrow-down"></i>
+                                        {% else %}
+                                        <i class="fas fa-arrow-right"></i>
+                                        {% endif %}
                                         {{ summary.approval_change|floatformat:1 }}%
                                     </span>
                                 </div>
@@ -135,7 +142,13 @@
                                     <p class="metric-value text-info">{{ summary.avg_response_time|floatformat:1 }}h</p>
                                     <p class="metric-label">Avg Response Time</p>
                                     <span class="trend-indicator trend-{{ summary.response_trend }}">
-                                        <i class="fas fa-arrow-{{ summary.response_trend|yesno:'down,up,right' }}"></i>
+                                        {% if summary.response_trend == 'down' %}
+                                        <i class="fas fa-arrow-down"></i>
+                                        {% elif summary.response_trend == 'up' %}
+                                        <i class="fas fa-arrow-up"></i>
+                                        {% else %}
+                                        <i class="fas fa-arrow-right"></i>
+                                        {% endif %}
                                         {{ summary.response_change|floatformat:1 }}h
                                     </span>
                                 </div>
@@ -153,7 +166,13 @@
                                     <p class="metric-value text-warning">{{ summary.overdue_items }}</p>
                                     <p class="metric-label">Overdue Items</p>
                                     <span class="trend-indicator trend-{{ summary.overdue_trend }}">
-                                        <i class="fas fa-arrow-{{ summary.overdue_trend|yesno:'up,down,right' }}"></i>
+                                        {% if summary.overdue_trend == 'up' %}
+                                        <i class="fas fa-arrow-up"></i>
+                                        {% elif summary.overdue_trend == 'down' %}
+                                        <i class="fas fa-arrow-down"></i>
+                                        {% else %}
+                                        <i class="fas fa-arrow-right"></i>
+                                        {% endif %}
                                         {{ summary.overdue_change }}
                                     </span>
                                 </div>
@@ -171,7 +190,13 @@
                                     <p class="metric-value text-primary">{{ summary.total_requests }}</p>
                                     <p class="metric-label">Total Requests</p>
                                     <span class="trend-indicator trend-{{ summary.volume_trend }}">
-                                        <i class="fas fa-arrow-{{ summary.volume_trend|yesno:'up,down,right' }}"></i>
+                                        {% if summary.volume_trend == 'up' %}
+                                        <i class="fas fa-arrow-up"></i>
+                                        {% elif summary.volume_trend == 'down' %}
+                                        <i class="fas fa-arrow-down"></i>
+                                        {% else %}
+                                        <i class="fas fa-arrow-right"></i>
+                                        {% endif %}
                                         {{ summary.volume_change }}
                                     </span>
                                 </div>

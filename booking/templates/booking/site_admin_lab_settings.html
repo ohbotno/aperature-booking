@@ -57,7 +57,7 @@
                                 About Lab Settings
                             </h6>
                             <p class="mb-0">
-                                The lab name is the primary identifier for your facility in the Aperture Booking system. 
+                                The lab name is the primary identifier for your facility in the Aperature Booking system. 
                                 Choose a name that clearly identifies your laboratory, department, or facility.
                             </p>
                         </div>
@@ -167,7 +167,7 @@
                         <div class="col-md-6">
                             <h6>Footer:</h6>
                             <div class="border rounded p-2">
-                                <small class="text-muted">© 2025 Aperture Booking. All rights reserved.</small>
+                                <small class="text-muted">© 2025 Aperature Booking. All rights reserved.</small>
                             </div>
                         </div>
                     </div>
@@ -180,11 +180,11 @@
 <script>
 // Live preview update
 document.getElementById('lab_name').addEventListener('input', function(e) {
-    const newName = e.target.value || 'Aperture Booking';
+    const newName = e.target.value || 'Aperature Booking';
     document.getElementById('preview-navbar').textContent = newName;
     document.getElementById('preview-title').textContent = 'Calendar - ' + newName;
     document.getElementById('preview-email').textContent = '[' + newName + '] Booking Confirmation';
-    // Footer stays as "Aperture Booking" - no update needed
+    // Footer stays as "Aperature Booking" - no update needed
 });
 </script>
 {% endblock %}

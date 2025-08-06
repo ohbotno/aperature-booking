@@ -63,7 +63,7 @@
                                         <li><i class="bi bi-mortarboard me-2"></i><strong>Training Level Required:</strong> {{ resource.required_training_level }}</li>
                                         {% endif %}
                                         {% if resource.requires_induction %}
-                                        <li><i class="bi bi-info-circle me-2"></i><strong>Induction Required:</strong> Yes</li>
+                                        <li><i class="bi bi-info-circle me-2"></i><strong>Training Required:</strong> Yes</li>
                                         {% endif %}
                                         {% if resource.max_booking_hours %}
                                         <li><i class="bi bi-clock me-2"></i><strong>Max Booking:</strong> {{ resource.max_booking_hours }} hour{{ resource.max_booking_hours|pluralize }}</li>
@@ -232,7 +232,16 @@
 
                             <!-- Action Button -->
                             <div class="d-grid gap-2">
-                                {% if show_calendar %}
+                                {% if resource.is_closed %}
+                                    <div class="btn btn-danger" role="button">
+                                        <i class="bi bi-lock me-1"></i>Resource Temporarily Closed
+                                    </div>
+                                    {% if resource.closed_reason %}
+                                        <div class="alert alert-warning mt-2">
+                                            <small><strong>Reason:</strong> {{ resource.closed_reason }}</small>
+                                        </div>
+                                    {% endif %}
+                                {% elif show_calendar %}
                                     <a href="{% url 'booking:create_booking' %}?resource={{ resource.id }}" class="btn btn-primary">
                                         <i class="bi bi-plus-circle me-1"></i>Create Booking
                                     </a>
@@ -246,7 +255,7 @@
                                             <i class="bi bi-shield-exclamation me-1"></i>Submit Risk Assessment ({{ risk_assessment_status.not_started }} pending)
                                         </a>
                                     {% elif risk_assessment_status.pending > 0 %}
-                                        <div class="btn btn-warning" role="button" title="Risk assessments under review">
+                                        <div class="btn btn-secondary" role="button" title="Risk assessments under review">
                                             <i class="bi bi-clock me-1"></i>Risk Assessment Review ({{ risk_assessment_status.pending }} pending)
                                         </div>
                                     {% else %}
@@ -255,7 +264,7 @@
                                         </div>
                                     {% endif %}
                                 {% elif has_pending_request %}
-                                    <div class="btn btn-warning" role="button">
+                                    <div class="btn btn-secondary" role="button">
                                         <i class="bi bi-clock me-1"></i>Request Pending
                                     </div>
                                 {% else %}
@@ -265,7 +274,7 @@
                                 {% endif %}
                                 
                                 <!-- Report Issue Button -->
-                                <a href="{% url 'booking:report_resource_issue' resource.id %}" class="btn btn-outline-warning">
+                                <a href="{% url 'booking:report_resource_issue' resource.id %}" class="btn btn-outline-secondary">
                                     <i class="bi bi-exclamation-triangle me-1"></i>Report Issue
                                 </a>
                             </div>
@@ -442,7 +451,7 @@
                                                             {% endif %}
                                                         </div>
                                                     {% elif record.status == 'enrolled' or record.status == 'in_progress' %}
-                                                        <a href="{% url 'booking:my_training' %}" class="btn btn-warning btn-sm">
+                                                        <a href="{% url 'booking:my_training' %}" class="btn btn-primary btn-sm">
                                                             <i class="bi bi-arrow-right me-1"></i>Continue Training
                                                         </a>
                                                     {% elif record.status == 'failed' or record.status == 'expired' %}
@@ -537,7 +546,7 @@
                                                             <i class="bi bi-clock me-1"></i>Under Review
                                                         </div>
                                                     {% elif user_assessment and user_assessment.status == 'in_progress' %}
-                                                        <a href="{% url 'booking:start_risk_assessment' assessment.id %}" class="btn btn-warning btn-sm">
+                                                        <a href="{% url 'booking:start_risk_assessment' assessment.id %}" class="btn btn-primary btn-sm">
                                                             <i class="bi bi-arrow-right me-1"></i>Continue Assessment
                                                         </a>
                                                     {% else %}

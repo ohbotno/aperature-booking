@@ -1,4 +1,4 @@
-# Docker Compose for Aperture Booking Production Deployment
+# Docker Compose for Aperature Booking Production Deployment
 version: '3.8'
 
 services:
@@ -36,7 +36,7 @@ services:
       timeout: 10s
       retries: 5
 
-  # Aperture Booking Application
+  # Aperature Booking Application
   app:
     build:
       context: .
@@ -67,14 +67,14 @@ services:
       EMAIL_USE_TLS: ${EMAIL_USE_TLS:-True}
       EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
       EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
-      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-noreply@aperture-booking.com}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-noreply@aperature-booking.com}
       
       # Timezone
       TIME_ZONE: ${TIME_ZONE:-UTC}
       LANGUAGE_CODE: ${LANGUAGE_CODE:-en-gb}
       
       # Admin settings
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@aperture-booking.com}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@aperature-booking.com}
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media

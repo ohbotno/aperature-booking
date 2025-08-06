@@ -1,9 +1,9 @@
 # booking/services/google_calendar.py
 """
-Google Calendar integration service for Aperture Booking.
+Google Calendar integration service for Aperature Booking.
 
-This file is part of the Aperture Booking.
-Copyright (C) 2025 Aperture Booking Contributors
+This file is part of the Aperature Booking.
+Copyright (C) 2025 Aperature Booking Contributors
 
 This software is dual-licensed:
 1. GNU General Public License v3.0 (GPL-3.0) - for open source use
@@ -11,7 +11,7 @@ This software is dual-licensed:
 
 For GPL-3.0 license terms, see LICENSE file.
 For commercial licensing, see COMMERCIAL-LICENSE.txt or visit:
-https://aperture-booking.org/commercial
+https://aperature-booking.org/commercial
 """
 
 import os
@@ -462,7 +462,7 @@ class GoogleCalendarService:
             f"\nResource: {booking.resource.name}",
             f"Booked by: {booking.user.get_full_name() or booking.user.username}",
             f"Status: {booking.get_status_display()}",
-            f"\nManaged by Aperture Booking System"
+            f"\nManaged by Aperature Booking System"
         ])
         
         description = "\n".join(description_parts)
@@ -492,7 +492,7 @@ class GoogleCalendarService:
                 'useDefault': True,
             },
             'source': {
-                'title': 'Aperture Booking',
+                'title': 'Aperature Booking',
                 'url': f"{settings.ALLOWED_HOSTS[0] if settings.ALLOWED_HOSTS else 'localhost'}/booking/{booking.id}/"
             }
         }

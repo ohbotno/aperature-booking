@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Test runner for Aperture Booking system.
+Test runner for Aperature Booking system.
 Runs tests with appropriate settings and configuration.
 """
 import os
