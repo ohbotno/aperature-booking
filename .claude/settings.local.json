@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source:*)",
+      "Bash(python:*)",
+      "Bash(DJANGO_SETTINGS_MODULE=aperture_booking.settings python -m pytest booking/tests/test_models.py -v)",
+      "Bash(DJANGO_SETTINGS_MODULE=aperture_booking.settings python -m pytest booking/tests/test_models.py::TestUserProfile::test_user_profile_creation -v)",
+      "Bash(DJANGO_SETTINGS_MODULE=aperture_booking.settings python -m pytest booking/tests/test_models.py -v --tb=line)",
+      "Bash(DJANGO_SETTINGS_MODULE=aperture_booking.settings python -m pytest booking/tests/test_models.py::TestBooking::test_can_be_cancelled_by_user -v)",
+      "Bash(DJANGO_SETTINGS_MODULE=aperture_booking.settings python -m pytest booking/tests/test_api.py::TestBookingAPI::test_list_bookings -v)",
+      "Bash(sed:*)",
+      "Bash(rg:*)",
+      "Bash(DJANGO_SETTINGS_MODULE=aperture_booking.settings python -m pytest booking/tests/test_api.py -v)",
+      "Bash(DJANGO_SETTINGS_MODULE=aperture_booking.settings python -m pytest booking/tests/ -v --tb=no -q)",
+      "Bash(grep:*)",
+      "Bash(rm:*)",
+      "Bash(find:*)",
+      "Bash(coverage report:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": []
+  }
+}

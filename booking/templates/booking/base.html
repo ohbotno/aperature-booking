@@ -658,9 +658,15 @@
                                         <ul class="list-unstyled small">
                                             {% if show_powered_by %}
                                             <li><a href="https://docs.aperature-booking.org" class="text-decoration-none text-muted">Documentation</a></li>
+                                            <li><a href="https://github.com/ohbotno/aperature-booking/issues" class="text-decoration-none text-muted">
+                                                <i class="bi bi-github me-1"></i>GitHub Issues
+                                            </a></li>
                                             <li><a href="https://github.com/ohbotno/aperature-booking/discussions" class="text-decoration-none text-muted">Community Forum</a></li>
                                             <li><a href="mailto:support@aperature-booking.org" class="text-decoration-none text-muted">Email Support</a></li>
                                             {% else %}
+                                            <li><a href="https://github.com/ohbotno/aperature-booking/issues" class="text-decoration-none text-muted">
+                                                <i class="bi bi-github me-1"></i>GitHub Issues
+                                            </a></li>
                                             {% if branding.support_email %}
                                             <li><a href="mailto:{{ branding.support_email }}" class="text-decoration-none text-muted">Email Support</a></li>
                                             {% endif %}
@@ -676,15 +682,18 @@
                                     <div class="col-md-6">
                                         <h6 class="fw-bold mb-2">Contribute</h6>
                                         <ul class="list-unstyled small">
-                                            {% if show_powered_by %}
-                                            <li><a href="https://github.com/ohbotno/aperature-booking" class="text-decoration-none text-muted">Source Code</a></li>
-                                            <li><a href="https://github.com/ohbotno/aperature-booking/issues/new?template=bug_report.md" class="text-decoration-none text-muted">
+                                            <li><a href="https://github.com/ohbotno/aperature-booking" class="text-decoration-none text-muted">
+                                                <i class="bi bi-github me-1"></i>Source Code
+                                            </a></li>
+                                            <li><a href="https://github.com/ohbotno/aperature-booking/issues/new" class="text-decoration-none text-muted">
                                                 <i class="bi bi-bug me-1"></i>Report Bug
                                             </a></li>
-                                            <li><a href="https://github.com/ohbotno/aperature-booking/issues/new?template=feature_request.md" class="text-decoration-none text-muted">
+                                            <li><a href="https://github.com/ohbotno/aperature-booking/issues/new" class="text-decoration-none text-muted">
                                                 <i class="bi bi-lightbulb me-1"></i>Request Feature
                                             </a></li>
-                                            {% endif %}
+                                            <li><a href="https://github.com/ohbotno/aperature-booking/fork" class="text-decoration-none text-muted">
+                                                <i class="bi bi-git me-1"></i>Fork Project
+                                            </a></li>
                                         </ul>
                                     </div>
                                 </div>
